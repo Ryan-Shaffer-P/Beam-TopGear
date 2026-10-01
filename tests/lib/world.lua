@@ -25,10 +25,10 @@ World.__index = World
 
 -- default model catalogue for core_vehicles.getModel (price import) and spawn configs
 local MODELS = {
-  covet   = { brand = "Ibishu",  name = "Covet",   configs = { base_M = 4200, sport_M = 7800, gtz_M = 14000 } },
-  pessima = { brand = "Ibishu",  name = "Pessima", configs = { base_M = 3900, gl_A = 5100 } },
+  covet   = { brand = "Ibishu",  name = "Covet",   configs = { base_M = 4200, sport_M = 7800, gtz_M = 14000 }, adjustable = true },
+  pessima = { brand = "Ibishu",  name = "Pessima", configs = { base_M = 3900, gl_A = 5100 }, adjustable = true },
   pickup  = { brand = "Gavril",  name = "D-Series", configs = { d15_M = 6800, d35_A = 12500 } },
-  miramar = { brand = "Ibishu",  name = "Miramar", configs = { base_M = 3100 } },
+  miramar = { brand = "Ibishu",  name = "Miramar", configs = { base_M = 3100 }, noFuelTank = true, noThermals = true },
   tsfb    = { brand = "",        name = "Small flatbed trailer", configs = { base = 900 } },
   cones   = { brand = "",        name = "Cones", configs = { base = 10 } },
 }
@@ -48,6 +48,7 @@ local function partCatalogue(model)
     { key = "/" .. m .. "_seat_FL/", options = { { m .. "_seat", 100, "Stock seat" }, { m .. "_seat_race", 600, "Race seat" } } },
     { key = "/" .. m .. "_hood/",    options = { { m .. "_hood", 250, "Stock hood" }, { m .. "_hood_fiberglass", 900, "Fiberglass hood" } } },
     { key = "/" .. m .. "_odd/",     options = { { m .. "_odd", nil, "Odd part" }, { m .. "_odd_plus", nil, "Odd part plus" } } },
+    { key = "/" .. m .. "_swaybar_F/", options = { { m .. "_swaybar_F", 150, "Front anti-roll bar" } } },
   }
 end
 World.partCatalogue = partCatalogue
@@ -117,6 +118,16 @@ function World:loadServer()
     JsonPrettify = function(s) return s end,
   })
   sb.set("FS", { Exists = function(p) return w.files[p] ~= nil end })
+  w.rolls = {}
+  sb.set("math", setmetatable({ random = function(a, b)
+    if a and not b and #w.rolls > 0 then
+      local r = table.remove(w.rolls, 1)
+      assert(r >= 1 and r <= a, "w.rolls value " .. tostring(r) .. " out of range 1.." .. tostring(a))
+      return r
+    end
+    if b then return math.random(a, b) elseif a then return math.random(a) end
+    return math.random()
+  end }, { __index = math }))
 
   local MP = {}
   function MP.CreateTimer() return { GetCurrent = function() return w.t end } end
@@ -338,9 +349,9 @@ function World:loadClient(p)
     for _, v in pairs(p.vehicles) do
       if v.gid == gid then
         if c.partsFormat == "tree" then
-          return { ioCtx = { model = v.model }, vdata = { activeParts = {}, variables = {} }, config = { partsTree = treeOf(v) } }
+          return { ioCtx = { model = v.model }, vdata = { activeParts = {}, variables = w:varDefs(v) }, config = { partsTree = treeOf(v) } }
         end
-        return { ioCtx = { model = v.model }, chosenParts = copy(v.parts), vdata = { activeParts = {}, variables = {} }, config = { parts = copy(v.parts) } }
+        return { ioCtx = { model = v.model }, chosenParts = copy(v.parts), vdata = { activeParts = {}, variables = w:varDefs(v) }, config = { parts = copy(v.parts) } }
       end
     end
     return nil
@@ -459,6 +470,9 @@ function World:clientSpawn(p, model, o)
                 return parts
               end)(),
               vars = { ["$tirepressure_F"] = 30, ["$tirepressure_R"] = 30 } }
+  if (self.models[model] or {}).adjustable then
+    v.vars["$spring_F"], v.vars["$spring_R"], v.vars["$damp_bump_F"] = 40000, 38000, 3000
+  end
   if type(o.config) == "table" and type(o.config.parts) == "table" then   -- a config table (prebuilt trailer)
     v.parts = copy(o.config.parts)
     for k, val in pairs(o.config.vars or {}) do v.vars[k] = val end
@@ -505,6 +519,16 @@ function World:clientEditConfig(p, change, respawn)
   if p.client then self:clientCall(p, "onVehicleSpawned", p.client.M.onVehicleSpawned, v.gid) end
 end
 
+-- the car's tuning variables as BeamNG describes them (vd.vdata.variables: min/max/default)
+function World:varDefs(v)
+  local defs = {}
+  for name, val in pairs(v.vars) do
+    if name:find("^%$spring") then defs[name] = { min = 20000, max = 80000, default = 40000, val = val }
+    elseif name:find("^%$damp") then defs[name] = { min = 1000, max = 8000, default = 3000, val = val } end
+  end
+  return defs
+end
+
 -- Stock physics + a fresh vehicle-Lua state (what spawning or rebuilding a car gives you).
 local BRAKE_TORQUE = 1500
 -- Node positions relative to the vehicle, axis-aligned at yaw 0 (x forward, y left, z up).
@@ -533,7 +557,12 @@ function World:freshPhysics(p, v)
   local w = self
   buildNodes(v)
   v.damage = 0
-  v.engine = { outputTorqueState = 1 }
+  local traits = w.models[v.model] or {}
+  v.engine = { outputTorqueState = 1, slowIgnitionErrorChance = 0.01, fastIgnitionErrorChance = 0.01 }
+  v.radiatorDamage, v.ignition, v.stalls, v.broken = 0, 3, v.stalls or 0, {}
+  if not traits.noThermals then
+    v.engine.thermals = { applyDeformGroupDamageRadiator = function(a) v.radiatorDamage = v.radiatorDamage + a end }
+  end
   v.wheels = {}
   for i = 0, 3 do v.wheels[i] = { brakeTorque = BRAKE_TORQUE } end
   local sb = sandbox.new({ label = "vlua:" .. p.name .. ":" .. v.model, allowWrite = function() return true end })
@@ -549,10 +578,20 @@ function World:freshPhysics(p, v)
   })
   sb.set("powertrain", { getDevice = function(name) if name == "mainEngine" then return v.engine end end })
   sb.set("wheels", { wheels = v.wheels })
-  sb.set("energyStorage", { getStorages = function() return { mainTank = { remainingVolume = v.fuel } } end })
-  sb.set("electrics", { values = {} })
-  sb.set("beamstate", { activateAutoCoupling = function() v.autoCouple = true end, toggleCouplers = function() v.autoCouple = true end })
-  sb.set("v", { data = { nodes = v.nodes } })
+  sb.set("energyStorage", { getStorages = function()
+    if traits.noFuelTank then return {} end
+    return { mainTank = { type = "fuelTank", remainingVolume = v.fuel,
+                          setRemainingVolume = function(_, vol) v.fuel = math.max(0, math.min(60, vol)) end } }
+  end })
+  sb.set("electrics", { values = {}, setIgnitionLevel = function(level)
+    if level == 0 and v.ignition ~= 0 then v.stalls = v.stalls + 1 end
+    v.ignition = level
+  end })
+  sb.set("beamstate", { activateAutoCoupling = function() v.autoCouple = true end, toggleCouplers = function() v.autoCouple = true end,
+    addDamage = function(d) v.damage = v.damage + d end,
+    breakBreakGroup = function(g) v.broken[g] = true end })
+  sb.set("v", { data = { nodes = v.nodes, beams = {
+    { cid = 0, breakGroup = "headlight_L" }, { cid = 1, breakGroup = { "glass_windshield", "body" } }, { cid = 2, breakGroup = "hood_hinge" } } } })
   v.vlua = sb
 end
 
@@ -560,6 +599,8 @@ end
 function World:vehicleReset(p, v)
   v.damage = 0
   v.engine.outputTorqueState = 1
+  v.engine.slowIgnitionErrorChance, v.engine.fastIgnitionErrorChance = 0.01, 0.01
+  v.radiatorDamage, v.broken = 0, {}
   for _, wd in pairs(v.wheels) do wd.brakeTorque = BRAKE_TORQUE end
   self:serverEvent("onVehicleReset", p.pid, v.vid, "{}")
   if p.client then self:clientCall(p, "onVehicleResetted", p.client.M.onVehicleResetted, v.gid) end

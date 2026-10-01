@@ -34,7 +34,7 @@ local RESET_ACTIONS = {
 local VEHSEL_ACTIONS = { "vehicle_selector" }
 local PARTS_ACTIONS  = { "parts_selector" }
 
-local VERSION = "0.8.7"
+local VERSION = "0.8.8"
 local recentErrors = {}
 local function warn(msg)
   log("W", "topgear", tostring(msg))
@@ -359,12 +359,59 @@ run("brakes", function(factor)
   tgFaults.brakes = factor
   if n == 0 then out.brakes = "unavailable" else out.brakes = factor and "ok" or "removed" end
 end)
+local eng = powertrain and powertrain.getDevice and powertrain.getDevice("mainEngine")
+run("ignition", function(add)   -- the engine's own misfire chances, raised (cut-outs are timed from the game side)
+  if not eng or type(eng.slowIgnitionErrorChance) ~= "number" or type(eng.fastIgnitionErrorChance) ~= "number" then
+    out.ignition = "unavailable"; return
+  end
+  tgFaults.ignOrig = tgFaults.ignOrig or { slow = eng.slowIgnitionErrorChance, fast = eng.fastIgnitionErrorChance }
+  eng.slowIgnitionErrorChance = tgFaults.ignOrig.slow + (add or 0)
+  eng.fastIgnitionErrorChance = tgFaults.ignOrig.fast + (add or 0) * 0.5
+  tgFaults.ignition = add
+  out.ignition = add and "ok" or "removed"
+end)
+run("cooling", function(amount)   -- radiator damage: the same thing a front-end crash does (a reset repairs it)
+  local th = eng and eng.thermals
+  if not (th and th.applyDeformGroupDamageRadiator) then out.cooling = "unavailable"; return end
+  local cur, target = afterReset and 0 or (tgFaults.cooling or 0), amount or 0
+  if math.abs(target - cur) > 1e-9 then th.applyDeformGroupDamageRadiator(target - cur) end
+  tgFaults.cooling = amount
+  out.cooling = amount and "ok" or "removed"
+end)
+run("fuelleak", function(rate)   -- needs a fuel tank; the draining itself is timed from the game side
+  local tank = nil
+  if energyStorage and energyStorage.getStorages then
+    for _, st in pairs(energyStorage.getStorages()) do
+      if type(st) == "table" and st.type == "fuelTank" and st.setRemainingVolume then tank = st end
+    end
+  end
+  if not tank then out.fuelleak = "unavailable"; return end
+  tgFaults.fuelleak = rate
+  out.fuelleak = rate and "ok" or "removed"
+end)
+run("body", function(amount)   -- extra damage on the damage meter (a reset clears it) + some broken lights and glass
+  if not (beamstate and beamstate.addDamage) then out.body = "unavailable"; return end
+  local cur, target = afterReset and 0 or (tgFaults.body or 0), amount or 0
+  if math.abs(target - cur) > 1e-9 then beamstate.addDamage(target - cur) end
+  if amount and cur == 0 and beamstate.breakBreakGroup and v and v.data and v.data.beams then
+    local groups, n = {}, 0
+    for _, b in pairs(v.data.beams) do
+      local g = b.breakGroup
+      for _, name in ipairs(type(g) == "table" and g or { g }) do
+        if type(name) == "string" and (name:find("light") or name:find("glass")) then groups[name] = true end
+      end
+    end
+    for name in pairs(groups) do if n < 4 then beamstate.breakBreakGroup(name); n = n + 1 end end
+  end
+  tgFaults.body = amount
+  out.body = amount and "ok" or "removed"
+end)
 local parts = {}
 for k, v in pairs(out) do parts[#parts + 1] = '"' .. k .. '":"' .. tostring(v):gsub('[%%c"\\%%]%%[]', ' ') .. '"' end
 obj:queueGameEngineLua("extensions.topgear.onVehicleFaultReport([[{" .. table.concat(parts, ",") .. "}]])")
 ]==]
 
-local PHYSICS = { engine = true, brakes = true }
+local PHYSICS = { engine = true, brakes = true, ignition = true, cooling = true, fuelleak = true, body = true }
 
 local function sendFaultReport()
   if not faults.report then return end
@@ -392,7 +439,8 @@ function M.onVehicleFaultReport(js)
   if ok and type(t) == "table" then
     for id, st in pairs(t) do
       faults.results[id] = st
-      if st ~= "ok" and st ~= "removed" then warn("fault " .. id .. ": " .. tostring(st)) end
+      -- "unavailable" is normal (the server swaps it for another fault); only a real error is worth a warning
+      if tostring(st):find("^error") then warn("fault " .. id .. ": " .. tostring(st)) end
     end
   end
   sendFaultReport()
@@ -415,9 +463,14 @@ local function applyConfigFaults()
     local function info(n) return type(defs[n]) == "table" and defs[n] or {} end
     local function names(pattern, prefer)
       local out, seen = {}, {}
+      local pats = type(pattern) == "table" and pattern or { pattern }
       for _, src in ipairs({ defs, vars }) do
         for n in pairs(src) do
-          if type(n) == "string" and n:find(pattern) and not seen[n] then seen[n] = true; out[#out + 1] = n end
+          if type(n) == "string" and not seen[n] then
+            for _, pat in ipairs(pats) do
+              if n:find(pat) then seen[n] = true; out[#out + 1] = n; break end
+            end
+          end
         end
       end
       if prefer then
@@ -507,6 +560,46 @@ local function applyConfigFaults()
       faults.results.bumpers = "removed"
     end
 
+    -- suspension: softest springs and dampers (adjustable suspension); otherwise the anti-roll bars come off
+    local srec = faults.restore.suspension
+    if faults.want.suspension then
+      srec = srec or { vars = {}, parts = {} }
+      srec.vars, srec.parts = srec.vars or {}, srec.parts or {}
+      local n = 0
+      for _, nm in ipairs(names({ "^%$spring", "^%$damp" })) do
+        local lo = tonumber(info(nm).min)
+        if lo then
+          if srec.vars[nm] == nil then srec.vars[nm] = current(nm) or "default" end
+          n = n + 1
+          if vars[nm] ~= lo then vars[nm] = lo; changedVars = true end
+        end
+      end
+      if n == 0 then
+        for slot, part in pairs(parts) do
+          local leaf = (tostring(slot):match("([^/]+)/?$") or tostring(slot)):lower()
+          if leaf:find("sway", 1, true) or leaf:find("antiroll", 1, true) or leaf:find("_arb", 1, true) then
+            if srec.parts[slot] == nil and part ~= "" then srec.parts[slot] = part end
+            if srec.parts[slot] ~= nil then
+              n = n + 1
+              if part ~= "" then parts[slot] = ""; changedParts = true end
+            end
+          end
+        end
+      end
+      if n == 0 then faults.results.suspension = "unavailable"; faults.restore.suspension = nil
+      else faults.restore.suspension = srec; faults.results.suspension = "ok" end
+    elseif srec then
+      for nm, orig in pairs(srec.vars or {}) do
+        local want = (orig ~= "default") and orig or nil
+        if vars[nm] ~= want then vars[nm] = want; changedVars = true end
+      end
+      for slot, orig in pairs(srec.parts or {}) do
+        if parts[slot] ~= orig then parts[slot] = orig; changedParts = true end
+      end
+      faults.restore.suspension = nil
+      faults.results.suspension = "removed"
+    end
+
     if changedParts or changedVars then faults.waitSpawn = 8 end   -- armed before the respawn can fire
     if changedParts and changedVars then
       pm.setPartsConfig(parts, false)
@@ -519,7 +612,7 @@ local function applyConfigFaults()
   end)
   if not ok then
     warn("setup faults failed: " .. tostring(err))
-    for _, id in ipairs({ "tires", "alignment", "bumpers" }) do
+    for _, id in ipairs({ "tires", "alignment", "bumpers", "suspension" }) do
       if faults.want[id] then faults.results[id] = "error: " .. sanitize(err) end
     end
     changedVars, changedParts = false, false
@@ -540,7 +633,54 @@ local function onFaults(data)
   faults.applyAt = 0.5   -- let a fresh purchase finish spawning first
 end
 
+-- the fuel leak: litres drained from every fuel tank (goes through string.format)
+local LEAK_VLUA = [[
+local litres = %f
+if energyStorage and energyStorage.getStorages then
+  for _, st in pairs(energyStorage.getStorages()) do
+    if type(st) == "table" and st.type == "fuelTank" and st.setRemainingVolume then
+      st:setRemainingVolume(math.max(0, (st.remainingVolume or 0) - litres))
+    end
+  end
+end
+]]
+local LEAK_PHASES = { travel = true, countdown = true, event = true, finale = true }
+local CUTOUT_PHASES = { travel = true, event = true, finale = true }   -- never during a countdown
+
+-- faults that act over time: the fuel leak drains, the ignition fault kills the engine now and then
+local function updateTimedFaults(dt)
+  local leak = faults.want.fuelleak
+  if leak and faults.results.fuelleak == "ok" and LEAK_PHASES[state.phase] then
+    faults.leakT = (faults.leakT or 0) + dt
+    if faults.leakT >= 5 then
+      local litres = (tonumber(leak.factor) or 0.5) / 60 * faults.leakT
+      faults.leakT = 0
+      local car = getCar()
+      if car then pcall(function() car:queueLuaCommand(string.format(LEAK_VLUA, litres)) end) end
+    end
+  end
+  local ign = faults.want.ignition
+  if ign and faults.results.ignition == "ok" and CUTOUT_PHASES[state.phase] then
+    if not faults.cutAt then
+      local lo, hi = tonumber(ign.cutoutMin) or 90, tonumber(ign.cutoutMax) or 240
+      faults.cutAt = lo + math.random() * math.max(0, hi - lo)
+    end
+    faults.cutAt = faults.cutAt - dt
+    if faults.cutAt <= 0 then
+      faults.cutAt = nil
+      local car = getCar()
+      if car then
+        pcall(function() car:queueLuaCommand("if electrics and electrics.setIgnitionLevel then electrics.setIgnitionLevel(0) end") end)
+        ui_message("Your engine just died! Restart it.", 5, "tg_msg", "warning")
+      end
+    end
+  else
+    faults.cutAt = nil
+  end
+end
+
 local function updateFaults(dt)
+  pcall(updateTimedFaults, dt)
   if faults.applyAt then
     faults.applyAt = faults.applyAt - dt
     if faults.applyAt <= 0 then faults.applyAt = nil; applyConfigFaults() end
@@ -1194,9 +1334,14 @@ local function drawStatus(d)
     if d.phase == "dealer" then button("Join the challenge", "join") end
   else
     txt("Car: " .. tostring(me.car or "none yet"))
-    local mine = {}
-    for _, f in ipairs((d.faults or {}).offers or {}) do if f.taken then mine[#mine + 1] = f.name end end
-    if #mine > 0 then colored(1, 0.8, 0.3, "Faults: " .. table.concat(mine, ", ")) end
+    local fl = d.faults or {}
+    if fl.revealed and #(fl.mine or {}) > 0 then
+      local names = {}
+      for _, f in ipairs(fl.mine) do names[#names + 1] = f.name end
+      colored(1, 0.8, 0.3, "Faults: " .. table.concat(names, ", "))
+    elseif (fl.count or 0) > 0 and not fl.revealed then
+      colored(1, 0.8, 0.3, string.format("Faults: %d hidden - a workshop will diagnose them", fl.count))
+    end
     txt(string.format("Cash: %s    Points: %.1f    Wins: %d    Damage: %d", commas(me.cash), me.points or 0, me.wins or 0, me.damage or 0))
     if (me.cash or 0) < 0 then
       colored(1, 0.4, 0.4, string.format("Overdrawn: %s of your %s limit used - prize money pays it off.", commas(-me.cash), commas(me.creditLimit or 1500)))
@@ -1217,8 +1362,8 @@ local function drawStatus(d)
       elseif d.allHere then button("GO! Start the countdown", "go")
       else txt("Waiting for everyone to arrive...") end
     elseif d.phase == "workshop" then
-      for _, f in ipairs((d.faults or {}).offers or {}) do
-        if f.taken then button("Fix: " .. f.name .. " (" .. commas(f.fix) .. ")##fix_" .. f.id, "fix " .. f.id) end
+      for _, f in ipairs((d.faults or {}).mine or {}) do
+        button("Fix: " .. f.name .. " (" .. commas(d.faults.fix) .. ")##fix_" .. f.id, "fix " .. f.id)
       end
       txt("Spent in this workshop: " .. commas(me.upgrade or 0) .. " (parts charged as fitted; paint, cosmetics and tuning free)")
     end
@@ -1243,17 +1388,22 @@ local function drawDealer(d)
     if im.Button("Return it for a full refund") then returnCar() end
   end
   local fl = d.faults
-  if fl and me and header("Problem cars - take a fault for extra cash (" .. (fl.count or 0) .. "/" .. (fl.max or 3) .. ")##faults") then
-    if d.phase ~= "dealer" then txt("Offers are only open at the dealership.") end
-    for _, f in ipairs(fl.offers or {}) do
-      if d.phase == "dealer" then
-        if f.taken then button("Hand back##fu_" .. f.id, "fault undo " .. f.id)
-        elseif (fl.count or 0) < (fl.max or 3) then button("Take##ft_" .. f.id, "fault take " .. f.id)
-        else txt("      ") end
-        same()
+  if fl and me and header("Problem cars - take faults for extra cash (" .. (fl.count or 0) .. "/" .. (fl.max or 3) .. ")##faults") then
+    txt(string.format("Each fault pays %s and raises your budget by the same. Which faults you get is picked at random", commas(fl.payout)))
+    txt("from what your car can take, and stays hidden until a workshop diagnoses the car. Taken faults are final.")
+    txt(string.format("A workshop fixes one for %s; each one left at the finale costs %s drivability.", commas(fl.fix), tostring(fl.points or 1)))
+    if d.phase ~= "dealer" then
+      txt("Faults can only be taken at the dealership.")
+    else
+      local left = (fl.max or 3) - (fl.count or 0)
+      for n = 1, left do
+        button(string.format("Take %d%s (+%s)##ft_%d", n, n == 1 and " fault" or " faults", commas(n * (fl.payout or 0)), n), "fault take " .. n)
+        if n < left then same() end
       end
-      local line = string.format("%s%s  +%s  (workshop fix %s)", f.taken and "[TAKEN] " or "", f.name, commas(f.payout), commas(f.fix))
-      if f.taken then colored(1, 0.8, 0.3, line) else txt(line) end
+      if left <= 0 then colored(1, 0.8, 0.3, "That's the limit.") end
+    end
+    if (fl.count or 0) > 0 then
+      colored(1, 0.8, 0.3, string.format("You've taken %d (+%s).", fl.count, commas(fl.count * (fl.payout or 0))))
     end
     im.Separator()
   end
@@ -1364,9 +1514,10 @@ local function drawAdmin(d)
   if d.faults and header("Problem-car fault test##ftest") then
     txt("Applies faults to the car you're in right now (no money involved) and reports what worked.")
     button("Test all faults on my car", "fault test"); same(); button("Remove test faults", "fault testoff")
-    for _, f in ipairs(d.faults.offers or {}) do
+    for _, f in ipairs(d.faults.all or {}) do
       button("Test: " .. f.name .. "##ft1_" .. f.id, "fault test " .. f.id)
     end
+    button("Which cars take which faults##fcaps", "fault caps")
   end
   local c = d.course
   if c and header("Workshop locations##wsloc") then

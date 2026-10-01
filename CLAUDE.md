@@ -123,7 +123,7 @@ for the `/tg diag` "Client error" line or the matching `[TopGear]` server-consol
    handler error, server console error, client warn() or UI imbalance. Vehicle Lua (`queueLuaCommand`) runs
    in a per-car sandbox with fake engine/brakes/fuel/reset (`World:freshPhysics`); `queueGameEngineLua`
    replies run in the client. Trailers with a load part get simulated bed/load nodes, so CARGO_VLUA really measures the load share.
-   Tests: `test_smoke.lua` (load, dealership, theme), `test_flag.lua` (finish flag), `test_traffic.lua` (admin traffic mode), `test_modes.lua` (race/time trial mode), `test_speedtrap.lua` (one run), `test_sounds.lua` (sound bites; the fake Engine.Audio checks the .ogg exists), `test_roadside.lua` (tow/respawn/unstick pricing), `test_parts.lua` (Parts tab; fake catalogue `World.partCatalogue`, `c.partsFormat = "tree"`), `test_trailer.lua` (cones + prebuilt load, hitching via
+   Tests: `test_smoke.lua` (load, dealership, theme), `test_flag.lua` (finish flag), `test_traffic.lua` (admin traffic mode), `test_modes.lua` (race/time trial mode), `test_speedtrap.lua` (one run), `test_sounds.lua` (sound bites; the fake Engine.Audio checks the .ogg exists), `test_roadside.lua` (tow/respawn/unstick pricing), `test_parts.lua` (Parts tab; fake catalogue `World.partCatalogue`, `c.partsFormat = "tree"`), `test_faults.lua` (fault revamp; `w.rolls` pins the server's random draws), `test_trailer.lua` (cones + prebuilt load, hitching via
    `w:hitch`/`w:dropCargo`/`w:setLoad`, 70/30 scoring) and `test_session.lua` (full 5-event session, the
    successor of `sim13` - expected cash/points are hand-calculated in its comments; if a rule change
    moves them, recompute by hand rather than pasting the new output). Still to rebuild: workshop
@@ -147,12 +147,12 @@ for the `/tg diag` "Client error" line or the matching `[TopGear]` server-consol
 ## Quick command reference
 
 Players: `/tg menu | status | dealer | ready | go | repair | fix <id> | tow | respawn | unstick | hitchup |
-faults | fault take/undo <id> | quote | standings | diag | partsdiag | lights | lightstest | flag | flagtest | sounds on|off|list | soundtest [clip|next] | theme`.
+faults | fault take [n] | quote | standings | diag | partsdiag | lights | lightstest | flag | flagtest | sounds on|off|list | soundtest [clip|next] | theme`.
 Admins: `start [force] | next | stop | traffic on|off | play <clip> | budget | setcash | give | workshop <min> | workshopevery <n> |
 importprices | gameprices | course list/save/load/new/delete | addevent/delevent/enable/moveevent |
 setstart/addcp/undocp/clearcp/settrap/addbay/undobay/clearbays/addvia/undovia/clearvia/setfinale |
 settype/setmode/setlaps/settime/rename | addworkshop/undoworkshop/clearworkshops/importgas |
-trailersave/trailercones/trailertest | fault test/testoff`. The ImGui window exposes all of these.
+trailersave/trailercones/trailertest | fault test/testoff/caps`. The ImGui window exposes all of these.
 
 ## Roadmap - Ryan's next issues (one session each, any order)
 
@@ -180,20 +180,16 @@ classes/categories), per-car price adjustments so taking faults can drop a car i
 Ryan: where categories are defined (config + Admin tab?), how they interact with game prices, whether a
 session/course picks the allowed category.
 
-### 3. Fault system revamp
-Now (`cfg.faults`; server `PLAYER_CMDS.fault/fix`, `sendFaults`, `TG_onFaultReport`; client
-`applyConfigFaults` + `VLUA`): 5 faults the player picks (tires, alignment, bumpers = setup faults via
-`core_vehicle_partmgmt` vars/parts, respawn the car; engine, brakes = physics faults in vehicle Lua,
-re-applied after resets), each with its own payout, max 3, fix in a workshop at 1.5x payout, -1 drivability
-each unfixed at the finale; a fault the car can't take is refunded ("unavailable").
-Wanted: the player chooses only HOW MANY faults; the server picks them at random from those the car
-supports; every fault pays the same (normalised). New faults: ignition (engine randomly cuts out), cooling
-(radiator wear/damage -> overheating), bad suspension (soft/removed parts or tuning vars), fuel leak (extra
-fuel drain), extra body damage. Longer term: group cars by which faults they support, so every fault can be
-applied to every car in a group. Each new fault needs an in-game check of the BeamNG API it uses
-(vehicle Lua: `electrics`/ignition, `powertrain` thermals, `energyStorage` drain, `beamstate` damage) -
-extend `/tg fault test` into a per-model capability report first; the test harness's vehicle Lua fakes
-(`World:freshPhysics`) need matching fakes.
+### 3. Fault system revamp - DONE in 0.8.8
+Taken by number (`/tg fault take [n]`, $2,500 each = `faults.payout`), drawn at random (`rollFault` /
+`drawFaults`; owed faults wait for a car: `p.faultsOwed`) from enabled faults the car can take; hidden
+until a workshop (`revealFaults`), final, fix 1.5x. Ten faults: tires, alignment, bumpers, suspension (setup:
+vars `$spring*`/`$damp*` to min, else empty sway-bar slots), engine, brakes, ignition (engine
+`slow/fastIgnitionErrorChance` + GE-timed `electrics.setIgnitionLevel(0)` cut-outs), cooling
+(`thermals.applyDeformGroupDamageRadiator`), fuelleak (GE-timed `fuelTank:setRemainingVolume` drain), body
+(`beamstate.addDamage` + `breakBreakGroup` lights/glass) - APIs read from the 0.36 game Lua, NOT yet tried in
+game. "unavailable" -> swapped silently and remembered in `cfg.faultCaps["model/config"]` (`/tg fault caps`).
+Next step for "group cars by fault capability": build groups from `faultCaps`.
 
 ### 4. Upgrade prices - DONE in 0.8.7
 Parts tab (client `buildCatalogue` / `quote` / `fitPart` / `drawParts`): lists slots from the parts tree's
@@ -210,6 +206,8 @@ billed; "mirror" always free). Needs in-game confirmation: does the tab list a r
 - Unstick on Ryan's BeamNG repairs the car - confirm it's now billed ("Unstick repaired your car...").
 - Traffic mode: AI traffic and parked cars accepted; raise `MaxCars` on the real server.
 - Parts tab: lists your car's parts and Fit works (`/tg partsdiag` shows the Parts tab line).
+- New faults (0.8.8): `/tg fault test ignition|cooling|fuelleak|body|suspension` on a real car - ok, and felt?
+  Cooling `factor` 0.05 and fuel leak 0.5 L/min are guesses to tune.
 
 ## Open items
 

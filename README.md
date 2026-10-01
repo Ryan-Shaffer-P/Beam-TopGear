@@ -360,25 +360,45 @@ Player commands: `/tg menu`, `/tg go`, `/tg unstick`, `/tg tow`, `/tg respawn`, 
 
 ## Problem cars (faults for cash)
 
-At the dealership each player can take up to 3 faults. Each pays out immediately and raises
-that player's dealership limit by the same amount, so the extra cash can buy a better car. Faults belong to the player, not a specific car: they
-carry over if you swap cars and come back after a tow. Hand one back before the dealership
-closes for free (the payout is returned). In a workshop, `/tg fix <id>` removes a fault for
-1.5x what it paid. Every unfixed fault costs 1 drivability point at the finale.
+At the dealership each player can take **up to 3 faults for $2,500 each** - you choose *how many*,
+not which. The money is paid at once and raises your dealership budget by the same amount, so you
+can take faults before buying to afford a better car. Which faults you get is drawn at random from
+the ones **your car can actually take**, when you buy it (swap or return the car at the dealership
+and they're drawn again for the next one). Then:
 
-| id | Fault | How it's done | Default payout |
-|---|---|---|---|
-| tires | Worn, underinflated tires | tire pressures set to 30% of normal (`$tirepressure_*`), never below the car's minimum | $2,400 |
-| alignment | Knocked-out alignment | front toe pushed to its limit, rear toe 40% of the way (`$toe_*`, factor 1.4) | $2,100 |
-| bumpers | Missing bumpers | front/rear bumper slots emptied | $1,500 |
-| engine | Tired engine | engine output x0.8 | $6,000 |
-| brakes | Worn brakes | brake torque x0.6 | $3,600 |
+- **They're hidden.** You (and everyone else) only know how many you took - until a **workshop
+  diagnoses the car**: the first time you're in a workshop the mechanics tell you what you've got,
+  and the Status tab lists them with a **Fix** button each. The finale inspection names any left.
+- **They're final.** There's no handing them back; the way out is a workshop fix.
+- **Fixing one costs $3,750** (1.5x the payout) in a workshop: `/tg fix <id>` or the Status tab.
+- **Every fault still there at the finale costs 1 drivability point.**
+- They come back after a tow, a respawn or a reset until they're fixed.
 
-Everything is in `config.json` under `faults`: payouts, `factor` (severity), `maxPerCar`,
-`fixMultiplier`, `inspectionPenaltyPoints`, and `enabled`. If a fault can't be applied to a
-car (e.g. no adjustable alignment), it's removed and the payout handed back automatically.
-Setup faults (tires, alignment, bumpers) respawn the car when applied or fixed; physics
-faults (engine, brakes) are re-applied after every reset or respawn. Putting bumpers back or
+| id | Fault | What it does in the game |
+|---|---|---|
+| tires | Worn, underinflated tires | tire pressures set to 30% of normal (`$tirepressure_*`), never below the car's minimum |
+| alignment | Knocked-out alignment | front toe pushed to its limit, rear toe 40% of the way (`$toe_*`) |
+| bumpers | Missing bumpers | front/rear bumper slots emptied |
+| engine | Tired engine | engine output x0.8 |
+| brakes | Worn brakes | brake torque x0.6 |
+| ignition | Ignition problems | BeamNG's own misfire chances raised (the engine stumbles), and every 90-240 s on the road the engine dies - **restart it yourself** (never during a countdown) |
+| cooling | Cooling problems | the radiator is damaged like in a front-end crash: coolant leaks and the engine overheats when pushed |
+| suspension | Worn-out suspension | springs and dampers at their softest; on cars without adjustable suspension the anti-roll bars come off |
+| fuelleak | Fuel leak | 0.5 litres a minute drains from the tank on the road (it matters in the economy run) |
+| body | Accident damage | the car starts with 3,000 damage (repair costs, drivability) and some broken lights and glass; fixing the fault removes the dents |
+
+**Every car is different.** If a drawn fault can't be applied to your car (no adjustable alignment,
+an electric car with no fuel tank...), it's quietly swapped for another - nothing to hand back - and
+the server remembers it for that car, so it isn't drawn for it again. Admins: `/tg fault caps` (or
+**Which cars take which faults** in the Admin tab) lists what's been learnt per car; it's saved in
+`config.json` under `faultCaps` - the start of grouping cars by what faults they support.
+
+Everything is in `config.json` under `faults`: `payout`, `maxPerCar`, `fixMultiplier`,
+`inspectionPenaltyPoints`, and per fault `factor` (severity), `enabled` (false leaves it out of the
+draw) and for ignition `cutoutMin`/`cutoutMax` (seconds between cut-outs). Saved configs from before
+0.8.8 get the ten faults automatically (custom severities and switched-off faults are kept).
+Setup faults (tires, alignment, bumpers, suspension) respawn the car when applied or fixed; the
+others run inside the car and are re-applied after every reset or respawn. Putting bumpers back or
 re-inflating tires via the parts/tuning menus doesn't work - the faults go straight back on.
 
 Changing any part in a workshop rebuilds the car in BeamNG, which also wipes its damage, so
@@ -388,7 +408,12 @@ that repair is now billed automatically (the same price as `/tg repair`).
 applies every fault to the car you're in, no money involved, and reports ok / unavailable /
 error for each. `/tg fault testoff` removes them. Drive it and check each fault is felt.
 
-Commands: `/tg faults` (list), `/tg fault take <id>`, `/tg fault undo <id>`, `/tg fix <id>`.
+Commands: `/tg faults` (what you've taken, and the rules), `/tg fault take [how many]` (dealership),
+`/tg fix <id>` (workshop, once diagnosed). Admins: `/tg fault test [id]`, `/tg fault testoff`, `/tg fault caps`.
+
+**Check the new faults on your game version:** ignition, cooling, fuel leak and accident damage use
+BeamNG functions that couldn't be tried outside the game. `/tg fault test <id>` on your own car
+reports ok / unavailable / error for each - then drive it and check you can feel it.
 
 ## Calibrating
 

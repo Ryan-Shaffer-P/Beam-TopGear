@@ -38,13 +38,14 @@ t.test("full session: five events, two workshops, faults, tow, reset fine, final
   w:buy(A, "covet", "base_M")      -- $4,500
   w:buy(B, "pessima", "base_M")    -- $5,000
   w:buy(C, "pickup", "d15_M")      -- $7,500
-  w:chat(B, "/tg fault take tires")    -- +$2,400 (setup fault: respawns the car)
-  w:chat(C, "/tg fault take engine")   -- +$6,000 (physics fault: runs in vehicle Lua)
+  -- faults are taken by number and drawn at random from the 10 (in list order): pin the draws
+  w.rolls = { 1 }; w:chat(B, "/tg fault take")   -- +$2,500: draw 1 = worn tyres (setup fault: respawns the car)
+  w.rolls = { 4 }; w:chat(C, "/tg fault take")   -- +$2,500: draw 4 = tired engine (physics fault: vehicle Lua)
   w:step(10)                           -- faults applied, reports back
   t.eq(B.current.vars["$tirepressure_F"], 9, "Bob's tyres let down to 30%")
   t.ok(math.abs(C.current.engine.outputTorqueState - 0.8) < 1e-9, "Carol's engine at 80%")
-  t.ok(w:chatHas(C, "Carol takes a car with tired engine"), "fault kept (not refunded)")
-  t.eq(cash(A), 5500); t.eq(cash(B), 7400); t.eq(cash(C), 8500)
+  t.ok(w:chatHas(C, "Carol takes a car with 1 hidden fault for an extra $2,500."), "the fault stays hidden")
+  t.eq(cash(A), 5500); t.eq(cash(B), 7500); t.eq(cash(C), 5000)
   for _, pl in ipairs(all) do w:chat(pl, "/tg ready") end
   t.eq(w:state(A).phase, "travel")
 
@@ -77,7 +78,8 @@ t.test("full session: five events, two workshops, faults, tow, reset fine, final
   w:step(2.5)                          -- damage report reaches the server
   w:chat(A, "/tg repair")              -- $250 + 2000 x 0.5 = $1,250
   t.ok(w:chatHas(A, "Alice paid $1,250 to have their Ibishu Covet repaired."))
-  w:chat(B, "/tg fix tires")           -- 1.5 x $2,400 = $3,600
+  t.ok(w:chatHas(B, "The mechanics have looked your car over and found: Worn, underinflated tires (/tg fix tires)."), "diagnosed")
+  w:chat(B, "/tg fix tires")           -- 1.5 x $2,500 = $3,750
   w:step(10)
   t.eq(B.current.vars["$tirepressure_F"], 30, "Bob's tyres back to normal")
   t.eq(A.current.damage, 0, "Alice's car repaired in game")
@@ -128,7 +130,7 @@ t.test("full session: five events, two workshops, faults, tow, reset fine, final
   w:step(2.5)
   travel(p(6000))
   waitPhase("results")
-  t.ok(w:chatHas(A, "Carol made it to The Test Track! Inspection: damage 10000, 1 unfixed fault -> drivability 4.0/10"))
+  t.ok(w:chatHas(A, "Carol made it to The Test Track! Inspection: damage 10000, 1 unfixed fault (Tired engine (about -20% power)) -> drivability 4.0/10"))
   t.ok(w:chatHas(A, "Alice made it to The Test Track! Inspection: damage 0 -> drivability 10.0/10"))
   t.ok(w:chatHas(A, "Bob loses 2 pts for 1 illegal reset(s)."))
   t.ok(w:chatHas(A, "Carol loses 1 pts for 1 tow(s)/respawn(s)."))
@@ -136,12 +138,12 @@ t.test("full session: five events, two workshops, faults, tow, reset fine, final
   -- the tally ----------------------------------------------------------------------------------
   -- Alice: 10000 - 4500 car + 5 x 500 arrivals + prizes (6000 + 1500 + 3000 + 1500 + 6000) - 1250 repair = 24750
   --        points 10 + 3 + 6 + 3 + 10 + 10 drivability = 42
-  -- Bob:   10000 - 5000 + 2400 fault + 5 x 250 + (3000 + 6000 + 1500 + 6000 + 1500) - 3600 fix - 1000 fine = 22050
+  -- Bob:   10000 - 5000 + 2500 fault + 5 x 250 + (3000 + 6000 + 1500 + 6000 + 1500) - 3750 fix - 1000 fine = 22000
   --        points 6 + 10 + 3 + 10 + 3 + 10 - 2 reset penalty = 40
-  -- Carol: 10000 - 7500 + 6000 fault + 0 arrivals + (1500 + 3000 + 6000 + 3000 + 3000) - 1000 tow = 24000
+  -- Carol: 10000 - 7500 + 2500 fault + 0 arrivals + (1500 + 3000 + 6000 + 3000 + 3000) - 1000 tow = 20500
   --        (her car was undamaged when towed: 0 repair x 1.25 + $1,000 fee)
   --        points 3 + 6 + 10 + 6 + 6 + (5.0 - 1 unfixed fault) - 1 for the tow = 34
-  t.eq(cash(A), 24750, "Alice's cash"); t.eq(cash(B), 22050, "Bob's cash"); t.eq(cash(C), 24000, "Carol's cash")
+  t.eq(cash(A), 24750, "Alice's cash"); t.eq(cash(B), 22000, "Bob's cash"); t.eq(cash(C), 20500, "Carol's cash")
   t.eq(w:state(A).points, 42, "Alice's points"); t.eq(w:state(B).points, 40, "Bob's points"); t.eq(w:state(C).points, 34, "Carol's points")
   t.ok(w:chatHas(A, "Alice and the Ibishu Covet win!"))
 
@@ -154,7 +156,7 @@ t.test("full session: five events, two workshops, faults, tow, reset fine, final
   for _, r in ipairs(s.rows) do rows[r.name] = r end
   t.eq(rows.Alice.place, 1); t.eq(rows.Bob.place, 2); t.eq(rows.Carol.place, 3)
   t.eq(rows.Alice.repairs, 1250)
-  t.eq(rows.Bob.faultFixes, 3600); t.eq(rows.Bob.resets, 1); t.eq(rows.Bob.fines, 1000)
+  t.eq(rows.Bob.faultFixes, 3750); t.eq(rows.Bob.resets, 1); t.eq(rows.Bob.fines, 1000)
   t.eq(rows.Carol.tows, 1); t.eq(rows.Carol.towCost, 1000); t.eq(rows.Carol.penalty, 1); t.eq(rows.Carol.faultsLeft[1], "Tired engine (about -20% power)")
   t.eq(rows.Carol.places[3], "1st (180 km/h)", "speed trap cell")
   t.match(A.client.im.textOf("Top Gear Challenge"), "WINNER: Alice in the Ibishu Covet %- 42%.0 points")
