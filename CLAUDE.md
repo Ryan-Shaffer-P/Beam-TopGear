@@ -209,11 +209,14 @@ Parts tab (client `buildCatalogue` / `quote` / `fitPart` / `drawParts`): lists s
 `isFreeSlot` only (free words anywhere in the slot path; "wing/spoiler/hood/bonnet" in the slot's own name =
 billed; "mirror" always free). Needs in-game confirmation: does the tab list a real car (`/tg partsdiag`)?
 
-## Waiting for in-game confirmation (this session's features)
-- Finish flag: does the checkered flag draw (draw list rects) and is the FINISH text big (SetWindowFontScale)?
-- Sounds: which `/tg soundtest` method is audible (`/tg soundtest next` cycles; `/tg diag` shows it).
-- Unstick on Ryan's BeamNG repairs the car - confirm it's now billed ("Unstick repaired your car...").
-- Traffic mode: AI traffic and parked cars accepted; raise `MaxCars` on the real server.
+## Confirmed working in game (2026-10-01)
+- Finish flag: the checkered flag (draw list rects) and the big FINISH text (SetWindowFontScale) draw.
+- Sound bites: audible (`/tg diag` shows which playback method a player's game uses).
+- Unstick: on Ryan's BeamNG an unstick repairs the car, and that repair is now billed.
+- Traffic mode: admins can add AI traffic and parked cars.
+
+## Waiting for in-game confirmation
+- Workshop repair / respawn stay where the car is (0.8.9 `repairInPlace`, `spawn.safeTeleport`).
 - Parts tab: lists your car's parts and Fit works (`/tg partsdiag` shows the Parts tab line).
 - New faults (0.8.8): each Admin-tab Test button on a real car (manual + automatic, turbo + not) - ok, and felt?
   Cooling `factor` 0.05 and fuel leak 0.5 L/min are guesses to tune.
