@@ -2057,7 +2057,10 @@ end
 
 local function creditLeft(p) return p.cash + (cfg.workshop.creditLimit or 1500) end
 local function overdraftNote(p)
-  if p.cash < 0 then say(p.pid, string.format("You're overdrawn: %s (limit %s). Prize money pays it off.", money(p.cash), money(-(cfg.workshop.creditLimit or 1500)))) end
+  if p.cash < 0 then
+    say(p.pid, string.format("You're overdrawn: %s. Prize money pays it off. (Parts and fault fixes stop at %s overdrawn.)",
+      money(p.cash), money(-(cfg.workshop.creditLimit or 1500))))
+  end
 end
 
 -- client -> server after the car was rebuilt: { billable = n, cosmetic = n, vars = bool, valueDelta = number, unknown = n }
@@ -2347,7 +2350,8 @@ PLAYER_CMDS.repair = function(pid)
   if not inWorkshop(p) then say(pid, "Drive to a workshop first - the arrows show the nearest."); return end
   local cost = repairQuote(p)
   if cost <= 0 then say(pid, "Your car doesn't need repairs."); return end
-  if cost > creditLeft(p) then say(pid, string.format("Repairs cost %s - you have %s (at most %s overdrawn).", money(cost), money(p.cash), money(cfg.workshop.creditLimit or 1500))); return end
+  -- (repairs, like tows, respawns and fines, may take you as far into the red as they need to; only parts and
+  -- fault fixes stop at the overdraft limit)
   p.cash = p.cash - cost
   spend(p, "repairs", cost)
   p.repairPending = now()  -- the repair's own reset is excused for a few seconds only

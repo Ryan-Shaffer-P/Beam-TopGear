@@ -323,9 +323,11 @@ Player commands: `/tg menu`, `/tg go`, `/tg unstick`, `/tg tow`, `/tg respawn`, 
     `/tg partsdiag` shows what your game reports: how many parts it found, in which format, and
     how many have a price - and whether the Parts tab can list your car (and how).
   - **Labour:** $300, once per workshop, on your first real part change.
-  - **Overdraft:** workshop and dealership spending (parts, labour, repairs, fault fixes) can take
-    a driver up to $1,500 into the red (`workshop.creditLimit`). Anything that would go further is
-    refused - a part is taken straight back off the car, nothing charged. Prize money pays it off.
+  - **Overdraft:** parts, labour and fault fixes can take a driver up to $1,500 into the red
+    (`workshop.creditLimit`). Repairs, tows, respawns and fines have no limit - you can always get
+    the car fixed and back on the road, however deep in the red that puts you. A part or fault fix that would
+    go past the limit is refused - a part is taken straight back off the car, nothing charged.
+    Prize money pays it all off.
   - **Free (looks only):** paint, skins/liveries, decals, plates, badges, mirrors, lights, trim,
     bumpers, lips, side skirts, fender flares, grilles, body kits, the whole interior (seats, dash,
     gauges, steering wheel...), and tuning. **Always billed:** wings, spoilers and hoods - they change

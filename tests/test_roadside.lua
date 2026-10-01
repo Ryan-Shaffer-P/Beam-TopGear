@@ -156,3 +156,46 @@ t.test("on a game without spawn.safeTeleport, a repair resets and puts the car b
   t.eq(#pr, 1, "only the fallback note:\n" .. table.concat(pr, "\n"))
   t.match(pr[1], "repair in place: no spawn.safeTeleport")
 end)
+
+t.test("repairs, tows and respawns can go as deep into the red as they need; parts and fault fixes stop at -$1,500", function()
+  local cfg = F.twoRaces(); cfg.workshopEvery = 1
+  local w = World.new({ files = F.files(cfg) })
+  local A = w:join("Alice")
+  w:chat(A, "/tg start")
+  w:buy(A, "covet", "base_M")
+  w.rolls = { 5 }; w:chat(A, "/tg fault take")   -- (draw 5 = worn brakes: a fault to try fixing later)
+  w:step(10)
+  w:chat(A, "/tg ready")
+  w:chat(A, "/tg setcash Alice 0")
+  dent(w, A, 10000)
+  w:chat(A, "/tg tow")                     -- 250 + 5000 = 5250 x 1.25 = 6563 + 1000
+  t.eq(w:state(A).cash, -7563, "a tow goes past the $1,500 limit")
+  dent(w, A, 4000)
+  w:step(20)
+  w:chat(A, "/tg respawn")                 -- 250 + 2000 = 2250 x 1.25 = 2813 + 500
+  t.eq(w:state(A).cash, -7563 - 3313, "so does a respawn")
+
+  w:chat(A, "/tg go")
+  w:waitFor(function() return w:state(A).phase == "event" end, 10, "GO")
+  w:drive(A, p(900), 40)                   -- 1st: +$6,000
+  w:waitFor(function() return w:state(A).phase == "workshop" end, 10, "the workshop")
+  local cash = w:state(A).cash
+  t.eq(cash, -10876 + 6000)
+  dent(w, A, 8000)
+  w:chat(A, "/tg repair")                  -- 250 + 4000 = $4,250, far past the limit: allowed
+  t.ok(w:chatHas(A, "Alice paid $4,250 to have their Ibishu Covet repaired."))
+  t.eq(w:state(A).cash, cash - 4250)
+  t.ok(w:chatHas(A, "You're overdrawn: -$9,126. Prize money pays it off. (Parts and fault fixes stop at -$1,500 overdrawn.)"))
+  w:chat(A, "/tg fix brakes")              -- $3,750: refused, way past -$1,500
+  t.ok(w:chatHas(A, "Fixing that costs $3,750 - you have -$9,126 (at most $1,500 overdrawn)."))
+  -- a part fitted with the game's own parts menu: refused by the server, taken back off the car
+  local parts = {}
+  for k, v in pairs(A.current.parts) do parts[k] = v end
+  parts["/covet_engine/"] = "covet_engine_turbo"
+  A.client.sb.env.core_vehicle_partmgmt.setPartsConfig(parts, true)
+  w:pump(); w:step(4)
+  t.ok(w:chatHas(A, "You can't afford that: it costs $1,500 and you have -$9,126 (at most $1,500 overdrawn). Taking the parts back off."))
+  t.eq(A.current.parts["/covet_engine/"], "covet_engine", "the part came back off")
+  t.eq(w:state(A).cash, -9126, "nothing charged")
+  w:assertClean()
+end)

@@ -1500,7 +1500,8 @@ local function drawStatus(d)
     end
     txt(string.format("Cash: %s    Points: %.1f    Wins: %d    Damage: %d", commas(me.cash), me.points or 0, me.wins or 0, me.damage or 0))
     if (me.cash or 0) < 0 then
-      colored(1, 0.4, 0.4, string.format("Overdrawn: %s of your %s limit used - prize money pays it off.", commas(-me.cash), commas(me.creditLimit or 1500)))
+      colored(1, 0.4, 0.4, string.format("Overdrawn: %s - prize money pays it off. Parts and fault fixes stop at %s overdrawn.",
+        commas(-me.cash), commas(me.creditLimit or 1500)))
     end
     im.Separator()
     if d.phase == "dealer" and me.hasCar then
