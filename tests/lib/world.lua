@@ -510,6 +510,7 @@ function World:clientSpawn(p, model, o)
   end
   v.data = vehData(p, v)
   v.fuel = 60
+  v.batteryJ = 60 * 3600000   -- (electric cars) 60 kWh
   v.resetPos = vec3(v.pos)   -- where a plain reset takes it back to
   self:freshPhysics(p, v)
   local res = self:serverEvent("onVehicleSpawn", p.pid, vid, v.data)
@@ -630,8 +631,10 @@ function World:freshPhysics(p, v)
   sb.set("wheels", { wheels = v.wheels,
     setABSBehavior = function(b) v.abs = b end, resetABSBehavior = function() v.abs = "realistic" end })
   sb.set("energyStorage", { getStorages = function()
-    if traits.noFuelTank then return {} end
-    return { mainTank = { type = "fuelTank", remainingVolume = v.fuel,
+    if traits.noFuelTank then   -- an electric car: a battery, no fuel tank
+      return { mainBattery = { type = "electricBattery", storedEnergy = v.batteryJ, remainingVolume = v.batteryJ / 3600000 } }
+    end
+    return { mainTank = { type = "fuelTank", remainingVolume = v.fuel, storedEnergy = v.fuel * 34.2e6,
                           setRemainingVolume = function(_, vol) v.fuel = math.max(0, math.min(60, vol)) end } }
   end })
   sb.set("electrics", { values = {}, setIgnitionLevel = function(level)
@@ -805,6 +808,8 @@ function World:driveAll(legs)
           v.vel = dir * leg.speed
           v.yaw = (math.atan2 or math.atan)(dir.y, dir.x)
           v.fuel = math.max(0, (v.fuel or 0) - stepLen * fuelPerMetre(leg.speed))
+          -- an electric car uses about a third of the energy for the same driving
+          v.batteryJ = math.max(0, (v.batteryJ or 0) - stepLen * fuelPerMetre(leg.speed) * 34.2e6 * 0.3)
         else
           v.vel = vec3(0, 0, 0)
         end

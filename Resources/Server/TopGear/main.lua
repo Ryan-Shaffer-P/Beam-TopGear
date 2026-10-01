@@ -7,7 +7,7 @@
   In game, type /tg help.
 ]]
 
-local SERVER_VERSION = "0.9.1"
+local SERVER_VERSION = "0.9.2"
 local PLUGIN_DIR  = "Resources/Server/TopGear/"
 local CONFIG_PATH = PLUGIN_DIR .. "config.json"
 local COURSES_PATH = PLUGIN_DIR .. "courses.json"   -- saved course library
@@ -1316,8 +1316,8 @@ local function startRun(p)
   r.status, r.startT, r.cp, r.missed = "running", now(), 1, 0
   r.lap, r.lapStart, r.bestLap = 1, now(), nil
   r.bay, r.parks, r.needMove, r.stillSince = 1, {}, false, nil
-  r.startDamage, r.startFuel = p.damage or 0, p.fuel
-  r.endDamage, r.endFuel, r.sampleAfter = nil, nil, nil
+  r.startDamage, r.startFuel, r.startEnergy = p.damage or 0, p.fuel, p.energy
+  r.endDamage, r.endFuel, r.endEnergy, r.sampleAfter = nil, nil, nil, nil
 end
 
 -- the finish flag on this player's screen: { event, detail, seconds }
@@ -1690,13 +1690,20 @@ local function finalizeScore(p, e, ctx)
     r.perf = string.format("%s + %d damage (+%.1f s) = %s", fmtTime(t), math.floor(dmg), pen, fmtTime(r.score))
     r.short = fmtTime(r.score)
   elseif e.type == "economy" then
-    local endFuel = r.endFuel or p.fuel
-    if r.startFuel and endFuel then
-      local used = math.max(0, r.startFuel - endFuel)
-      r.score = used + t * 1e-6   -- time only breaks exact ties
-      r.perf, r.short = string.format("%.2f L in %s", used, fmtTime(t)), string.format("%.2f L", used)
+    -- least ENERGY used wins (tanks + batteries, in MJ), so petrol, diesel and electric cars compare fairly;
+    -- shown as litres for fuel cars, kWh for electric ones. Older clients that only report litres: ~34.2 MJ/L.
+    local endE, endFuel = r.endEnergy or p.energy, r.endFuel or p.fuel
+    local litres = (r.startFuel and endFuel) and math.max(0, r.startFuel - endFuel) or nil
+    local mj
+    if r.startEnergy and endE then mj = math.max(0, r.startEnergy - endE) / 1e6
+    elseif litres then mj = litres * 34.2 end
+    if mj then
+      r.score = mj + t * 1e-6   -- time only breaks exact ties
+      local amount = (litres and litres > 0) and string.format("%.2f L", litres) or string.format("%.2f kWh", mj / 3.6)
+      r.perf = string.format("%s (%.1f MJ) in %s", amount, mj, fmtTime(t))
+      r.short = amount
     else
-      r.score, r.perf, r.short = 1e6 + t, fmtTime(t) .. " (fuel reading unavailable)", fmtTime(t)
+      r.score, r.perf, r.short = 1e6 + t, fmtTime(t) .. " (no fuel or energy reading)", fmtTime(t)
     end
   elseif e.type == "slalom" then
     local pen = (r.missed or 0) * (tc.gatePenalty or 5)
@@ -2300,7 +2307,7 @@ function TG_onRebuild(pid, data)
   log(string.format("rebuild by %s in phase %s: %s", p.name, game.phase, tostring(data)))
   if game.phase == "idle" or game.phase == "results" then return end
   if game.phase == "dealer" and p.swapAt and now() - p.swapAt < 8 then return end   -- a trim swap, already priced
-  if p.faultEditUntil and now() < p.faultEditUntil then return end                   -- the mod's own fault/tow change
+  -- (the mod's own fault / tow changes aren't reported by the client, so everything here is the player's own)
   if not inWorkshop(p) then
     if (tonumber(t.billable) or 0) + (tonumber(t.cosmetic) or 0) > 0 or t.vars then
       say(p.pid, "Parts and tuning can only be changed at the dealership or in a workshop - putting it back.")
@@ -2386,10 +2393,11 @@ function TG_onReport(pid, data)
     p.damage = nowDmg
   end
   if tonumber(t.fuel) then p.fuel = tonumber(t.fuel) end
+  if tonumber(t.energy) then p.energy = tonumber(t.energy) end   -- joules in tanks + batteries
   if tonumber(t.cargo) then p.cargoFrac = tonumber(t.cargo) end
   local r = p.run
   if r and r.sampleAfter and now() >= r.sampleAfter and r.endDamage == nil then
-    r.endDamage, r.endFuel = p.damage, p.fuel   -- finish reading for fragile / economy scoring
+    r.endDamage, r.endFuel, r.endEnergy = p.damage, p.fuel, p.energy   -- finish reading for fragile / economy scoring
   end
   if tonumber(t.partsValue) then
     p.partsValue = tonumber(t.partsValue)

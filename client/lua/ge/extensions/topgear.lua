@@ -35,7 +35,7 @@ local RESET_ACTIONS = {
 local VEHSEL_ACTIONS = { "vehicle_selector" }
 local PARTS_ACTIONS  = { "parts_selector" }
 
-local VERSION = "0.9.1"
+local VERSION = "0.9.2"
 local recentErrors = {}
 local function warn(msg)
   log("W", "topgear", tostring(msg))
@@ -734,7 +734,10 @@ local function applyConfigFaults()
       faults.results.suspension = "removed"
     end
 
-    if changedParts or changedVars then faults.waitSpawn = 8 end   -- armed before the respawn can fire
+    if changedParts or changedVars then
+      faults.waitSpawn = 8          -- armed before the respawn can fire
+      faults.ownRebuild = 10        -- that rebuild is the mod's own change: a new baseline, not something to bill
+    end
     if changedParts and changedVars then
       pm.setPartsConfig(parts, false)
       pm.setConfigVars(vars, true)
@@ -860,6 +863,10 @@ local function updateTimedFaults(dt)
 end
 
 local function updateFaults(dt)
+  if faults.ownRebuild then
+    faults.ownRebuild = faults.ownRebuild - dt
+    if faults.ownRebuild <= 0 then faults.ownRebuild = nil end
+  end
   local okT, errT = pcall(updateTimedFaults, dt)
   if not okT and not faults.timedErrored then faults.timedErrored = true; warn("timed faults: " .. tostring(errT)) end
   if faults.applyAt then
@@ -963,6 +970,7 @@ local function updateMove(dt)
   if move.stage == "config" then
     if not move.started then
       move.started, move.t = true, 0
+      faults.ownRebuild = 10   -- restoring the car's upgrades: the mod's own change, not something to bill
       local ok, err = pcall(function()
         local pm = core_vehicle_partmgmt
         local c = move.config
@@ -2433,22 +2441,31 @@ local function tryRegister(dt)
   log("I", "topgear", "Top Gear Challenge client " .. VERSION .. " ready (BeamMP events registered)")
 end
 
--- fuel remaining in litres, read from the car's own Lua (for the economy run)
-local fuelValue = nil
-function M.onFuel(v) fuelValue = tonumber(v) end
+-- what's left in the car, read from its own Lua (for the economy run): litres in the fuel tanks, and the energy
+-- stored in tanks AND batteries (joules) - the same unit for petrol, diesel and electric cars
+local fuelValue, energyValue = nil, nil
+function M.onFuel(litres, joules) fuelValue, energyValue = tonumber(litres), tonumber(joules) end
 local FUEL_VLUA = [[
-local total, found = 0, false
+local litres, joules, gotL, gotE = 0, 0, false, false
 pcall(function()
   if energyStorage and energyStorage.getStorages then
     for _, st in pairs(energyStorage.getStorages()) do
-      if type(st) == "table" and type(st.remainingVolume) == "number" then total = total + st.remainingVolume; found = true end
+      if type(st) == "table" then
+        if st.type == "fuelTank" and type(st.remainingVolume) == "number" then litres, gotL = litres + st.remainingVolume, true end
+        if (st.type == "fuelTank" or st.type == "electricBattery") and type(st.storedEnergy) == "number" then
+          joules, gotE = joules + st.storedEnergy, true
+        end
+      end
     end
   end
 end)
-if not found and electrics and electrics.values and type(electrics.values.fuelVolume) == "number" then
-  total, found = electrics.values.fuelVolume, true
+if not gotL and electrics and electrics.values and type(electrics.values.fuelVolume) == "number" then
+  litres, gotL = electrics.values.fuelVolume, true
 end
-if found then obj:queueGameEngineLua("extensions.topgear.onFuel(" .. string.format("%.4f", total) .. ")") end
+if gotL or gotE then
+  obj:queueGameEngineLua("extensions.topgear.onFuel(" .. (gotL and string.format("%.4f", litres) or "nil") .. "," ..
+    (gotE and string.format("%.0f", joules) or "nil") .. ")")
+end
 ]]
 
 -- Workshop billing: snapshot the car's parts; after every rebuild, report exactly what changed.
@@ -2655,6 +2672,11 @@ local function checkRebuild()
   if not new then return end
   local old = cfgSnap
   cfgSnap = new
+  if faults.ownRebuild then   -- the mod changed the car itself (a fault, a fix, restored upgrades): the new normal
+    faults.ownRebuild = nil
+    lastGoodSnap = new
+    return
+  end
   lastGoodSnap = old   -- what to go back to if the server refuses the bill
   if not old or old.carId ~= new.carId then return end
   local billable, cosmetic, delta, unknown, seen = 0, 0, 0, 0, {}
@@ -2695,10 +2717,13 @@ local function report()
   if state.allowParts then partsValue = nil end  -- parts can change during the workshop
   if partsValue == nil then partsValue = getPartsValue(v) or false end
   pcall(function() v:queueLuaCommand(FUEL_VLUA) end)   -- answer arrives before the next report
-  if (not cfgSnap or cfgSnap.carId ~= v:getID()) and not rebuildCheckIn then cfgSnap = takeSnapshot(v) end
+  if (not cfgSnap or cfgSnap.carId ~= v:getID()) and not rebuildCheckIn then
+    cfgSnap = takeSnapshot(v)
+    faults.ownRebuild = nil   -- this snapshot already includes any change the mod made
+  end
   measureCargo()   -- answer arrives before the next report
   TriggerServerEvent("tg_report", jsonEncode({ damage = getDamage(v), partsValue = partsValue or nil, fuel = fuelValue,
-    cargo = cargoValue }))
+    energy = energyValue, cargo = cargoValue }))
 end
 
 -- hooks ------------------------------------------------------------------------

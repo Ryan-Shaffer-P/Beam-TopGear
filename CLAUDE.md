@@ -82,7 +82,10 @@ parts snapshots/diffs, reverting refused parts.
    Accept it and put parts back via the client (`tg_revertparts`). Paint is just accepted.
 4. **BeamMP reports a part change's rebuild as a reset.** Resets are never fined in workshops; repairs are
    billed from a real damage drop (`TG_onReport`), excused by `repairPending` / `towPending` /
-   `respawnPending` / `faultEditUntil` windows.
+   `respawnPending` / `faultEditUntil` windows. **Parts billing is not excused by a time window** (that let
+   players fit parts free right after a fault): the client marks its own config changes (`faults.ownRebuild`,
+   set before a fault / fix / upgrade restore) and doesn't report that rebuild - everything `TG_onRebuild` gets
+   is the player's.
 5. **Any part/tuning change respawns the car and wipes its damage** - always bill or account for that.
 6. **Part data comes in two formats:** flat `parts` or nested `partsTree` (newer BeamNG). Use
    `readParts` / `walkTree`; never assume one.
@@ -131,7 +134,7 @@ for the `/tg diag` "Client error" line or the matching `[TopGear]` server-consol
    handler error, server console error, client warn() or UI imbalance. Vehicle Lua (`queueLuaCommand`) runs
    in a per-car sandbox with fake engine/brakes/fuel/reset (`World:freshPhysics`); `queueGameEngineLua`
    replies run in the client. Trailers with a load part get simulated bed/load nodes, so CARGO_VLUA really measures the load share.
-   Tests: `test_smoke.lua` (load, dealership, theme), `test_flag.lua` (finish flag), `test_traffic.lua` (admin traffic mode), `test_modes.lua` (race/time trial mode), `test_speedtrap.lua` (one run), `test_sounds.lua` (sound bites; the fake Engine.Audio checks the .ogg exists), `test_roadside.lua` (tow/respawn/unstick pricing), `test_parts.lua` (Parts tab; fake catalogue `World.partCatalogue`, `c.partsFormat = "tree"`), `test_faults.lua` (fault revamp; `w.rolls` pins the server's random draws), `test_classes.lua` (car classes; test cars carry BeamNG attributes in `MODELS[].info/trims`), `test_scoring.lua` (inspections, debt, faults, awards), `test_trailer.lua` (cones + prebuilt load, hitching via
+   Tests: `test_smoke.lua` (load, dealership, theme), `test_flag.lua` (finish flag), `test_traffic.lua` (admin traffic mode), `test_modes.lua` (race/time trial mode), `test_speedtrap.lua` (one run), `test_sounds.lua` (sound bites; the fake Engine.Audio checks the .ogg exists), `test_roadside.lua` (tow/respawn/unstick pricing), `test_parts.lua` (Parts tab; fake catalogue `World.partCatalogue`, `c.partsFormat = "tree"`), `test_faults.lua` (fault revamp; `w.rolls` pins the server's random draws), `test_classes.lua` (car classes; test cars carry BeamNG attributes in `MODELS[].info/trims`), `test_scoring.lua` (inspections, debt, faults, awards), `test_economy.lua` (energy: petrol vs electric), `test_trailer.lua` (cones + prebuilt load, hitching via
    `w:hitch`/`w:dropCargo`/`w:setLoad`, 70/30 scoring) and `test_session.lua` (full 5-event session, the
    successor of `sim13` - expected cash/points are hand-calculated in its comments; if a rule change
    moves them, recompute by hand rather than pasting the new output). Still to rebuild: workshop

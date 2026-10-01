@@ -70,7 +70,7 @@ Race / Time trial**) or with `/tg setmode <n> race|trial`. The table shows each 
 | Speed trap | time trial | highest speed on one run through the trap (passes under `minRunSpeed`, 20 m/s, don't count) | start + trap |
 | Precision parking | time trial | lowest score: 10 pts/m off centre + 0.5/deg skew (every bay) + 0.1/s + 0.01/damage + 50 per bay not reached | start + bays (in order) |
 | Fragile delivery | race | time + 0.01 s per point of damage picked up | start + checkpoints |
-| Economy run | race | least fuel used (inside the time limit) | start + checkpoints |
+| Economy run | race | least energy used - fuel or battery (inside the time limit) | start + checkpoints |
 | Slalom | time trial | time + 5 s per missed gate | start + gates |
 | Trailer delivery | race | most points out of 100: 70 for the share of the load kept + 30 for speed | start + checkpoints |
 
@@ -100,8 +100,11 @@ Race / Time trial**) or with `/tg setmode <n> race|trial`. The table shows each 
   or the course builder's Time limit box - available for every event).
 - **Fragile delivery:** once the results are in, every car that took part gets a free full
   repair where it stands (upgrades and unfixed faults stay, like a tow).
-- **Economy:** fuel is read from each player's own car. If a car's fuel can't be read, its
-  run falls back to time and says so.
+- **Economy:** the least **energy** used wins - read from each player's own car: what's left in its
+  fuel tanks *and* batteries, so petrol, diesel and electric cars compare fairly (an electric car is
+  naturally efficient). Results show litres for fuel cars and kWh for electric ones, with the
+  megajoules used, e.g. "0.32 L (10.9 MJ)". A car whose game reports neither is timed instead and
+  ranked after the others, with the reason shown.
 - **Circuit race:** the event's start point is the start/finish line; checkpoints are the waypoints
   round the lap, in order. Each lap is every checkpoint and then back across the start line (which
   only counts once you've been at least 40 m away from it that lap); you loop until you've done the laps (`/tg setlaps <n> <laps>`,
