@@ -413,7 +413,9 @@ Commands: `/tg faults` (what you've taken, and the rules), `/tg fault take [how 
 
 **Check the new faults on your game version:** ignition, cooling, fuel leak and accident damage use
 BeamNG functions that couldn't be tried outside the game. `/tg fault test <id>` on your own car
-reports ok / unavailable / error for each - then drive it and check you can feel it.
+reports ok / unavailable / error for each - then drive it and check you can feel it. Each **Test**
+button in the Admin tab tries one fault (the previous test fault comes off); test faults act any time,
+so the fuel leak drains and the ignition fault cuts the engine within 15-30 s even with no challenge running.
 
 ## Calibrating
 

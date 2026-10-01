@@ -304,3 +304,30 @@ t.test("faults survive every kind of reset (illegal reset, respawn, tow, worksho
   t.ok(math.abs(A.current.engine.outputTorqueState - 1) < 1e-9, "and it stays fixed")
   w:assertClean()
 end)
+
+t.test("admin fault test: a button per fault, and the timed faults act outside a challenge too", function()
+  local w = World.new({ files = F.files(F.twoRaces()) })
+  local A = w:join("Alice")
+  w:chat(A, "/tg menu"); w:step(2.5)
+  for _, name in ipairs({ "Worn, underinflated tires", "Knocked-out wheel alignment", "Missing bumpers", "Tired engine (about -20% power)",
+      "Worn brakes (about -40% braking)", "Ignition problems (misfires, cuts out)", "Cooling problems (leaking radiator)",
+      "Worn-out suspension (soft and bouncy)", "Fuel leak", "Accident damage (dents, broken lights)" }) do
+    t.ok(A.client.im.hasButton("Test: " .. name), "Test button for " .. name)
+  end
+  -- no challenge running: an admin tests on any car
+  w:clientSpawn(A, "covet", { config = "vehicles/covet/base_M.pc" }); w:pump()
+  A.client.im.click("Test: Fuel leak##ft1_fuelleak")   -- each Test button tries just that one fault
+  w:step(3)
+  t.ok(w:chatHas(A, "Fault test - fuelleak: ok"))
+  local f0 = A.current.fuel
+  w:step(30)
+  t.ok(A.current.fuel < f0, "the test leak leaks")
+
+  A.client.im.click("Test: Ignition problems (misfires, cuts out)##ft1_ignition")
+  w:step(3)
+  t.ok(w:chatHas(A, "Fault test - fuelleak: removed"), "the previous test fault comes off")
+  t.ok(w:chatHas(A, "Fault test - ignition: ok"))
+  w:step(32)
+  t.ok(A.current.stalls >= 1, "the test ignition fault cuts out within 30 s")
+  w:assertClean()
+end)

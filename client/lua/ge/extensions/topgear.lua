@@ -647,10 +647,11 @@ end
 local LEAK_PHASES = { travel = true, countdown = true, event = true, finale = true }
 local CUTOUT_PHASES = { travel = true, event = true, finale = true }   -- never during a countdown
 
--- faults that act over time: the fuel leak drains, the ignition fault kills the engine now and then
+-- faults that act over time: the fuel leak drains, the ignition fault kills the engine now and then.
+-- In a challenge only on the road; an admin's fault test (/tg fault test) acts any time, cut-outs sooner.
 local function updateTimedFaults(dt)
   local leak = faults.want.fuelleak
-  if leak and faults.results.fuelleak == "ok" and LEAK_PHASES[state.phase] then
+  if leak and faults.results.fuelleak == "ok" and (faults.test or LEAK_PHASES[state.phase]) then
     faults.leakT = (faults.leakT or 0) + dt
     if faults.leakT >= 5 then
       local litres = (tonumber(leak.factor) or 0.5) / 60 * faults.leakT
@@ -660,9 +661,10 @@ local function updateTimedFaults(dt)
     end
   end
   local ign = faults.want.ignition
-  if ign and faults.results.ignition == "ok" and CUTOUT_PHASES[state.phase] then
+  if ign and faults.results.ignition == "ok" and (faults.test or CUTOUT_PHASES[state.phase]) then
     if not faults.cutAt then
       local lo, hi = tonumber(ign.cutoutMin) or 90, tonumber(ign.cutoutMax) or 240
+      if faults.test then lo, hi = 15, 30 end   -- a test shouldn't make the admin wait minutes
       faults.cutAt = lo + math.random() * math.max(0, hi - lo)
     end
     faults.cutAt = faults.cutAt - dt
