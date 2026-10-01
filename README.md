@@ -407,10 +407,23 @@ model's **base trim** (its cheapest factory trim). A trim must match every rule.
    and spawning anything else is refused with the reason ("not in today's class (jdm): Country is
    United States"). A class with no cars won't start.
 
-**Cars with no game price** (mostly mod cars): the import keeps them, but nothing sells without a price.
-`/tg setprice <model/config> <amount>` (or the Admin tab's **Cars without a price**) gives one a
-**dealership-wide price** - used in every class and in the normal dealer list (for listed models).
-It also changes a priced trim's price everywhere; `off` puts it back. `/tg setprice list` lists them.
+**Props, traffic and trailers aren't imported**: anything BeamNG tags as a prop (cones, barriers, the
+AI-traffic stand-ins, the walking unicycle), a trailer or a debug object is skipped, so no class can sell
+one. (Configs imported by an older version are tidied the same way when the server starts.)
+
+**Cars with no game price** (derby builds, Gambler 500 and other joke builds, mod cars) are **priced by
+estimate**: the middle price of the 5 most similar cars that do have a game price, compared on
+power-to-weight, 0-100 km/h, top speed, weight, year and off-road score (the same model and the same
+type - car or truck - count as more similar). Tested by hiding real prices: half the estimates land
+within about 10% of the game's price, 80% within about 37%. A trim with no performance figures gets the
+middle price of its own model's trims; one with neither stays unpriced and can't be sold. Estimates are
+redone after every import and marked "(est. price)" in the Dealership tab; class multipliers apply to
+them like any price.
+
+`/tg setprice <model/config> <amount>` (or the Admin tab's **Cars without a game price**) replaces an
+estimate with a **dealership-wide price** - used in every class and in the normal dealer list (for listed models).
+It also changes a priced trim's price everywhere; `off` puts it back (to the game price or the estimate).
+`/tg setprice list` lists the trims with no game price and their estimates.
 A class price (`/tg class price`) still wins for that class. In a class's car list the unpriced ones
 are marked "(no price)" with a price box.
 

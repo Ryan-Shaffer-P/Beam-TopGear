@@ -35,7 +35,7 @@ local RESET_ACTIONS = {
 local VEHSEL_ACTIONS = { "vehicle_selector" }
 local PARTS_ACTIONS  = { "parts_selector" }
 
-local VERSION = "0.9.2"
+local VERSION = "0.9.3"
 local recentErrors = {}
 local function warn(msg)
   log("W", "topgear", tostring(msg))
@@ -1609,10 +1609,11 @@ local function drawDealer(d)
           if im.Button("Buy##" .. m.model .. "_" .. tostring(t.config)) then buyCar(m.model, t.config) end
           same()
         end
+        local label = t.est and (t.name .. "  (est. price)") or t.name
         if needs > 0 then
-          colored(1, 0.7, 0.3, string.format("%s  %s  - needs %d fault%s", commas(t.price), t.name, needs, needs == 1 and "" or "s"))
-        elseif me and t.price > (me.cash or 0) then colored(1, 0.45, 0.45, commas(t.price) .. "  " .. t.name)
-        else txt(commas(t.price) .. "  " .. t.name) end
+          colored(1, 0.7, 0.3, string.format("%s  %s  - needs %d fault%s", commas(t.price), label, needs, needs == 1 and "" or "s"))
+        elseif me and t.price > (me.cash or 0) then colored(1, 0.45, 0.45, commas(t.price) .. "  " .. label)
+        else txt(commas(t.price) .. "  " .. label) end
       end
     end
   end
@@ -1775,21 +1776,25 @@ local function drawAdmin(d)
           im.InputInt("##clsprice_" .. t.key, pp); same()
           button("Set price##clsps_" .. t.key, "class price " .. v.name .. " " .. t.key .. " " .. pp[0]); same()
           if t.override then button("Back to normal##clspo_" .. t.key, "class price " .. v.name .. " " .. t.key .. " off"); same() end
-          if t.noPrice then colored(1, 0.7, 0.3, t.name .. "  (no price - not for sale until it has one)") else txt(t.name) end
+          if t.noPrice then colored(1, 0.7, 0.3, t.name .. "  (no price - not for sale until it has one)")
+          else txt(t.est and (t.name .. "  (estimated price)") or t.name) end
         end
         if (v.count or 0) > #(v.trims or {}) then txt(string.format("... and %d more", v.count - #(v.trims or {}))) end
       end
       confirmButton("Delete class " .. v.name, "clsdel", "class delete " .. v.name)
     end
-    -- trims the game has no price for (mostly mod cars): a dealership-wide price makes them sellable
-    if (cl.unpricedCount or 0) > 0 and header(string.format("Cars without a price (%d)##unpriced", cl.unpricedCount)) then
-      txt("The game has no price for these (mostly mod cars). Give one a price to sell it - in any class or dealer list.")
+    -- trims the game has no price for (derby/joke builds, mod cars): estimated from similar cars; a dealership-wide
+    -- price replaces the estimate
+    if (cl.unpricedCount or 0) > 0 and header(string.format("Cars without a game price (%d)##unpriced", cl.unpricedCount)) then
+      txt("The game has no price for these. They're priced by estimate from similar cars (power-to-weight, 0-100,")
+      txt("top speed, weight, year); Set price replaces an estimate, Clear goes back to it.")
       for _, u in ipairs(cl.unpriced or {}) do
-        local pp = intPtr("unpriced_" .. u.key, u.price or 0)
+        local pp = intPtr("unpriced_" .. u.key, u.price or u.est or 0)
         im.InputInt("##unpriced_" .. u.key, pp); same()
         button("Set price##ups_" .. u.key, "setprice " .. u.key .. " " .. pp[0]); same()
         if u.price then button("Clear##upc_" .. u.key, "setprice " .. u.key .. " off"); same(); txt(u.name .. "  - " .. commas(u.price))
-        else colored(1, 0.7, 0.3, u.name .. "  - no price") end
+        elseif u.est then txt(u.name .. "  - est. " .. commas(u.est))
+        else colored(1, 0.7, 0.3, u.name .. "  - no price (no details to estimate from)") end
       end
       if cl.unpricedCount > #(cl.unpriced or {}) then txt(string.format("... and %d more (/tg setprice list)", cl.unpricedCount - #cl.unpriced)) end
     end

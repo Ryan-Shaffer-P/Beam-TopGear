@@ -12,3 +12,4 @@ server/.env
 
 # Written by the BeamMP server at runtime
 Resources/Client/mods.json
+.claude/worktrees/

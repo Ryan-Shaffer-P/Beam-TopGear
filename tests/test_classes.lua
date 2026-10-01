@@ -24,14 +24,16 @@ t.test("importprices reads every car in the game with its details, without flood
   local w = World.new({ files = F.files(F.twoRaces()) })
   local A = w:join("Alice")
   setup(w, A)
-  t.ok(w:chatHas(A, "Imported 10 trim prices from 7 models. Game prices are ON and saved to config.json."))
-  t.ok(w:chatHas(A, "2 trims had no game price - kept; give them one with /tg setprice <model/config> <amount>"))
+  t.ok(w:chatHas(A, "Imported 8 trim prices from 7 models. Game prices are ON and saved to config.json."))
+  t.ok(w:chatHas(A, "Skipped 2 trims that aren't cars (props, traffic, trailers)."))
+  t.ok(w:chatHas(A, "2 trims had no game price: 0 priced by estimate from similar cars."), "the mod car has no figures to go on")
   local dealer = w:serverConfig().dealer
   local e = dealer.gamePrices.covet.gtz_M
   t.eq(e.price, 14000)
   t.eq(e.attrs.Country, "Japan"); t.eq(e.attrs.Transmission, "Manual"); t.eq(e.attrs.Years.min, 1988)
   t.eq(dealer.modelNames.covet, "Ibishu Covet")
   for _, c in ipairs(dealer.cars) do t.ok(c.model ~= "tsfb" and c.model ~= "cones", "props aren't added to the dealer list") end
+  t.eq(dealer.gamePrices.tsfb, nil, "trailers aren't imported"); t.eq(dealer.gamePrices.cones, nil, "nor props")
   local m = dealer.gamePrices.modcar.stradale
   t.ok(m and m.noPrice and m.price == nil, "a trim with no game price is kept")
   t.eq(m.attrs.Country, "Italy", "with its details")
@@ -177,7 +179,7 @@ t.test("cars with no game price: a dealership-wide price makes them sellable; a 
   w:chat(A, "/tg class edit italy"); w:step(2.5)
   w:chat(A, "/tg class price italy modcar/corsa off"); w:step(2.5)
   t.match(A.client.im.textOf(WIN), "Fanto Bolide corsa  %(no price %- not for sale until it has one%)")
-  t.match(A.client.im.textOf(WIN), "Cars without a price %(2%)")
+  t.match(A.client.im.textOf(WIN), "Cars without a game price %(2%)")
   w:assertClean()
 end)
 

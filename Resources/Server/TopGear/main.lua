@@ -7,7 +7,7 @@
   In game, type /tg help.
 ]]
 
-local SERVER_VERSION = "0.9.2"
+local SERVER_VERSION = "0.9.3"
 local PLUGIN_DIR  = "Resources/Server/TopGear/"
 local CONFIG_PATH = PLUGIN_DIR .. "config.json"
 local COURSES_PATH = PLUGIN_DIR .. "courses.json"   -- saved course library
@@ -669,7 +669,102 @@ end
 local function trimPrice(model, config, entry)   -- before any class: the dealership price list, else the game's value
   local o = tonumber((cfg.dealer.prices or {})[model .. "/" .. tostring(config)])
   if o then return math.floor(o) end
-  return entry and tonumber(entry.price) and math.floor(tonumber(entry.price)) or nil
+  if entry and tonumber(entry.price) then return math.floor(tonumber(entry.price)) end
+  return entry and tonumber(entry.est) and math.floor(tonumber(entry.est)) or nil   -- estimated from similar cars
+end
+function Class.isEstimate(model, config, entry)   -- priced only by the estimate (no game value, no /tg setprice)
+  return type(entry) == "table" and not tonumber(entry.price) and tonumber(entry.est) ~= nil
+     and not tonumber((cfg.dealer.prices or {})[model .. "/" .. tostring(config)])
+end
+
+-- Not cars: props (cones, barriers, AI traffic stand-ins, the walking unicycle), trailers and debug objects are
+-- never sold, so the import drops them.
+function Class.notACar(entry)
+  local ty = type(entry) == "table" and entry.attrs and entry.attrs.Type
+  return type(ty) == "string" and (ty:find("^Prop") ~= nil or ty == "Trailer" or ty == "Debug")
+end
+function Class.dropNonCars()
+  local n = 0
+  for model, trims in pairs(cfg.dealer.gamePrices or {}) do
+    for config, e in pairs(trims) do
+      if Class.notACar(e) then trims[config] = nil; n = n + 1 end
+    end
+    if next(trims) == nil then cfg.dealer.gamePrices[model] = nil end
+  end
+  return n
+end
+
+-- Price estimates for trims the game has no value for: the median price of the 5 most similar priced trims,
+-- compared on power-to-weight, 0-100 km/h, top speed, weight, year and off-road score (the same model and the
+-- same type count as closer). Tested on the real game's priced trims: half land within ~11% of their price.
+-- With no performance figures, the median of the model's own priced trims. Rounded to $100.
+function Class.features(a)
+  if type(a) ~= "table" or not tonumber(a["Weight/Power"]) or tonumber(a["Weight/Power"]) <= 0 then return nil end
+  local y, year = a.Years, nil
+  if type(y) == "table" and (tonumber(y.min) or tonumber(y.max)) then year = ((tonumber(y.min) or y.max) + (tonumber(y.max) or y.min)) / 2
+  elseif tonumber(y) then year = tonumber(y) end
+  local acc, top, wt, off = tonumber(a["0-100 km/h"]), tonumber(a["Top Speed"]), tonumber(a.Weight), tonumber(a["Off-Road Score"])
+  return { math.log(tonumber(a["Weight/Power"])), acc and acc > 0 and math.log(math.max(acc, 2)) or false,
+           top and top / 10 or false, year and (year - 1990) / 10 or false, off and off / 20 or false,
+           wt and wt > 0 and 2 * math.log(wt) or false }
+end
+function Class.median(list)
+  if #list == 0 then return nil end
+  table.sort(list)
+  local m = (#list + 1) / 2
+  return (list[math.floor(m)] + list[math.ceil(m)]) / 2
+end
+function Class.estimatePrices()
+  local pool, byModel = {}, {}
+  for model, trims in pairs(cfg.dealer.gamePrices or {}) do
+    for _, e in pairs(trims) do
+      if type(e) == "table" and tonumber(e.price) and tonumber(e.price) > 0 then
+        local f = Class.features(e.attrs)
+        if f then pool[#pool + 1] = { model = model, f = f, ty = e.attrs.Type, price = tonumber(e.price) } end
+        byModel[model] = byModel[model] or {}
+        table.insert(byModel[model], tonumber(e.price))
+      end
+    end
+  end
+  local n, changed = 0, false
+  for model, trims in pairs(cfg.dealer.gamePrices or {}) do
+    for _, e in pairs(trims) do
+      if type(e) == "table" and not tonumber(e.price) then
+        local was = e.est
+        e.est = nil
+        local f, est = Class.features(e.attrs), nil
+        if f and #pool > 0 then
+          local near = {}
+          for _, q in ipairs(pool) do
+            local d = 0
+            for i = 1, #f do
+              if f[i] and q.f[i] then d = d + (f[i] - q.f[i]) ^ 2 else d = d + 1 end
+            end
+            if q.ty ~= (e.attrs or {}).Type then d = d + 4 end
+            if q.model == model then d = d * 0.5 end
+            near[#near + 1] = { d = d, price = q.price }
+          end
+          table.sort(near, function(a, b) if a.d ~= b.d then return a.d < b.d end return a.price < b.price end)
+          local prices = {}
+          for i = 1, math.min(5, #near) do prices[i] = near[i].price end
+          est = Class.median(prices)
+        elseif byModel[model] then
+          local copy = {}
+          for i, v in ipairs(byModel[model]) do copy[i] = v end
+          est = Class.median(copy)
+        end
+        if est then e.est = math.max(100, math.floor(est / 100 + 0.5) * 100); n = n + 1 end
+        if e.est ~= was then changed = true end
+      end
+    end
+  end
+  return n, changed
+end
+-- after an import, and on loading a config imported by an older version
+function Class.tidyImport()
+  local dropped = Class.dropNonCars()
+  local n, changed = Class.estimatePrices()
+  return dropped, n, changed or dropped > 0
 end
 -- a model's base trim: its cheapest factory trim that has a price
 function Class.baseTrim(model)
@@ -740,7 +835,8 @@ local function classTrims(cls, withUnpriced)
         local price = Class.price(cls, model, config, e)
         if price or withUnpriced then
           out[#out + 1] = { model = model, config = config, name = e.name or (model .. " " .. config), price = price,
-                            modelName = (cfg.dealer.modelNames or {})[model] or model }
+                            modelName = (cfg.dealer.modelNames or {})[model] or model,
+                            est = Class.isEstimate(model, config, e) and not tonumber((cls.prices or {})[model .. "/" .. config]) }
         end
       end
     end
@@ -2516,12 +2612,12 @@ local function dealerOffers(p)
   end
   local cls = activeClass()
   if cls then
-    for _, t in ipairs(classTrims(cls)) do add(t.model, t.modelName, { config = t.config, name = t.name, price = t.price }) end
+    for _, t in ipairs(classTrims(cls)) do add(t.model, t.modelName, { config = t.config, name = t.name, price = t.price, est = t.est or nil }) end
   elseif cfg.dealer.useGamePrices then
     for _, c in ipairs(listedModels()) do
       for key, e in pairs((cfg.dealer.gamePrices or {})[c.model] or {}) do
         local price = type(e) == "table" and trimPrice(c.model, key, e)
-        if price then add(c.model, c.name, { config = key, name = e.name or key, price = price }) end
+        if price then add(c.model, c.name, { config = key, name = e.name or key, price = price, est = Class.isEstimate(c.model, key, e) or nil }) end
       end
     end
   else
@@ -3043,12 +3139,14 @@ finishImport = function()
   if #imp.failed > 8 then say(imp.pid, string.format("  ...and %d more", #imp.failed - 8)) end
   if imp.imported > 0 then
     cfg.dealer.useGamePrices = true
+    local _, estimated = Class.tidyImport()
     saveConfig()
     say(imp.pid, string.format("Imported %s%s. Game prices are ON and saved to config.json.",
       plural(imp.imported, "trim price"), imp.all and string.format(" from %s", plural(imp.models or 0, "model")) or ""))
+    if (imp.props or 0) > 0 then say(imp.pid, string.format("Skipped %s that aren't cars (props, traffic, trailers).", plural(imp.props, "trim"))) end
     if imp.skipped > 0 then
-      say(imp.pid, string.format("%s had no game price - kept; give them one with /tg setprice <model/config> <amount> " ..
-        "or the Admin tab's Cars without a price (/tg setprice list shows them).", plural(imp.skipped, "trim")))
+      say(imp.pid, string.format("%s had no game price: %d priced by estimate from similar cars. Check or change them in the " ..
+        "Admin tab's Cars without a game price (or /tg setprice list).", plural(imp.skipped, "trim"), estimated))
     end
   else
     say(imp.pid, "Nothing was imported - prices unchanged.")
@@ -3072,7 +3170,9 @@ function TG_onImportReply(pid, data)
     local prices, n, under, cheapest = {}, 0, 0, nil
     for _, c in ipairs(t.configs) do
       local price = tonumber(c.price)
-      if price and c.config then
+      if Class.notACar(c) then   -- props, trailers: never sold
+        imp.props = (imp.props or 0) + 1
+      elseif price and c.config then
         price = math.floor(price + 0.5)
         prices[c.config] = { name = c.name or c.config, price = price, attrs = type(c.attrs) == "table" and c.attrs or nil }
         n = n + 1
@@ -3084,7 +3184,7 @@ function TG_onImportReply(pid, data)
       end
     end
     cfg.dealer.gamePrices = cfg.dealer.gamePrices or {}
-    cfg.dealer.gamePrices[t.model] = prices
+    cfg.dealer.gamePrices[t.model] = next(prices) and prices or nil
     imp.imported = imp.imported + n
     cfg.dealer.modelNames = cfg.dealer.modelNames or {}
     if t.modelName then cfg.dealer.modelNames[t.model] = t.modelName end
@@ -3294,7 +3394,8 @@ ADMIN_CMDS.setprice = function(pid, _, args)
       for config, e in pairs(trims) do
         if type(e) == "table" and not tonumber(e.price) then
           local k = model .. "/" .. config
-          list[#list + 1] = string.format("%s [%s]%s", e.name or k, k, cfg.dealer.prices[k] and (" - " .. money(cfg.dealer.prices[k])) or " - no price")
+          list[#list + 1] = string.format("%s [%s]%s", e.name or k, k, cfg.dealer.prices[k] and (" - " .. money(cfg.dealer.prices[k]))
+            or (tonumber(e.est) and (" - est. " .. money(e.est))) or " - no price")
         end
       end
     end
@@ -3316,8 +3417,9 @@ ADMIN_CMDS.setprice = function(pid, _, args)
   else say(pid, "Give an amount, or off."); return end
   saveConfig()
   local nowPrice = trimPrice(model, config, e)
-  say(pid, string.format("%s now costs %s%s.", e.name or key, nowPrice and money(nowPrice) or "nothing (no price - it can't be sold)",
-    (not cfg.dealer.prices[key] and tonumber(e.price)) and " (its game price)" or ""))
+  local how = ""
+  if not cfg.dealer.prices[key] then how = tonumber(e.price) and " (its game price)" or (tonumber(e.est) and " (estimated from similar cars)" or "") end
+  say(pid, string.format("%s now costs %s%s.", e.name or key, nowPrice and money(nowPrice) or "nothing (no price - it can't be sold)", how))
 end
 
 ADMIN_CMDS.gameprices = function(pid, _, args)
@@ -3953,7 +4055,7 @@ local function buildUi(pid)
         for i, t in ipairs(classTrims(c, true)) do
           if i > 60 then break end
           local key = t.model .. "/" .. t.config
-          e.trims[#e.trims + 1] = { key = key, name = t.name, price = t.price, override = (c.prices or {})[key] ~= nil, noPrice = t.price == nil }
+          e.trims[#e.trims + 1] = { key = key, name = t.name, price = t.price, override = (c.prices or {})[key] ~= nil, noPrice = t.price == nil, est = t.est or nil }
         end
       end
       clist[#clist + 1] = e
@@ -3971,7 +4073,7 @@ local function buildUi(pid)
         if type(e) == "table" and not tonumber(e.price) then
           nUnpriced = nUnpriced + 1
           local key = model .. "/" .. config
-          unpriced[#unpriced + 1] = { key = key, name = e.name or key, price = tonumber((cfg.dealer.prices or {})[key]) }
+          unpriced[#unpriced + 1] = { key = key, name = e.name or key, price = tonumber((cfg.dealer.prices or {})[key]), est = tonumber(e.est) }
         end
       end
     end
@@ -4017,6 +4119,14 @@ end
 ---------------------------------------------------------------------------
 pcall(function() math.randomseed(os.time()) end)   -- Lua 5.3 doesn't seed itself: vary the random sound picks
 loadConfig()
+if next(cfg.dealer.gamePrices or {}) then   -- drop non-cars and estimate missing prices (also for older imports)
+  local okT, dropped, estimated, changed = pcall(Class.tidyImport)
+  if not okT then log("pricing estimates failed: " .. tostring(dropped))
+  elseif changed then
+    saveConfig()
+    log(string.format("imported cars: dropped %d props/trailers, %d prices estimated", dropped, estimated))
+  end
+end
 courseDirty = cfg.courseDirty == true
 loadLibrary()
 MP.RegisterEvent("onChatMessage",      "TG_onChat")
