@@ -35,7 +35,7 @@ local RESET_ACTIONS = {
 local VEHSEL_ACTIONS = { "vehicle_selector" }
 local PARTS_ACTIONS  = { "parts_selector" }
 
-local VERSION = "0.9.3"
+local VERSION = "0.9.4"
 local recentErrors = {}
 local function warn(msg)
   log("W", "topgear", tostring(msg))
@@ -1417,6 +1417,31 @@ local function popTheme(rec)
 end
 local function heading(t) colored(ACCENT[1], ACCENT[2], ACCENT[3], t) end
 
+-- A big, full-width, pulsing green button for the one thing everyone should press (GO).
+-- Colours follow ui.noTheme; every push is popped even if the button itself fails.
+local function bigButton(label, cmd)
+  local rec = { c = 0, v = 0 }
+  if not ui.noTheme then
+    local p = 0.5 + 0.5 * math.sin((ui.t or 0) * 4)   -- gentle pulse so it catches the eye
+    pcall(pushColors, { Button = { 0.10 + 0.08 * p, 0.55 + 0.20 * p, 0.15 + 0.05 * p, 1 },
+                        ButtonHovered = { 0.25, 0.85, 0.30, 1 }, ButtonActive = { 0.05, 0.40, 0.10, 1 },
+                        Text = { 1, 1, 1, 1 } }, rec)
+    local pv = imGet("PushStyleVar1") or imGet("PushStyleVar")
+    local idx = imGet("StyleVar_FrameRounding")
+    if pv and idx ~= nil and pcall(pv, idx, 10) then rec.v = rec.v + 1 end
+  end
+  local width = -1   -- negative = stretch to the window's right edge
+  local okW, avail = pcall(function() return im.GetContentRegionAvail() end)
+  if okW and type(avail) ~= "number" and avail and tonumber(avail.x) and avail.x > 100 then width = avail.x end
+  local scaled = imGet("SetWindowFontScale") and pcall(im.SetWindowFontScale, 1.8) or false
+  local okB, clicked = pcall(im.Button, label, im.ImVec2(width, 80))
+  if scaled then pcall(im.SetWindowFontScale, 1) end
+  popTheme(rec)
+  if not okB then warn("big button: " .. tostring(clicked)); return button(label, cmd) end
+  if clicked then sendCmd(cmd); return true end
+  return false
+end
+
 -- Standings: a light sky-grey table with dark text so it stands out from the dark window
 local function drawStandings(d)
   local rows = d.standings or {}
@@ -1548,7 +1573,9 @@ local function drawStatus(d)
       else button("I'm happy with my car - Ready!", "ready") end
     elseif d.phase == "travel" then
       if not me.arrived then txt("Drive to the start - follow the arrows.")
-      elseif d.allHere then button("GO! Start the countdown", "go")
+      elseif d.allHere then
+        colored(0.4, 1, 0.4, "Everyone's here!")
+        bigButton("GO! Start the countdown", "go")
       else txt("Waiting for everyone to arrive...") end
     elseif d.phase == "workshop" then
       for _, f in ipairs((d.faults or {}).mine or {}) do

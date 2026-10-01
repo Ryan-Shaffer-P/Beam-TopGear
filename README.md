@@ -204,7 +204,7 @@ server charges them, rejects unlisted cars and unaffordable ones, and refunds if
 delete it. `/tg ready` from everyone (or admin `/tg next`) closes the dealership.
 
 Each leg: drive to the event. Nothing starts until every racer has arrived; then any
-racer types `/tg go` (everyone must be at the start line) and a 5-second countdown runs
+racer presses the big green **GO!** button in the Status tab (or types `/tg go`; everyone must be at the start line) and a 5-second countdown runs
 (`defaults.countdown` in config.json). Then: event → results/prize money → (workshop) →
 next leg → … → finale → standings.
 Admin `/tg next` forces the current phase to end (e.g. someone is stuck: players who
