@@ -35,7 +35,7 @@ local RESET_ACTIONS = {
 local VEHSEL_ACTIONS = { "vehicle_selector" }
 local PARTS_ACTIONS  = { "parts_selector" }
 
-local VERSION = "0.9.0"
+local VERSION = "0.9.1"
 local recentErrors = {}
 local function warn(msg)
   log("W", "topgear", tostring(msg))
@@ -1473,7 +1473,7 @@ local function drawDriverButtons(d, me)
   end
   notes[#notes + 1] = "Tow and Respawn need two clicks"
   if (d.helpPoints or 0) > 0 then
-    notes[#notes + 1] = string.format("Tow/Respawn price = repair x markup + fee, and -%s pt each", tostring(d.helpPoints))
+    notes[#notes + 1] = string.format("Tow/Respawn price = repair x markup + fee, and -%g pt%s each", d.helpPoints, d.helpPoints == 1 and "" or "s")
   end
   if (me.tows or 0) + (me.respawns or 0) > 0 then
     notes[#notes + 1] = string.format("So far: %d tow%s, %d respawn%s", me.tows or 0, me.tows == 1 and "" or "s",
@@ -1962,7 +1962,9 @@ local function drawResults(d)
     elseif nr == 0 then row[#row + 1] = string.format("%d (%s)", nt, commas(r.towCost))
     else row[#row + 1] = string.format("%d + %d respawn%s (%s)", nt, nr, nr == 1 and "" or "s", commas(r.towCost)) end
     row[#row + 1] = (r.resets or 0) > 0 and string.format("%d (%s)", r.resets, commas(r.fines)) or "0"
-    row[#row + 1] = string.format("%.1f", r.drivability or 0)
+    local insp = {}
+    for _, sc in ipairs(r.inspections or {}) do insp[#insp + 1] = string.format("%g", sc) end
+    row[#row + 1] = string.format("%.1f", r.drivability or 0) .. (#insp > 1 and (" (" .. table.concat(insp, "/") .. ")") or "")
     row[#row + 1] = string.format("%.1f", r.points or 0)
     row[#row + 1] = commas(r.cash)
     cells[#cells + 1] = row
@@ -1994,8 +1996,11 @@ local function drawResults(d)
   im.Separator()
   txt("How the points add up:")
   for _, r in ipairs(rows) do
-    txt(string.format("  %s: %g from events + %.1f drivability%s = %.1f   (%d win%s)", r.name, r.eventPoints or 0,
-      r.drivability or 0, (r.penalty or 0) > 0 and string.format(" - %g penalties (resets, tows, respawns)", r.penalty) or "",
+    local n = #(r.inspections or {})
+    txt(string.format("  %s: %g from events + %.1f drivability%s%s%s = %.1f   (%d win%s)", r.name, r.eventPoints or 0,
+      r.drivability or 0, n > 1 and string.format(" (average of %d inspections)", n) or "",
+      (r.penalty or 0) > 0 and string.format(" - %g penalties", r.penalty) or "",
+      (r.awards or 0) ~= 0 and string.format(" %s %g from the producers", r.awards > 0 and "+" or "-", math.abs(r.awards)) or "",
       r.points or 0, r.wins or 0, r.wins == 1 and "" or "s"))
   end
 end
