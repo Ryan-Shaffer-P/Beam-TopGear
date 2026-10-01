@@ -59,6 +59,23 @@ t.test("dealership: buy by spawning, buy from the window, ready up, leg 1 starts
   t.ok(a.client.path, "navigation arrows set")
   t.eq(a.client.path.x, 500, "arrows point at Race One's start")
   w:assertClean()
+
+  -- everyone at the start: the GO button is big (tall, full width, larger font) and starts the countdown
+  w:driveAll({ { a, F.p(500), 40 }, { b, F.p(500), 35 } })
+  w:step(2.5)
+  local go
+  for _, it in ipairs(im.items("Top Gear Challenge")) do
+    if it.kind == "button" and it.label == "GO! Start the countdown" then go = it end
+  end
+  t.ok(go, "GO button shown when everyone has arrived")
+  t.ok(go.size and go.size.y >= 60 and go.size.x < 0, "GO button is tall and full width")
+  local scaled = false
+  for _, it in ipairs(im.items("Top Gear Challenge")) do if it.kind == "fontscale" and it.scale > 1 then scaled = true end end
+  t.ok(scaled, "GO button uses a bigger font")
+  im.click("GO! Start the countdown")
+  w:step(1)
+  t.eq(w:state(a).phase, "countdown")
+  w:assertClean()
 end)
 
 t.test("over-budget and unlisted cars are refused", function()

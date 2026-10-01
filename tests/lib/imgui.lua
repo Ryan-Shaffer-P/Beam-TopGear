@@ -91,8 +91,8 @@ function M.new()
   function im.TextUnformatted(s) record({ kind = "text", text = tostring(s) }) end
   function im.Text(fmt, ...) record({ kind = "text", text = string.format(fmt, ...) }) end
   function im.TextColored(col, fmt, ...) record({ kind = "text", text = string.format(fmt, ...), color = col }) end
-  function im.Button(label)
-    record({ kind = "button", label = visible(label), id = label })
+  function im.Button(label, size)
+    record({ kind = "button", label = visible(label), id = label, size = size })
     return takeClick(label)
   end
   function im.Selectable1(label, selected)
