@@ -139,7 +139,7 @@ trailersave/trailercones/trailertest | fault test/testoff`. The ImGui window exp
 
 ## Open items
 
-From the last Desktop session (server 0.8.2 / client 0.8.1):
+From the last Desktop session (server 0.8.2 / client 0.8.1 - both now in the repo):
 - Colour theme broke the menu on Ryan's BeamNG; fail-safe shipped - waiting for the `/tg diag` theme line.
 - Start lights: fixed (window opened with a BoolPtr) - awaiting in-game confirmation.
 - Trailer: save now records every slot + tuning; awaiting confirmation that straps stay removed and the
@@ -148,6 +148,3 @@ From the last Desktop session (server 0.8.2 / client 0.8.1):
   auto-save to config.json (restarts used to lose unsaved course edits).
 - Hitch checks were removed by request; players fit hitches in workshops.
 
-**Repo vs Desktop mismatch (2026-09-30):** the GitHub upload has `SERVER_VERSION = "0.8.1"` and course
-edits only `markDirty()` (no auto-save), so it appears to predate server 0.8.2. Get the 0.8.2 `main.lua`
-from Ryan before building on the server.

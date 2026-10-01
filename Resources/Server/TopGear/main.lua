@@ -7,7 +7,7 @@
   In game, type /tg help.
 ]]
 
-local SERVER_VERSION = "0.8.1"
+local SERVER_VERSION = "0.8.2"
 local PLUGIN_DIR  = "Resources/Server/TopGear/"
 local CONFIG_PATH = PLUGIN_DIR .. "config.json"
 local COURSES_PATH = PLUGIN_DIR .. "courses.json"   -- saved course library
@@ -261,7 +261,11 @@ local function saveLibrary()
   if Util.JsonPrettify then s = Util.JsonPrettify(s) end
   return writeFile(COURSES_PATH, s)
 end
-local function markDirty() courseDirty = true end
+local function markDirty()
+  courseDirty = true
+  cfg.courseDirty = true
+  saveConfig()   -- write the working course now, so a server restart never loses edits
+end
 
 -- vectors ------------------------------------------------------------------
 local function v3(t)
@@ -2601,6 +2605,9 @@ ADMIN_CMDS.addevent = function(pid, _, args)
   if not TYPE_INFO[t] then say(pid, "Usage: /tg addevent <" .. table.concat(TYPE_ORDER, "|") .. "> [name]"); return end
   local name = table.concat(args, " ", 4)
   if name == "" then name = TYPE_INFO[t].name end
+  local base, n = name, 1
+  local function taken(nm) for _, e in ipairs(cfg.events) do if e.name == nm then return true end end return false end
+  while taken(name) do n = n + 1; name = base .. " " .. n end
   cfg.events[#cfg.events + 1] = { name = name, type = t, via = {}, checkpoints = {}, enabled = true, timeLimit = 600, ttMigrated = true }
   markDirty()
   say(pid, string.format("Added event %d: %s (%s). Drive out and place it in the course builder.", #cfg.events, name, TYPE_INFO[t].label:lower()))
@@ -2750,6 +2757,7 @@ local function applyCourse(name, course)
   cfg.workshopSpots = deepcopy(course.workshopSpots or {})
   cfg.activeCourse = name
   courseDirty = false
+  cfg.courseDirty = false
   saveConfig()
 end
 
@@ -2775,6 +2783,7 @@ COURSE_SUB.save = function(pid, name)
   library[name] = snapshotCourse()
   cfg.activeCourse = name
   courseDirty = false
+  cfg.courseDirty = false
   local ok = saveLibrary() and saveConfig()
   say(pid, ok and ("Course '" .. name .. "' saved.") or "Save FAILED - check the server console.")
 end
@@ -2801,7 +2810,7 @@ COURSE_SUB.delete = function(pid, name)
   if not found then say(pid, "No saved course called '" .. name .. "'."); return end
   library[found] = nil
   saveLibrary()
-  if cfg.activeCourse == found then courseDirty = true end
+  if cfg.activeCourse == found then markDirty() end
   say(pid, "Deleted saved course '" .. found .. "'" .. (cfg.activeCourse == found and " (still loaded - Save to keep it)." or "."))
 end
 
@@ -2926,7 +2935,7 @@ ADMIN_CMDS.save = function(pid)
 end
 ADMIN_CMDS.reload = function(pid)
   if game.phase ~= "idle" then say(pid, "Stop the challenge before reloading config."); return end
-  loadConfig(); courseDirty = false; say(pid, "config.json reloaded.")
+  loadConfig(); courseDirty = cfg.courseDirty == true; say(pid, "config.json reloaded.")
 end
 
 local function runCommand(pid, name, msg)
@@ -3039,6 +3048,7 @@ end
 -- Init (runs when the plugin loads)
 ---------------------------------------------------------------------------
 loadConfig()
+courseDirty = cfg.courseDirty == true
 loadLibrary()
 MP.RegisterEvent("onChatMessage",      "TG_onChat")
 MP.RegisterEvent("onPlayerJoin",       "TG_onPlayerJoin")
