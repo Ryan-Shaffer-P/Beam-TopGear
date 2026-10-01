@@ -12,7 +12,7 @@ Claude Desktop chats and moved to Claude Code on 2026-09-30.
 
 - `Resources/Server/TopGear/main.lua` — BeamMP **server** plugin (~3000 lines). Authoritative
   for all game state, money, scoring, phases, commands (`/tg ...`). Writes `config.json` and
-  `courses.json` next to itself at runtime (not in the repo).
+  `courses.json` next to itself at runtime.
 - `client/lua/ge/extensions/topgear.lua` — BeamNG **GE-Lua client** extension (~2000 lines).
   Displays state (HUD, ImGui window, start lights, nav arrows), blocks resets/menus, reads
   damage/parts/fuel, applies faults, moves cars for tow/unstick, spawns trailers.
@@ -20,7 +20,8 @@ Claude Desktop chats and moved to Claude Code on 2026-09-30.
 - `Resources/Client/topgear.zip` — **built artifact** sent to players. Rebuild after any client
   change: `cd client && rm -f ../Resources/Client/topgear.zip && zip -r ../Resources/Client/topgear.zip lua scripts -x '*luac.out' '*.DS_Store'`
 - `MP3s/` — sound clips, not yet wired into the mod.
-- `luac.out` (compiler output) and runtime `config.json`/`courses.json` are git-ignored.
+- `luac.out` (compiler output) and runtime `config.json` are git-ignored. `courses.json` (the
+  saved course library) is kept in the repo — copy it back from the server after building courses.
 
 ## Architecture notes
 

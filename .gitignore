@@ -6,4 +6,3 @@ luac.out
 
 # Written by the server plugin at runtime
 Resources/Server/TopGear/config.json
-Resources/Server/TopGear/courses.json
