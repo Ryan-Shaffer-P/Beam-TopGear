@@ -115,11 +115,12 @@ for the `/tg diag` "Client error" line or the matching `[TopGear]` server-consol
    that records frames, clicks buttons by label and checks push/pop balance. `w:assertClean()` fails on any
    handler error, server console error, client warn() or UI imbalance. Vehicle Lua (`queueLuaCommand`) runs
    in a per-car sandbox with fake engine/brakes/fuel/reset (`World:freshPhysics`); `queueGameEngineLua`
-   replies run in the client. Cargo-node positions (trailer load %) are stubbed.
-   Tests: `test_smoke.lua` (load, dealership, theme) and `test_session.lua` (full 5-event session, the
+   replies run in the client. Trailers with a load part get simulated bed/load nodes, so CARGO_VLUA really measures the load share.
+   Tests: `test_smoke.lua` (load, dealership, theme), `test_trailer.lua` (cones + prebuilt load, hitching via
+   `w:hitch`/`w:dropCargo`/`w:setLoad`, 70/30 scoring) and `test_session.lua` (full 5-event session, the
    successor of `sim13` - expected cash/points are hand-calculated in its comments; if a rule change
    moves them, recompute by hand rather than pasting the new output). Still to rebuild: workshop
-   parts billing/overdraft/dealership upgrades, trailer + lights, circuits, parking/slalom, course builder.
+   parts billing/overdraft/dealership upgrades, start lights, circuits, parking/slalom, course builder.
 4. Beware harness artifacts (wrong test coordinates, sequencing): say so explicitly when a failure is the
    test's fault, not the mod's.
 5. Real server: `docker compose -f server/compose.yaml restart`, then check `logs` for the

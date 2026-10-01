@@ -63,7 +63,7 @@ session (`workshopEvery`). The session is saved with the course. Chat: `/tg enab
 | Fragile delivery | everyone at once | time + 0.01 s per point of damage picked up | start + checkpoints |
 | Economy run | everyone at once | least fuel used (inside the time limit) | start + checkpoints |
 | Slalom | one at a time | time + 5 s per missed gate | start + gates |
-| Trailer delivery | everyone at once | time + 20 s per cargo item lost | start + checkpoints |
+| Trailer delivery | everyone at once | most points out of 100: 70 for the share of the load kept + 30 for speed | start + checkpoints |
 
 - **Starting lights:** every countdown shows F1-style lights at the top of the screen - five
   reds, one per second, then all out (green) for GO. One-at-a-time runs show the runner's name.
@@ -99,8 +99,8 @@ session (`workshopEvery`). The session is saved with the course. Chat: `/tg enab
   slot (so removed straps stay removed) and its tuning values (e.g. the crate's mass). Custom builds
   from the garage are fine. Every trailer event then spawns that exact
   trailer for everyone, with the load as part of it. Each player's game measures how much of the
-  load is still on the bed; the results show "72% of the load" and the lost share costs up to
-  100 s (5 x 20 s). `/tg trailertest` spawns it behind you and reports the load reading;
+  load is still on the bed; the results show e.g. "72% of the load". `/tg trailertest` spawns it
+  behind you and reports the load reading;
   `/tg trailercones` goes back to the empty trailer + loose cones below.
 - **Trailer (cones):** when you arrive at the start, a trailer (default `tsfb`, the small flatbed)
   appears 7 m behind your car with loose cargo on it (default 5 x `cones`). Reverse up and
@@ -115,6 +115,12 @@ session (`workshopEvery`). The session is saved with the course. Chat: `/tg enab
   needs 7 vehicle slots for this, so raise `MaxCars` in ServerConfig.toml.** Check the model
   names on your BeamNG version with the course builder's **Test trailer spawn** button
   (`/tg trailertest`, `/tg trailertest off`) and change them in `eventTypes.trailer` if needed.
+- **Trailer scoring:** out of 100 points, highest wins. **Load (70):** the share of the load still
+  with you at the finish - 72% of the load is 50.4 points (with cones: cones kept / cones given; a
+  trailer left behind keeps nothing). **Speed (30):** the fastest finisher's time divided by yours -
+  the fastest driver gets all 30, someone who takes twice as long gets 15. The results show both
+  parts, e.g. "3:05.20, 72% of the load: load 50.4 + speed 25.5 = 75.9 pts". Change the split with
+  `loadWeight` / `speedWeight` in `eventTypes.trailer` (they're scaled to 100 whatever they add up to).
 - All the scoring weights live in `config.json` under `eventTypes`.
 - Saved courses: any race named "Hill Climb" is converted to a time trial once, automatically.
 

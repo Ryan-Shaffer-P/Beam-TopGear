@@ -352,6 +352,10 @@ function World:clientSpawn(p, model, o)
               vel = vec3(0, 0, 0), yaw = 0, damage = 0,
               parts = { ["/body/"] = model .. "_body", ["/bumper_F/"] = model .. "_bumper_F", ["/bumper_R/"] = model .. "_bumper_R" },
               vars = { ["$tirepressure_F"] = 30, ["$tirepressure_R"] = 30 } }
+  if type(o.config) == "table" and type(o.config.parts) == "table" then   -- a config table (prebuilt trailer)
+    v.parts = copy(o.config.parts)
+    for k, val in pairs(o.config.vars or {}) do v.vars[k] = val end
+  end
   v.data = vehData(p, v)
   v.fuel = 60
   self:freshPhysics(p, v)
@@ -396,8 +400,31 @@ end
 
 -- Stock physics + a fresh vehicle-Lua state (what spawning or rebuilding a car gives you).
 local BRAKE_TORQUE = 1500
+-- Node positions relative to the vehicle, axis-aligned at yaw 0 (x forward, y left, z up).
+-- A vehicle with a "load"/"cargo" part gets a bed frame plus 10 load nodes on top of it, so the
+-- client's own CARGO_VLUA can measure how much of the load is still on the bed.
+local function buildNodes(v)
+  local nodes, pos = {}, {}
+  local function add(x, y, z, origin)
+    local cid = #nodes
+    nodes[#nodes + 1] = { cid = cid, partOrigin = origin }
+    pos[cid] = vec3(x, y, z)
+  end
+  local loadPart
+  for slot, part in pairs(v.parts) do
+    local sl = tostring(slot):lower()
+    if type(part) == "string" and part ~= "" and (sl:find("load") or sl:find("cargo")) then loadPart = part end
+  end
+  for _, x in ipairs({ -2, 2 }) do for _, y in ipairs({ -1, 1 }) do for _, z in ipairs({ 0, 0.5 }) do
+    add(x, y, z, v.model .. "_frame")
+  end end end
+  if loadPart then for i = 0, 9 do add(-1.5 + i / 3, 0, 0.8, loadPart) end end
+  v.nodes, v.nodePos, v.loadPart = nodes, pos, loadPart
+end
+
 function World:freshPhysics(p, v)
   local w = self
+  buildNodes(v)
   v.damage = 0
   v.engine = { outputTorqueState = 1 }
   v.wheels = {}
@@ -411,14 +438,14 @@ function World:freshPhysics(p, v)
     queueGameEngineLua = function(_, code) w.queue[#w.queue + 1] = { to = "ge", pid = p.pid, code = code } end,
     getDirectionVector = function() return vecmath.dirFromQuat(vecmath.quatFromYaw(v.yaw or 0)) end,
     getDirectionVectorUp = function() return vec3(0, 0, 1) end,
-    getNodePosition = function() return vec3(0, 0, 0) end,
+    getNodePosition = function(_, cid) return vec3(v.nodePos[cid] or vec3(0, 0, 0)) end,
   })
   sb.set("powertrain", { getDevice = function(name) if name == "mainEngine" then return v.engine end end })
   sb.set("wheels", { wheels = v.wheels })
   sb.set("energyStorage", { getStorages = function() return { mainTank = { remainingVolume = v.fuel } } end })
   sb.set("electrics", { values = {} })
   sb.set("beamstate", { activateAutoCoupling = function() v.autoCouple = true end, toggleCouplers = function() v.autoCouple = true end })
-  sb.set("v", { data = { nodes = {} } })
+  sb.set("v", { data = { nodes = v.nodes } })
   v.vlua = sb
 end
 
@@ -567,6 +594,10 @@ function World:driveAll(legs)
           local stepLen = math.min(len, leg.speed * frame)
           local dir = d:normalized()
           v.pos = v.pos + dir * stepLen
+          for vid in pairs(leg[1].followers or {}) do   -- a hitched trailer and whatever stays on it
+            local f = leg[1].vehicles[vid]
+            if f then f.pos = f.pos + dir * stepLen end
+          end
           v.vel = dir * leg.speed
           v.yaw = (math.atan2 or math.atan)(dir.y, dir.x)
           v.fuel = math.max(0, (v.fuel or 0) - stepLen * fuelPerMetre(leg.speed))
@@ -597,6 +628,35 @@ end
 function World:sawMessage(p, text)
   for _, m in ipairs(p.client.messages) do if m.msg:find(text, 1, true) then return true end end
   return false
+end
+
+-- the player's trailer and everything on it now follow their car (hitched; the load stays on)
+function World:hitch(p)
+  p.followers = {}
+  for vid, v in pairs(p.vehicles) do if v ~= p.current then p.followers[vid] = true end end
+end
+
+-- n loose cargo items fall off and stay where they are
+function World:dropCargo(p, n, model)
+  for vid in pairs(p.followers or {}) do
+    local v = p.vehicles[vid]
+    if n > 0 and v and v.model == (model or "cones") then p.followers[vid] = nil; n = n - 1 end
+  end
+  assert(n == 0, "not enough cargo to drop")
+end
+
+-- the share of a prebuilt trailer's load still on its bed (the rest slides off, far below the bed)
+function World:setLoad(p, frac)
+  local trailer
+  for _, v in pairs(p.vehicles) do if v.loadPart then trailer = v end end
+  assert(trailer, p.name .. " has no trailer with a load")
+  local keep, i = math.floor(frac * 10 + 0.5), 0
+  for _, n in ipairs(trailer.nodes) do
+    if n.partOrigin == trailer.loadPart then
+      trailer.nodePos[n.cid] = (i < keep) and vec3(-1.5 + i / 3, 0, 0.8) or vec3(0, 0, -50)
+      i = i + 1
+    end
+  end
 end
 
 function World:damage(p, amount)

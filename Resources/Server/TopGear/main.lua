@@ -7,7 +7,7 @@
   In game, type /tg help.
 ]]
 
-local SERVER_VERSION = "0.8.2"
+local SERVER_VERSION = "0.8.3"
 local PLUGIN_DIR  = "Resources/Server/TopGear/"
 local CONFIG_PATH = PLUGIN_DIR .. "config.json"
 local COURSES_PATH = PLUGIN_DIR .. "courses.json"   -- saved course library
@@ -112,7 +112,7 @@ local DEFAULT_CONFIG = {
     { name = "The Slalom", type = "slalom", timeLimit = 240, enabled = false,
       description = "Through every gate. Each one you miss costs 5 seconds.", via = {}, checkpoints = {} },
     { name = "Trailer Delivery", type = "trailer", timeLimit = 900, enabled = false,
-      description = "Hitch up and deliver the load. Lost cargo costs 20 seconds a piece.", via = {}, checkpoints = {} },
+      description = "Hitch up and deliver the load. 70 points for the load you keep, 30 for speed.", via = {}, checkpoints = {} },
   },
 
   eventTypes = {   -- tuning for each event type
@@ -121,7 +121,8 @@ local DEFAULT_CONFIG = {
     fragile = { damageWeight = 0.01 },   -- seconds added per point of damage picked up
     slalom  = { gateRadius = 4, gatePenalty = 5 },
     trailer = { setup = nil,   -- saved with /tg trailersave: a prebuilt trailer whose load is part of it (replaces the cones)
-                trailerModel = "tsfb", cargoModel = "cones", cargoCount = 5, cargoPenalty = 20,
+                loadWeight = 0.7, speedWeight = 0.3,   -- score out of 100: share of the load kept + speed vs the fastest
+                trailerModel = "tsfb", cargoModel = "cones", cargoCount = 5,
                 cargoRadius = 5, hitchRadius = 15, trailerBack = 7, cargoSpacing = 0.7, cargoHeight = 0.8 },
   },
 
@@ -205,6 +206,9 @@ local function migrateEvents(events)
   for _, e in ipairs(events or {}) do
     if type(e.bay) == "table" and (type(e.bays) ~= "table" or #e.bays == 0) then
       e.bays, e.bay, changed = { e.bay }, nil, true
+    end
+    if e.type == "trailer" and e.description == "Hitch up and deliver the load. Lost cargo costs 20 seconds a piece." then
+      e.description, changed = "Hitch up and deliver the load. 70 points for the load you keep, 30 for speed.", true   -- 0.8.3 scoring
     end
     if not e.ttMigrated then
       e.ttMigrated = true
@@ -1213,7 +1217,8 @@ local function tickEvent()
   if game.solo then tickSolo(e) else tickTogether(e) end
 end
 
-local function finalizeScore(p, e)
+-- ctx = { bestTime = fastest finishing time in this event } (trailer speed score)
+local function finalizeScore(p, e, ctx)
   local r, tc = p.run, typeCfg(e.type)
   local t = r.time or 0
   if e.type == "speedtrap" then
@@ -1250,17 +1255,22 @@ local function finalizeScore(p, e)
     r.perf = string.format("%s + %d missed (+%d s) = %s", fmtTime(t), r.missed or 0, pen, fmtTime(r.score))
     r.short = fmtTime(r.score)
   elseif e.type == "trailer" then
-    local lost = (r.cargoTotal or 0) - (r.cargoLeft or 0)
-    local pen = math.floor(lost * (tc.cargoPenalty or 20) + 0.5)
-    r.score = t + pen
-    if r.cargoFrac then
-      local pct = math.floor(r.cargoFrac * 100 + 0.5)
-      r.perf = string.format("%s, %d%% of the load (+%d s) = %s", fmtTime(t), pct, pen, fmtTime(r.score))
-      r.short = string.format("%d%% %s", pct, fmtTime(r.score))
-    else
-      r.perf = string.format("%s, %d/%d cargo (+%d s) = %s", fmtTime(t), r.cargoLeft or 0, r.cargoTotal or 0, pen, fmtTime(r.score))
-      r.short = string.format("%d/%d %s", r.cargoLeft or 0, r.cargoTotal or 0, fmtTime(r.score))
-    end
+    -- out of 100: loadWeight x share of the load kept + speedWeight x (fastest time / your time). Highest wins.
+    local frac = r.cargoFrac
+    if frac == nil then frac = (r.cargoTotal or 0) > 0 and (r.cargoLeft or 0) / r.cargoTotal or 0 end
+    frac = math.max(0, math.min(1, frac))
+    local best = ctx and ctx.bestTime
+    local speed = (best and t > 0) and math.min(1, best / t) or 1
+    local lw, sw = math.max(0, tonumber(tc.loadWeight) or 0.7), math.max(0, tonumber(tc.speedWeight) or 0.3)
+    if lw + sw <= 0 then lw, sw = 0.7, 0.3 end
+    local loadPts, speedPts = 100 * lw / (lw + sw) * frac, 100 * sw / (lw + sw) * speed
+    local pts = loadPts + speedPts
+    r.score = -pts + t * 1e-9   -- higher points win; on an exact tie the faster run does
+    local pct = math.floor(frac * 100 + 0.5)
+    local load = r.cargoFrac and string.format("%d%% of the load", pct)
+                 or string.format("%d/%d cargo", math.floor(r.cargoLeft or 0), math.floor(r.cargoTotal or 0))
+    r.perf = string.format("%s, %s: load %.1f + speed %.1f = %.1f pts", fmtTime(t), load, loadPts, speedPts, pts)
+    r.short = string.format("%.1f pts (%d%%, %s)", pts, pct, fmtTime(t))
   elseif e.type == "circuit" then
     r.score = t
     r.perf = string.format("%s (%d laps, best lap %s)", fmtTime(t), r.lap or 1, fmtTime(r.bestLap or t))
@@ -1289,12 +1299,17 @@ finishEvent = function()
   local ranked, others = {}, {}
   for _, p in pairs(game.players) do
     if p.run.status == "finished" and (e.type ~= "speedtrap" or (p.run.best or 0) > 0) then
-      finalizeScore(p, e)
       ranked[#ranked + 1] = p
     else
       others[#others + 1] = p
     end
   end
+  local ctx = {}
+  for _, p in ipairs(ranked) do
+    local tm = tonumber(p.run.time)
+    if tm and tm > 0 then ctx.bestTime = math.min(ctx.bestTime or tm, tm) end
+  end
+  for _, p in ipairs(ranked) do finalizeScore(p, e, ctx) end
   table.sort(ranked, function(a, b) return a.run.score < b.run.score end)
   sayAll("===== RESULTS: " .. e.name .. " =====")
   for i, p in ipairs(ranked) do
