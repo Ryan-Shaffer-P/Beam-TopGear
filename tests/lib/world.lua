@@ -353,6 +353,8 @@ function World:clientSpawn(p, model, o)
               parts = { ["/body/"] = model .. "_body", ["/bumper_F/"] = model .. "_bumper_F", ["/bumper_R/"] = model .. "_bumper_R" },
               vars = { ["$tirepressure_F"] = 30, ["$tirepressure_R"] = 30 } }
   v.data = vehData(p, v)
+  v.fuel = 60
+  self:freshPhysics(p, v)
   local res = self:serverEvent("onVehicleSpawn", p.pid, vid, v.data)
   if res ~= nil and res ~= 0 then
     p.rejected = (p.rejected or 0) + 1
@@ -385,22 +387,63 @@ function World:clientEditConfig(p, change, respawn)
   if change.parts then v.parts = copy(change.parts) end
   if change.vars then for k, val in pairs(change.vars) do v.vars[k] = val end end
   if respawn == false then return end
-  v.damage = 0
+  self:freshPhysics(p, v)   -- a rebuild is a new vehicle Lua state with stock physics
   v.data = vehData(p, v)
   self:serverEvent("onVehicleEdited", p.pid, v.vid, v.data)
   self:serverEvent("onVehicleReset", p.pid, v.vid, "{}")
   if p.client then self:clientCall(p, "onVehicleSpawned", p.client.M.onVehicleSpawned, v.gid) end
 end
 
--- vehicle Lua sent with queueLuaCommand. Only the reset is simulated for now; the rest is recorded.
+-- Stock physics + a fresh vehicle-Lua state (what spawning or rebuilding a car gives you).
+local BRAKE_TORQUE = 1500
+function World:freshPhysics(p, v)
+  local w = self
+  v.damage = 0
+  v.engine = { outputTorqueState = 1 }
+  v.wheels = {}
+  for i = 0, 3 do v.wheels[i] = { brakeTorque = BRAKE_TORQUE } end
+  local sb = sandbox.new({ label = "vlua:" .. p.name .. ":" .. v.model, allowWrite = function() return true end })
+  sb.declare("tgFaults")
+  sb.set("vec3", vec3)
+  sb.set("RESET_PHYSICS", 1)
+  sb.set("obj", {
+    requestReset = function() w:vehicleReset(p, v) end,
+    queueGameEngineLua = function(_, code) w.queue[#w.queue + 1] = { to = "ge", pid = p.pid, code = code } end,
+    getDirectionVector = function() return vecmath.dirFromQuat(vecmath.quatFromYaw(v.yaw or 0)) end,
+    getDirectionVectorUp = function() return vec3(0, 0, 1) end,
+    getNodePosition = function() return vec3(0, 0, 0) end,
+  })
+  sb.set("powertrain", { getDevice = function(name) if name == "mainEngine" then return v.engine end end })
+  sb.set("wheels", { wheels = v.wheels })
+  sb.set("energyStorage", { getStorages = function() return { mainTank = { remainingVolume = v.fuel } } end })
+  sb.set("electrics", { values = {} })
+  sb.set("beamstate", { activateAutoCoupling = function() v.autoCouple = true end, toggleCouplers = function() v.autoCouple = true end })
+  sb.set("v", { data = { nodes = {} } })
+  v.vlua = sb
+end
+
+-- what a physics reset does: repairs the car, stock engine and brakes; the vehicle-Lua state survives
+function World:vehicleReset(p, v)
+  v.damage = 0
+  v.engine.outputTorqueState = 1
+  for _, wd in pairs(v.wheels) do wd.brakeTorque = BRAKE_TORQUE end
+  self:serverEvent("onVehicleReset", p.pid, v.vid, "{}")
+  if p.client then self:clientCall(p, "onVehicleResetted", p.client.M.onVehicleResetted, v.gid) end
+end
+
+-- vehicle Lua sent with queueLuaCommand runs (next frame, as in the game) in that car's own state
 function World:runVehicleLua(p, v, code)
   local c = p.client
   if c then c.vlua[#c.vlua + 1] = { gid = v.gid, code = code } end
-  if code:find("obj:requestReset%(RESET_PHYSICS%)") then
-    v.damage = 0
-    self:serverEvent("onVehicleReset", p.pid, v.vid, "{}")
-    if c then self:clientCall(p, "onVehicleResetted", c.M.onVehicleResetted, v.gid) end
-  end
+  self.queue[#self.queue + 1] = { to = "vlua", pid = p.pid, vid = v.vid, gid = v.gid, code = code }
+end
+
+-- a player gets round the reset lock (R / Insert): the game resets the car
+function World:resetCar(p)
+  assert(p.current, p.name .. " has no car")
+  self:vehicleReset(p, p.current)
+  self:pump()
+  self:step(0.25)
 end
 
 ---------------------------------------------------------------------------------------------
@@ -414,6 +457,19 @@ function World:pump()
     local m = table.remove(self.queue, 1)
     if m.to == "server" then
       self:serverEvent(m.ev, m.pid, m.data)
+    elseif m.to == "vlua" then
+      local p = self.players[m.pid]
+      local v = p and p.vehicles[m.vid]
+      if v and v.gid == m.gid then
+        local ok, err = xpcall(function() v.vlua.dostring(m.code, "=vlua") end, tb)
+        if not ok then self.errors[#self.errors + 1] = "vehicle Lua (" .. p.name .. "): " .. err end
+      end
+    elseif m.to == "ge" then
+      local p = self.players[m.pid]
+      if p and p.client then
+        local ok, err = xpcall(function() p.client.sb.dostring(m.code, "=queueGameEngineLua") end, tb)
+        if not ok then self.errors[#self.errors + 1] = "client " .. p.name .. " queueGameEngineLua: " .. err end
+      end
     else
       local p = self.players[m.pid]
       if p and p.client and (m.ev == "tg_ui" or m.ev == "tg_state") then
@@ -486,26 +542,61 @@ function World:place(p, pos, yaw)
   self:step(0.5)
 end
 
--- drive in a straight line at `speed` m/s (default 30), ticking the world as it goes
-function World:drive(p, to, speed)
-  local v = p.current
-  assert(v, p.name .. " has no car to drive")
-  speed = speed or 30
-  local target = vec3(to)
+-- litres per metre: rises with speed, so slower driving wins the economy run
+local function fuelPerMetre(speed) return 0.00005 + 0.000002 * speed * speed end
+
+-- drive several cars at once, each in a straight line at its own speed (m/s), ticking the world.
+--   w:driveAll({ { alice, {x=900}, 40 }, { bob, {x=900}, 35 } })
+function World:driveAll(legs)
   local frame = 0.25
-  while true do
-    local d = target - v.pos
-    local len = d:length()
-    if len < 0.01 then break end
-    local stepLen = math.min(len, speed * frame)
-    local dir = d:normalized()
-    v.pos = v.pos + dir * stepLen
-    v.vel = dir * speed
-    v.yaw = (math.atan2 or math.atan)(dir.y, dir.x)
-    self:step(frame)
+  for _, leg in ipairs(legs) do
+    assert(leg[1].current, leg[1].name .. " has no car to drive")
+    leg.target = vec3(leg[2])
+    leg.speed = leg[3] or 30
   end
-  v.vel = vec3(0, 0, 0)
+  local moving = true
+  while moving do
+    moving = false
+    for _, leg in ipairs(legs) do
+      local v = leg[1].current
+      if v then
+        local d = leg.target - v.pos
+        local len = d:length()
+        if len >= 0.01 then
+          moving = true
+          local stepLen = math.min(len, leg.speed * frame)
+          local dir = d:normalized()
+          v.pos = v.pos + dir * stepLen
+          v.vel = dir * leg.speed
+          v.yaw = (math.atan2 or math.atan)(dir.y, dir.x)
+          v.fuel = math.max(0, (v.fuel or 0) - stepLen * fuelPerMetre(leg.speed))
+        else
+          v.vel = vec3(0, 0, 0)
+        end
+      end
+    end
+    if moving then self:step(frame) end
+  end
   self:step(0.5)
+end
+
+-- drive one car in a straight line at `speed` m/s (default 30)
+function World:drive(p, to, speed) self:driveAll({ { p, to, speed } }) end
+
+-- step until cond() is true; fails after maxSeconds of game time
+function World:waitFor(cond, maxSeconds, what)
+  local waited = 0
+  while not cond() do
+    if waited >= (maxSeconds or 60) then error("timed out after " .. waited .. " s waiting for " .. (what or "a condition"), 2) end
+    self:step(0.25)
+    waited = waited + 0.25
+  end
+end
+
+-- did the game show this player a centre-screen message containing `text`? (ui_message)
+function World:sawMessage(p, text)
+  for _, m in ipairs(p.client.messages) do if m.msg:find(text, 1, true) then return true end end
+  return false
 end
 
 function World:damage(p, amount)
