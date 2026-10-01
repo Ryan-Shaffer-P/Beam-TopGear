@@ -34,7 +34,7 @@ local function start(w, A, model, faults, n)
   w:step(10)   -- applied: setup faults respawn the car, physics faults run in its Lua, the report comes back
 end
 
-t.test("faults are taken by number for $2,500 each, before or after buying; the limit is 3; taken is final", function()
+t.test("faults are taken by number for $2,500 each, before or after buying; the limit is 4; taken is final", function()
   local w = World.new({ files = F.files(F.twoRaces()) })
   local A, B = w:join("Alice"), w:join("Bob")
   w:chat(A, "/tg start")
@@ -49,8 +49,8 @@ t.test("faults are taken by number for $2,500 each, before or after buying; the 
   local e = A.current.engine
   t.ok(math.abs(e.outputTorqueState - 0.8) < 1e-9, "engine fault on the car")
   t.eq(A.current.wheels[0].brakeTorque, 1500 * 0.6, "brake fault on the car")
-  w:chat(A, "/tg fault take 2")
-  t.ok(w:chatHas(A, "That's over the limit - 3 faults per car (you have 2)."))
+  w:chat(A, "/tg fault take 3")
+  t.ok(w:chatHas(A, "That's over the limit - 4 faults per car (you have 2)."))
   w:chat(A, "/tg fault undo engine")
   t.ok(w:chatHas(A, "Taken faults are final"))
   t.eq(w:state(A).cash, 15000 - 4500)
@@ -227,9 +227,29 @@ t.test("saved configs with the old 5-fault menu get the 10 faults and the single
   local fl = w:serverConfig().faults
   t.eq(#fl.list, 10)
   t.eq(fl.payout, 2500)
+  t.eq(fl.maxPerCar, 4, "the old limit of 3 becomes 4")
   local byId = {}
   for _, f in ipairs(fl.list) do byId[f.id] = f end
   t.eq(byId.tires.factor, 0.5, "custom severity kept")
   t.eq(byId.engine.enabled, false, "switched-off fault stays off")
   t.ok(byId.fuelleak and byId.body and byId.ignition, "new faults added")
+end)
+
+t.test("up to four faults: four buttons at the dealership, and a car with all four", function()
+  local w = World.new({ files = F.files(F.twoRaces()) })
+  local A = w:join("Alice")
+  w:chat(A, "/tg start")
+  w:step(2.5)
+  for n = 1, 4 do t.ok(A.client.im.hasButton(string.format("Take %d%s (+$%s)", n, n == 1 and " fault" or " faults",
+    ({ "2,500", "5,000", "7,500", "10,000" })[n])), "button for " .. n) end
+  w:buy(A, "covet", "base_M")
+  pin(w, { "engine", "brakes", "cooling", "fuelleak" })
+  w:chat(A, "/tg fault take 4")
+  w:step(10)
+  t.eq(w:state(A).cash, 10000 - 4500 + 10000)
+  t.ok(math.abs(A.current.engine.outputTorqueState - 0.8) < 1e-9 and A.current.wheels[0].brakeTorque == 900, "engine + brakes")
+  t.ok(math.abs(A.current.radiatorDamage - 0.05) < 1e-9, "cooling")
+  w:step(2.5)
+  t.ok(A.client.im.textOf("Top Gear Challenge"):find("That's the limit.", 1, true), "no more buttons")
+  w:assertClean()
 end)

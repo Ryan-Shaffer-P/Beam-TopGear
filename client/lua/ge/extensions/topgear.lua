@@ -1388,14 +1388,14 @@ local function drawDealer(d)
     if im.Button("Return it for a full refund") then returnCar() end
   end
   local fl = d.faults
-  if fl and me and header("Problem cars - take faults for extra cash (" .. (fl.count or 0) .. "/" .. (fl.max or 3) .. ")##faults") then
+  if fl and me and header("Problem cars - take faults for extra cash (" .. (fl.count or 0) .. "/" .. (fl.max or 4) .. ")##faults") then
     txt(string.format("Each fault pays %s and raises your budget by the same. Which faults you get is picked at random", commas(fl.payout)))
     txt("from what your car can take, and stays hidden until a workshop diagnoses the car. Taken faults are final.")
     txt(string.format("A workshop fixes one for %s; each one left at the finale costs %s drivability.", commas(fl.fix), tostring(fl.points or 1)))
     if d.phase ~= "dealer" then
       txt("Faults can only be taken at the dealership.")
     else
-      local left = (fl.max or 3) - (fl.count or 0)
+      local left = (fl.max or 4) - (fl.count or 0)
       for n = 1, left do
         button(string.format("Take %d%s (+%s)##ft_%d", n, n == 1 and " fault" or " faults", commas(n * (fl.payout or 0)), n), "fault take " .. n)
         if n < left then same() end

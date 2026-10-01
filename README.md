@@ -360,7 +360,7 @@ Player commands: `/tg menu`, `/tg go`, `/tg unstick`, `/tg tow`, `/tg respawn`, 
 
 ## Problem cars (faults for cash)
 
-At the dealership each player can take **up to 3 faults for $2,500 each** - you choose *how many*,
+At the dealership each player can take **0 to 4 faults for $2,500 each** - you choose *how many*,
 not which. The money is paid at once and raises your dealership budget by the same amount, so you
 can take faults before buying to afford a better car. Which faults you get is drawn at random from
 the ones **your car can actually take**, when you buy it (swap or return the car at the dealership

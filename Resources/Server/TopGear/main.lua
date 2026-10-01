@@ -57,7 +57,7 @@ local DEFAULT_CONFIG = {
   faults = {
     enabled = true,
     payout = 2500,                -- paid for every fault taken (all faults pay the same)
-    maxPerCar = 3,
+    maxPerCar = 4,                -- a player takes 0 to this many
     fixMultiplier = 1.5,          -- workshop fix costs this x the payout
     inspectionPenaltyPoints = 1,  -- drivability points lost per unfixed fault at the finale
     list = {                      -- factor = severity (see README)
@@ -312,6 +312,10 @@ local function loadConfig()
         end
         cfg.faults.list = list
       end
+    end
+    if not cfg.migrations.faults4 then   -- 0.8.8: up to 4 faults per car (was 3)
+      cfg.migrations.faults4, changed = true, true
+      if cfg.faults and cfg.faults.maxPerCar == 3 then cfg.faults.maxPerCar = 4 end
     end
     if not cfg.migrations.roadside then   -- 0.8.6: repair price x markup + a smaller service fee, instead of a flat $2,000
       cfg.migrations.roadside, changed = true, true
@@ -2382,7 +2386,7 @@ PLAYER_CMDS.faults = function(pid)
   if not faultsOn() then say(pid, "Problem cars are switched off."); return end
   local p = playerByPid(pid)
   say(pid, string.format("PROBLEM CARS - take up to %d faults for %s each. They're picked at random from what your car can take, " ..
-    "stay hidden until a workshop diagnoses them, and can't be handed back.", cfg.faults.maxPerCar or 3, money(faultPayout())))
+    "stay hidden until a workshop diagnoses them, and can't be handed back.", cfg.faults.maxPerCar or 4, money(faultPayout())))
   say(pid, string.format("Fixing one in a workshop costs %s; each one still there at the finale costs %s drivability.",
     money(fixCost()), tostring(cfg.faults.inspectionPenaltyPoints or 0)))
   if p then
@@ -2429,7 +2433,7 @@ PLAYER_CMDS.fault = function(pid, name, args)
   if sub == "undo" then say(pid, "Taken faults are final - a workshop can fix them once it has diagnosed the car (/tg fix <id>)."); return end
   if sub ~= "take" then say(pid, "Usage: /tg fault take [how many]"); return end
   if game.phase ~= "dealer" then say(pid, "Faults can only be taken at the dealership."); return end
-  local max = cfg.faults.maxPerCar or 3
+  local max = cfg.faults.maxPerCar or 4
   local n = tonumber(args[4] or "1")
   if not n or n < 1 then say(pid, "Usage: /tg fault take [how many]"); return end
   n = math.floor(n)
@@ -3411,7 +3415,7 @@ local function buildUi(pid)
       mine = {}
       for _, id in ipairs(p.faults or {}) do local f = faultDef(id); mine[#mine + 1] = { id = id, name = f and f.name or id } end
     end
-    d.faults = { all = all, max = cfg.faults.maxPerCar or 3, count = p and faultsTaken(p) or 0, payout = faultPayout(),
+    d.faults = { all = all, max = cfg.faults.maxPerCar or 4, count = p and faultsTaken(p) or 0, payout = faultPayout(),
                  fix = fixCost(), revealed = (p and p.faultsRevealed) and true or false, mine = mine,
                  points = cfg.faults.inspectionPenaltyPoints or 0 }
   end
