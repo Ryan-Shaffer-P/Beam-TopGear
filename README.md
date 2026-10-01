@@ -306,6 +306,14 @@ Player commands: `/tg menu`, `/tg go`, `/tg unstick`, `/tg tow`, `/tg respawn`, 
   part/tuning change is put back by the game (any damage that rebuild wiped is billed as a repair) -
   the server never cancels an edit, because BeamMP removes the car when it does. At the dealership - upgrades are billed like a workshop, paint is free, and returning the
   car refunds its upgrades with it. Swapping to another stock trim is priced as a trim, not as parts.
+  **Parts tab (price list + Fit):** the Top Gear window's **Parts** tab lists every slot on your
+  car with every part that fits it and what fitting it would cost you - the price shown is what
+  you're charged. At the dealership and in a workshop each option has a **Fit** button (it installs
+  the part like the game's parts menu and is billed the same way); everywhere else the tab is a
+  read-only price list. Upgrades cost the difference to the part you have; a cheaper part refunds
+  half the difference; looks-only parts say "free"; options beyond your overdraft limit are marked
+  and can't be fitted. Parts that come with a part (an engine's own intake, say) are billed too.
+  BeamNG's own parts menu still works as before. **Refresh the list** re-reads the car.
   How the bill works:
   - **Parts:** after every rebuild, your own game compares the car's parts before and after and
     tells the server exactly what changed (it reads both the old flat parts list and the newer
@@ -313,12 +321,15 @@ Player commands: `/tg menu`, `/tg go`, `/tg unstick`, `/tg tow`, `/tg respawn`, 
     mode's parts shop uses - the moment they're fitted (removing one refunds half). If the game
     can't read a part's price, a flat `workshop.flatPartPrice` ($500) is charged instead.
     `/tg partsdiag` shows what your game reports: how many parts it found, in which format, and
-    how many have a price.
+    how many have a price - and whether the Parts tab can list your car (and how).
   - **Labour:** $300, once per workshop, on your first real part change.
   - **Overdraft:** workshop and dealership spending (parts, labour, repairs, fault fixes) can take
     a driver up to $1,500 into the red (`workshop.creditLimit`). Anything that would go further is
     refused - a part is taken straight back off the car, nothing charged. Prize money pays it off.
-  - **Free:** paint, skins/liveries, decals, plates, mirrors, lights, trim, interior, and tuning.
+  - **Free (looks only):** paint, skins/liveries, decals, plates, badges, mirrors, lights, trim,
+    bumpers, lips, side skirts, fender flares, grilles, body kits, the whole interior (seats, dash,
+    gauges, steering wheel...), and tuning. **Always billed:** wings, spoilers and hoods - they change
+    downforce or weight - and every performance part. Decided by the part's slot.
   - **Repairs:** changing parts rebuilds the car in BeamNG, which repairs it. Whenever a car's
     damage drops to near zero in a workshop (for any reason), that repair is billed at the
     normal repair price. Paint never changes damage, so it's never billed.

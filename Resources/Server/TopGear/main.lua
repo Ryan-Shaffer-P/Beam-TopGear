@@ -7,7 +7,7 @@
   In game, type /tg help.
 ]]
 
-local SERVER_VERSION = "0.8.6"
+local SERVER_VERSION = "0.8.7"
 local PLUGIN_DIR  = "Resources/Server/TopGear/"
 local CONFIG_PATH = PLUGIN_DIR .. "config.json"
 local COURSES_PATH = PLUGIN_DIR .. "courses.json"   -- saved course library
@@ -751,15 +751,7 @@ local function costNote(fee, repair)
   if repair <= 0 then return money(fee) end
   return string.format("%s: repair %s + fee %s", money(fee + repair), money(repair), money(fee))
 end
--- slots whose parts are cosmetic (free in the workshop) or managed by the mod (bumpers)
-local FREE_SLOT_WORDS = { "skin", "paint", "livery", "decal", "sticker", "plate", "license", "licence", "badge",
-  "mirror", "trim", "interior", "seat", "steering_wheel", "dash", "hubcap", "wheelcover", "light", "lamp",
-  "antenna", "mudflap", "horn", "glass", "window", "wiper", "bumper" }
-local function isFreeSlot(slot)
-  slot = tostring(slot):lower()
-  for _, w in ipairs(FREE_SLOT_WORDS) do if slot:find(w, 1, true) then return true end end
-  return false
-end
+-- (which parts are free - looks only - is decided on the client: isFreeSlot in topgear.lua)
 local function chargeLabour(p)
   if p.wsLabour then return end
   p.wsLabour = true
@@ -3166,6 +3158,11 @@ function TG_onPartsDiag(pid, data)
   if not ok or type(t) ~= "table" then return end
   log("parts diag from " .. tostring(MP.GetPlayerName(pid)) .. ": " .. tostring(data):sub(1, 600))
   say(pid, string.format("Parts: %s found (%s format), %s with a price.", tostring(t.count), tostring(t.format), tostring(t.priced)))
+  if t.shopErr then say(pid, "Parts tab: can't list this car's parts - " .. tostring(t.shopErr))
+  elseif t.shopSlots then
+    say(pid, string.format("Parts tab: %s slots with options, %s parts listed (%s priced), via the %s.",
+      tostring(t.shopSlots), tostring(t.shopOptions), tostring(t.shopPriced), tostring(t.shopMethod)))
+  end
   for _, ex in ipairs(t.examples or {}) do say(pid, "  " .. tostring(ex)) end
   if t.err then say(pid, "  error: " .. tostring(t.err)) end
 end
@@ -3260,6 +3257,11 @@ local function buildUi(pid)
     gamePrices = cfg.dealer.useGamePrices and true or false, allHere = game.allHere and true or false,
     traffic = inTrafficMode(name),
     soundsOn = not soundsOff[name], soundClips = (cfg.sounds or {}).clips or {},
+    shop = p and {   -- the Parts tab prices options exactly the way TG_onRebuild bills them
+      markup = cfg.workshop.partsMarkup or 1, resale = cfg.workshop.resaleRate or 0.5,
+      flat = cfg.workshop.flatPartPrice or 500, labour = cfg.workshop.laborFee or 0,
+      labourPaid = p.wsLabour == true, credit = p.cash + (cfg.workshop.creditLimit or 1500),
+    } or nil,
   }
   if p then
     d.me = {

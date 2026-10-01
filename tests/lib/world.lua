@@ -33,6 +33,32 @@ local MODELS = {
   cones   = { brand = "",        name = "Cones", configs = { base = 10 } },
 }
 
+-- every car's fake part catalogue: slot key -> options { part name, game value (nil = no price), nice name }.
+-- The first option is what a new car has fitted ("" = the slot is empty).
+local function partCatalogue(model)
+  local m = model
+  return {
+    { key = "/body/",               options = { { m .. "_body", 0, "Body" } } },
+    { key = "/bumper_F/",           options = { { m .. "_bumper_F", 200, "Front bumper" } } },
+    { key = "/bumper_R/",           options = { { m .. "_bumper_R", 200, "Rear bumper" } } },
+    { key = "/" .. m .. "_engine/", options = { { m .. "_engine", 2000, "1.5L I4" }, { m .. "_engine_turbo", 3200, "1.5L I4 Turbo" } } },
+    { key = "/" .. m .. "_coilover_F/", options = { { m .. "_coilover_F", 400, "Stock front springs" }, { m .. "_coilover_F_sport", 1800, "Sport coilovers" } } },
+    { key = "/" .. m .. "_spoiler/", options = { { "", 0 }, { m .. "_spoiler", 300, "Rear spoiler" } } },
+    { key = "/" .. m .. "_lip/",     options = { { "", 0 }, { m .. "_lip", 150, "Front lip" } } },
+    { key = "/" .. m .. "_seat_FL/", options = { { m .. "_seat", 100, "Stock seat" }, { m .. "_seat_race", 600, "Race seat" } } },
+    { key = "/" .. m .. "_hood/",    options = { { m .. "_hood", 250, "Stock hood" }, { m .. "_hood_fiberglass", 900, "Fiberglass hood" } } },
+    { key = "/" .. m .. "_odd/",     options = { { m .. "_odd", nil, "Odd part" }, { m .. "_odd_plus", nil, "Odd part plus" } } },
+  }
+end
+World.partCatalogue = partCatalogue
+local function catalogueIndex(model)   -- part name -> { value, nice, key }
+  local idx = {}
+  for _, sl in ipairs(partCatalogue(model)) do
+    for _, o in ipairs(sl.options) do if o[1] ~= "" then idx[o[1]] = { value = o[2], nice = o[3], key = sl.key } end end
+  end
+  return idx
+end
+
 local function copy(t)
   if type(t) ~= "table" then return t end
   local r = {}
@@ -223,7 +249,28 @@ function World:loadClient(p)
 
   sb.set("require", function(name)
     if name == "ffi" then return { string = function(buf) return buf.value end } end
-    if name == "jbeam/io" then return { getPart = function() return nil end } end
+    if name == "jbeam/io" then
+      return {
+        getPart = function(ioCtx, partName)
+          local e = ioCtx and catalogueIndex(ioCtx.model)[partName]
+          if not e then return nil end
+          return { partName = partName, information = { name = e.nice, value = e.value } }
+        end,
+        getAvailableParts = function(ioCtx)
+          local out = {}
+          for n, e in pairs(catalogueIndex(ioCtx.model)) do out[n] = { description = e.nice or "" } end
+          return out
+        end,
+        getAvailableSlotMap = (not c.noSlotMap) and function(ioCtx)
+          local out = {}
+          for _, sl in ipairs(partCatalogue(ioCtx.model)) do
+            out[sl.key] = {}
+            for _, o in ipairs(sl.options) do if o[1] ~= "" then out[sl.key][#out[sl.key] + 1] = o[1] end end
+          end
+          return out
+        end or nil,
+      }
+    end
     error("module '" .. tostring(name) .. "' not available in the test game")
   end)
 
@@ -271,9 +318,30 @@ function World:loadClient(p)
       return { model = { Brand = m.brand, Name = m.name }, configs = configs }
     end,
   })
+  -- c.partsFormat = "tree": the newer parts-tree format (each slot node lists the parts that fit it)
+  local function treeOf(v)
+    local root = { path = "/", chosenPartName = v.model, children = {} }
+    for _, sl in ipairs(partCatalogue(v.model)) do
+      if v.parts[sl.key] ~= nil then
+        local fits = {}
+        for _, o in ipairs(sl.options) do if o[1] ~= "" then fits[#fits + 1] = o[1] end end
+        root.children[sl.key:match("([^/]+)/?$")] = { path = sl.key, chosenPartName = v.parts[sl.key], suitablePartNames = fits }
+      end
+    end
+    for key, part in pairs(v.parts) do   -- parts outside the catalogue (e.g. a trailer's load)
+      local leaf = key:match("([^/]+)/?$") or key
+      if not root.children[leaf] then root.children[leaf] = { path = key, chosenPartName = part } end
+    end
+    return root
+  end
   sb.set("core_vehicle_manager", { getVehicleData = function(gid)
     for _, v in pairs(p.vehicles) do
-      if v.gid == gid then return { chosenParts = copy(v.parts), vdata = { activeParts = {}, variables = {} }, config = { parts = copy(v.parts) } } end
+      if v.gid == gid then
+        if c.partsFormat == "tree" then
+          return { ioCtx = { model = v.model }, vdata = { activeParts = {}, variables = {} }, config = { partsTree = treeOf(v) } }
+        end
+        return { ioCtx = { model = v.model }, chosenParts = copy(v.parts), vdata = { activeParts = {}, variables = {} }, config = { parts = copy(v.parts) } }
+      end
     end
     return nil
   end })
@@ -281,9 +349,22 @@ function World:loadClient(p)
     getConfig = function()
       local v = p.current
       if not v then return nil end
+      if c.partsFormat == "tree" then return { partsTree = treeOf(v), vars = copy(v.vars) } end
       return { parts = copy(v.parts), vars = copy(v.vars) }
     end,
     setPartsConfig = function(parts, respawn) w:clientEditConfig(p, { parts = parts }, respawn) end,
+    setPartsTreeConfig = function(tree, respawn)
+      local v = p.current
+      if not v then return end
+      local parts = copy(v.parts)
+      local function walk(n)
+        if type(n) ~= "table" then return end
+        if n.path and n.path ~= "/" and n.chosenPartName ~= nil then parts[n.path] = n.chosenPartName end
+        for _, ch in pairs(n.children or {}) do walk(ch) end
+      end
+      walk(tree)
+      w:clientEditConfig(p, { parts = parts }, respawn)
+    end,
     setConfigVars = function(vars, respawn) w:clientEditConfig(p, { vars = vars }, respawn) end,
   })
 
@@ -372,7 +453,11 @@ function World:clientSpawn(p, model, o)
   local v = { vid = vid, gid = gid, model = model, configName = cfgName, configPath = cfgPath,
               pos = o.pos and vec3(o.pos) or (p.current and vec3(p.current.pos) or vec3(p.spawnPos)),
               vel = vec3(0, 0, 0), yaw = 0, damage = 0,
-              parts = { ["/body/"] = model .. "_body", ["/bumper_F/"] = model .. "_bumper_F", ["/bumper_R/"] = model .. "_bumper_R" },
+              parts = (function()
+                local parts = {}
+                for _, sl in ipairs(partCatalogue(model)) do parts[sl.key] = sl.options[1][1] end
+                return parts
+              end)(),
               vars = { ["$tirepressure_F"] = 30, ["$tirepressure_R"] = 30 } }
   if type(o.config) == "table" and type(o.config.parts) == "table" then   -- a config table (prebuilt trailer)
     v.parts = copy(o.config.parts)

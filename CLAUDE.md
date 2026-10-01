@@ -123,7 +123,7 @@ for the `/tg diag` "Client error" line or the matching `[TopGear]` server-consol
    handler error, server console error, client warn() or UI imbalance. Vehicle Lua (`queueLuaCommand`) runs
    in a per-car sandbox with fake engine/brakes/fuel/reset (`World:freshPhysics`); `queueGameEngineLua`
    replies run in the client. Trailers with a load part get simulated bed/load nodes, so CARGO_VLUA really measures the load share.
-   Tests: `test_smoke.lua` (load, dealership, theme), `test_flag.lua` (finish flag), `test_traffic.lua` (admin traffic mode), `test_modes.lua` (race/time trial mode), `test_speedtrap.lua` (one run), `test_sounds.lua` (sound bites; the fake Engine.Audio checks the .ogg exists), `test_roadside.lua` (tow/respawn/unstick pricing), `test_trailer.lua` (cones + prebuilt load, hitching via
+   Tests: `test_smoke.lua` (load, dealership, theme), `test_flag.lua` (finish flag), `test_traffic.lua` (admin traffic mode), `test_modes.lua` (race/time trial mode), `test_speedtrap.lua` (one run), `test_sounds.lua` (sound bites; the fake Engine.Audio checks the .ogg exists), `test_roadside.lua` (tow/respawn/unstick pricing), `test_parts.lua` (Parts tab; fake catalogue `World.partCatalogue`, `c.partsFormat = "tree"`), `test_trailer.lua` (cones + prebuilt load, hitching via
    `w:hitch`/`w:dropCargo`/`w:setLoad`, 70/30 scoring) and `test_session.lua` (full 5-event session, the
    successor of `sim13` - expected cash/points are hand-calculated in its comments; if a rule change
    moves them, recompute by hand rather than pasting the new output). Still to rebuild: workshop
@@ -195,27 +195,21 @@ applied to every car in a group. Each new fault needs an in-game check of the Be
 extend `/tg fault test` into a per-model capability report first; the test harness's vehicle Lua fakes
 (`World:freshPhysics`) need matching fakes.
 
-### 4. Upgrade prices: a price list before fitting, and cosmetic parts free
-Now: BeamNG's own parts menu fits a part immediately (the car rebuilds) and shows no price. After the
-rebuild the client diffs the parts (`checkRebuild`) and the server bills the change (`TG_onRebuild`:
-part value from jbeam `information.value`, $500 flat if unknown, $300 labour once per workshop).
-"Free" is decided only by keywords in the SLOT name (`FREE_SLOT_WORDS`, duplicated in client and server:
-skin, paint, interior, seat, mirror, bumper...) - so body-kit slots (spoiler, wing, fender, hood, skirt,
-lip, diffuser, grille, flares...) and interior slots without those words are billed.
-Wanted: cosmetic parts free (body kits, interior), and a price list players see BEFORE fitting.
-Options to discuss: (a) a better free/billed classifier (more words, the part's own jbeam category /
-slotType / `information.name`, a config list of extra free words; one shared list), (b) a "Parts price
-list" in the TG window - every slot of the current car with its options, price and free/billed, read from
-the game's part data (API unverified: `core_vehicle_manager.getVehicleData` ioCtx + `jbeam/io`,
-`core_vehicle_partmgmt` slot options), (c) a full in-window parts shop (pick a part, see the price, Buy
-fits it via `setPartsConfig`) - the only way to truly confirm before paying, since the game's own menu
-can't be intercepted. `/tg partsdiag` already shows what the game reports about prices.
+### 4. Upgrade prices - DONE in 0.8.7
+Parts tab (client `buildCatalogue` / `quote` / `fitPart` / `drawParts`): lists slots from the parts tree's
+`suitablePartNames` or `jbeam/io.getAvailableSlotMap`, names from `getAvailableParts`, prices from
+`getPart(...).information.value`; quotes mirror `TG_onRebuild` (difference x `partsMarkup`, refunds x
+`resaleRate`, unknown price = `flatPartPrice`; server sends these in `d.shop`); Fit uses
+`setPartsConfig` / `setPartsTreeConfig`, so billing is the normal rebuild diff. Free/billed = client
+`isFreeSlot` only (free words anywhere in the slot path; "wing/spoiler/hood/bonnet" in the slot's own name =
+billed; "mirror" always free). Needs in-game confirmation: does the tab list a real car (`/tg partsdiag`)?
 
 ## Waiting for in-game confirmation (this session's features)
 - Finish flag: does the checkered flag draw (draw list rects) and is the FINISH text big (SetWindowFontScale)?
 - Sounds: which `/tg soundtest` method is audible (`/tg soundtest next` cycles; `/tg diag` shows it).
 - Unstick on Ryan's BeamNG repairs the car - confirm it's now billed ("Unstick repaired your car...").
 - Traffic mode: AI traffic and parked cars accepted; raise `MaxCars` on the real server.
+- Parts tab: lists your car's parts and Fit works (`/tg partsdiag` shows the Parts tab line).
 
 ## Open items
 

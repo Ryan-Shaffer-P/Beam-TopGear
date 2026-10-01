@@ -14,6 +14,7 @@ local addLog                                                 -- window log, defi
 local lights = { clock = 0, goUntil = nil, wasOn = false, who = nil, test = nil, openPtr = nil, errored = false }
 local flag   = { clock = 0, untilT = nil, title = nil, detail = nil, pinned = false, openPtr = nil, errored = false }
 local sound  = { idx = 1, method = nil, warned = false }   -- which way of playing sounds works on this game
+local shop   = { cat = nil, tried = nil, err = nil }        -- the Parts tab's catalogue of the current car
 local ui          = { open = false, data = nil, log = {}, reqTimer = 0, t = 0, sel = 1, confirm = {}, player = nil, failed = {} }
 local stateAge    = 0
 local registered  = false
@@ -33,7 +34,7 @@ local RESET_ACTIONS = {
 local VEHSEL_ACTIONS = { "vehicle_selector" }
 local PARTS_ACTIONS  = { "parts_selector" }
 
-local VERSION = "0.8.6"
+local VERSION = "0.8.7"
 local recentErrors = {}
 local function warn(msg)
   log("W", "topgear", tostring(msg))
@@ -76,14 +77,28 @@ local function getDamage(v)
   return (o and o.damage) or 0
 end
 
+-- Workshop billing: parts that only change the looks are free; everything else costs its game value.
+-- Decided by the slot: a free word anywhere in the slot's name/path makes it free (so everything inside
+-- "interior" is free), but a billed word in the slot's OWN name always means billed - wings, spoilers and
+-- hoods change downforce or weight, so a "lip spoiler" or a "fiberglass hood" is paid for.
 local FREE_SLOT_WORDS = { "skin", "paint", "livery", "decal", "sticker", "plate", "license", "licence", "badge",
-  "mirror", "trim", "interior", "seat", "steering_wheel", "dash", "hubcap", "wheelcover", "light", "lamp",
-  "antenna", "mudflap", "horn", "glass", "window", "wiper", "bumper" }
+  "emblem", "logo", "mirror", "trim", "interior", "seat", "steering_wheel", "steeringwheel", "dash", "gauge",
+  "carpet", "door_panel", "doorpanel", "headliner", "visor", "radio", "speaker", "accessor", "hubcap",
+  "wheelcover", "light", "lamp", "antenna", "mudflap", "horn", "glass", "window", "wiper", "bumper",
+  "lip", "skirt", "flare", "fender", "grille", "grill", "bodykit", "body_kit" }
+local BILLED_SLOT_WORDS = { "wing", "spoiler", "hood", "bonnet" }
+local function slotLeaf(slot)   -- "/covet_body/covet_spoiler/" -> "covet_spoiler"
+  slot = tostring(slot or "")
+  return slot:match("([^/]+)/?$") or slot
+end
 local function isFreeSlot(slot)
-  slot = tostring(slot or ""):lower()
-  for _, w in ipairs(FREE_SLOT_WORDS) do if slot:find(w, 1, true) then return true end end
+  local full, leaf = tostring(slot or ""):lower(), slotLeaf(slot):lower()
+  if leaf:find("mirror", 1, true) then return true end   -- a wing mirror is a mirror, not a wing
+  for _, w in ipairs(BILLED_SLOT_WORDS) do if leaf:find(w, 1, true) then return false end end
+  for _, w in ipairs(FREE_SLOT_WORDS) do if full:find(w, 1, true) then return true end end
   return false
 end
+M.isFreeSlot = isFreeSlot   -- for tests
 
 -- Sum of jbeam "information.value" over the car's installed parts.
 -- Used to bill workshop upgrades. Returns nil if this game version doesn't expose it.
@@ -1552,6 +1567,178 @@ local function drawResults(d)
   end
 end
 
+-- Parts tab -------------------------------------------------------------------------
+-- Every slot on the player's car with the parts that fit it and what fitting each would cost - built the
+-- way career mode's parts shop does it: the parts tree's suitablePartNames (0.31+) or jbeam/io's slot map,
+-- names from getAvailableParts, prices from each part's information.value (the value billing uses too).
+local function niceSlotName(key, model)
+  local leaf = slotLeaf(key)
+  if model and leaf:sub(1, #model + 1) == model .. "_" then leaf = leaf:sub(#model + 2) end
+  leaf = leaf:gsub("_", " ")
+  return (leaf:gsub("^%l", string.upper))
+end
+
+local function buildCatalogue(car)
+  local jbeamIO = require("jbeam/io")
+  local vd = core_vehicle_manager.getVehicleData(car:getID())
+  if not (vd and vd.ioCtx) then error("no vehicle data for this car", 0) end
+  local model = car:getJBeamFilename()
+  local names = {}
+  pcall(function()
+    for n, desc in pairs(jbeamIO.getAvailableParts(vd.ioCtx) or {}) do
+      if type(desc) == "table" and type(desc.description) == "string" and desc.description ~= "" then names[n] = desc.description end
+    end
+  end)
+  local slots, method = {}, nil
+  local tree = vd.config and vd.config.partsTree
+  if type(tree) == "table" then   -- newer versions: each slot node lists the parts that fit it
+    local function walk(node)
+      if type(node) ~= "table" then return end
+      if type(node.path) == "string" and type(node.suitablePartNames) == "table" and #node.suitablePartNames > 0 then
+        slots[#slots + 1] = { key = node.path, chosen = node.chosenPartName or "", options = node.suitablePartNames }
+      end
+      for _, child in pairs(node.children or {}) do walk(child) end
+    end
+    walk(tree)
+    if #slots > 0 then method = "parts tree" end
+  end
+  if #slots == 0 and jbeamIO.getAvailableSlotMap then   -- older versions: the career shop's slot map
+    local slotMap = jbeamIO.getAvailableSlotMap(vd.ioCtx) or {}
+    local parts = readParts(car)
+    for key, chosen in pairs(parts) do
+      local list = slotMap[key] or slotMap[slotLeaf(key)]
+      if type(list) == "table" and #list > 0 then slots[#slots + 1] = { key = key, chosen = chosen or "", options = list } end
+    end
+    if #slots > 0 then method = "slot map" end
+  end
+  if #slots == 0 then error("couldn't list this car's parts on this BeamNG version", 0) end
+
+  local prices = {}
+  local function price(name)   -- nil = the game has no price for it
+    if name == "" then return 0 end
+    if prices[name] == nil then
+      local ok, part = pcall(jbeamIO.getPart, vd.ioCtx, name)
+      prices[name] = (ok and type(part) == "table" and part.information and tonumber(part.information.value)) or false
+    end
+    return prices[name] or nil
+  end
+  local out = {}
+  for _, sl in ipairs(slots) do
+    local e = { key = sl.key, name = niceSlotName(sl.key, model), chosen = sl.chosen, free = isFreeSlot(sl.key),
+                chosenName = sl.chosen == "" and "(empty)" or (names[sl.chosen] or sl.chosen), chosenPrice = price(sl.chosen), options = {} }
+    for _, n in ipairs(sl.options) do
+      if type(n) == "string" and n ~= "" then e.options[#e.options + 1] = { part = n, name = names[n] or n, price = price(n) } end
+    end
+    table.sort(e.options, function(a, b)
+      if (a.price or 0) ~= (b.price or 0) then return (a.price or 0) < (b.price or 0) end
+      return a.name < b.name
+    end)
+    local others = 0
+    for _, o in ipairs(e.options) do if o.part ~= e.chosen then others = others + 1 end end
+    if others > 0 then out[#out + 1] = e end   -- only slots with something else to fit
+  end
+  table.sort(out, function(a, b) if a.free ~= b.free then return not a.free end return a.name < b.name end)
+  return { slots = out, method = method, carId = car:getID(), model = model }
+end
+
+-- what fitting `opt` in slot `e` costs, the way the server bills it: the difference in value, x markup
+-- for an upgrade, x resale for a cheaper part (a refund); a part with no game price counts as flatPartPrice
+local function quote(e, opt, sh)
+  if e.free then return 0, "free" end
+  local delta
+  if e.chosenPrice == nil or opt.price == nil then delta = sh.flat or 500
+  else delta = opt.price - e.chosenPrice end
+  if delta > 0 then
+    local cost = math.floor(delta * (sh.markup or 1) + 0.5)
+    return cost, "+" .. commas(cost) .. ((e.chosenPrice == nil or opt.price == nil) and " (no game price)" or "")
+  end
+  local refund = math.floor(-delta * (sh.resale or 0.5) + 0.5)
+  if refund == 0 then return 0, "no charge" end
+  return -refund, "refund " .. commas(refund)
+end
+
+-- fit a part through the game's own config functions; the rebuild that follows is billed like any part change
+local function fitPart(key, partName)
+  local ok, err = pcall(function()
+    local pm = core_vehicle_partmgmt
+    local conf = pm.getConfig() or {}
+    if type(conf.parts) == "table" and next(conf.parts) then
+      local parts = copyTable(conf.parts)
+      parts[key] = partName
+      pm.setPartsConfig(parts, true)
+    elseif type(conf.partsTree) == "table" and pm.setPartsTreeConfig then
+      local tree, found = copyTable(conf.partsTree), false
+      local function walk(n)
+        if type(n) ~= "table" or found then return end
+        if n.path == key then n.chosenPartName, n.children, found = partName, nil, true; return end   -- the game refills its sub-slots
+        for _, c in pairs(n.children or {}) do walk(c) end
+      end
+      walk(tree)
+      if not found then error("slot " .. tostring(key) .. " not found") end
+      pm.setPartsTreeConfig(tree, true)
+    else
+      error("can't read this car's configuration")
+    end
+  end)
+  shop.cat, shop.tried = nil, nil   -- the car changes: list it again
+  if not ok then
+    warn("fitting " .. tostring(partName) .. " failed: " .. tostring(err))
+    addLog("Couldn't fit that part here - use the game's parts menu instead.")
+  end
+end
+
+local function drawParts(d)
+  local car = getCar()
+  if not car then txt("No car out."); return end
+  if not (shop.cat and shop.cat.carId == car:getID()) and shop.tried ~= car:getID() then
+    shop.tried = car:getID()
+    local ok, res = pcall(buildCatalogue, car)
+    if ok then shop.cat, shop.err = res, nil
+    else shop.cat, shop.err = nil, sanitize(res); warn("parts list: " .. tostring(res)) end
+  end
+  local sh = d.shop or {}
+  local canFit = state.allowParts and true or false
+  if canFit then
+    colored(0.4, 1, 0.4, "Workshop open: click Fit. The price shown is what you're charged.")
+  else
+    colored(1, 0.8, 0.3, "Price list - parts can be fitted at the dealership or in a workshop.")
+  end
+  txt("Upgrades cost the difference to the part you have; a cheaper part refunds " ..
+    math.floor((sh.resale or 0.5) * 100 + 0.5) .. "% of the difference. Looks-only parts are free.")
+  if (sh.labour or 0) > 0 then
+    txt("Labour: " .. commas(sh.labour) .. " once per workshop" .. (sh.labourPaid and " (already paid)" or "") ..
+      ". Parts that come with a part (e.g. an engine's own intake) are billed too.")
+  end
+  if im.Button("Refresh the list##partsrefresh") then shop.cat, shop.tried = nil, nil end
+  if shop.err then colored(1, 0.4, 0.4, "Couldn't list your car's parts: " .. shop.err); return end
+  local cat = shop.cat
+  if not cat then return end
+  local inFree = nil
+  for _, e in ipairs(cat.slots) do
+    if inFree ~= e.free then
+      inFree = e.free
+      im.Separator()
+      heading(e.free and "LOOKS - FREE" or "PERFORMANCE PARTS")
+    end
+    if header(e.name .. "  -  " .. e.chosenName .. "##slot_" .. e.key) then
+      for _, o in ipairs(e.options) do
+        if o.part == e.chosen then
+          colored(0.6, 0.8, 1, "      (fitted)  " .. o.name)
+        else
+          local cost, label = quote(e, o, sh)
+          local over = cost > 0 and sh.credit and (cost + (sh.labourPaid and 0 or (sh.labour or 0))) > sh.credit
+          if canFit and not over then
+            if im.Button("Fit##fit_" .. e.key .. "_" .. o.part) then fitPart(e.key, o.part) end
+            same()
+          end
+          if over then colored(1, 0.45, 0.45, "      " .. o.name .. "   " .. label .. " - over your limit")
+          else txt((canFit and "" or "      ") .. o.name .. "   " .. label) end
+        end
+      end
+    end
+  end
+end
+
 local function section(name, fn, d)  -- a broken section shows an error instead of breaking the window
   local ok, err = pcall(fn, d)
   if not ok and not ui.noTheme then
@@ -1596,6 +1783,7 @@ local function drawWindow(dt)
         end
         if im.BeginTabItem("Status") then section("Status", drawStatus, d); im.EndTabItem() end
         if im.BeginTabItem("Dealership") then section("Dealership", drawDealer, d); im.EndTabItem() end
+        if d.me and d.me.hasCar and im.BeginTabItem("Parts") then section("Parts", drawParts, d); im.EndTabItem() end
         if d.admin and im.BeginTabItem("Admin") then section("Admin", drawAdmin, d); im.EndTabItem() end
         im.EndTabBar()
       end
@@ -1922,6 +2110,16 @@ onPartsDiag = function()
     end
   end)
   if not ok then r.err = sanitize(err) end
+  local okC, cat = pcall(buildCatalogue, car)   -- what the Parts tab can list
+  if okC then
+    r.shopMethod, r.shopSlots, r.shopOptions, r.shopPriced = cat.method, #cat.slots, 0, 0
+    for _, e in ipairs(cat.slots) do
+      for _, o in ipairs(e.options) do
+        r.shopOptions = r.shopOptions + 1
+        if o.price then r.shopPriced = r.shopPriced + 1 end
+      end
+    end
+  else r.shopErr = sanitize(cat) end
   if TriggerServerEvent then TriggerServerEvent("tg_partsdiag_reply", jsonEncode(r)) end
 end
 
@@ -2097,6 +2295,7 @@ end
 function M.onPreRender() drawTarget() end
 function M.onVehicleSpawned(vid)
   partsValue = nil; pathCarId = nil
+  shop.cat, shop.tried = nil, nil
   local mine = getCar()
   if mine and mine:getID() == vid and cfgSnap and cfgSnap.carId == vid then rebuildCheckIn = 1.0 end
   if move and move.stage == "config" then move.spawned = true end
