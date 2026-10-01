@@ -253,3 +253,54 @@ t.test("up to four faults: four buttons at the dealership, and a car with all fo
   t.ok(A.client.im.textOf("Top Gear Challenge"):find("That's the limit.", 1, true), "no more buttons")
   w:assertClean()
 end)
+
+t.test("faults survive every kind of reset (illegal reset, respawn, tow, workshop repair) until fixed", function()
+  local cfg = F.twoRaces(); cfg.workshopEvery = 1
+  local w = World.new({ files = F.files(cfg) })
+  local A, B = w:join("Alice"), w:join("Bob")
+  w:chat(A, "/tg start")
+  w:buy(A, "covet", "base_M"); w:buy(B, "pessima", "base_M")
+  pin(w, { "tires", "engine", "cooling", "body" }); w:chat(A, "/tg fault take 4")
+  pin(w, { "brakes", "ignition", "suspension", "fuelleak" }); w:chat(B, "/tg fault take 4")
+  w:step(10)
+
+  local function stillThere(when, engineFixed)
+    local a, b = A.current, B.current
+    t.eq(a.vars["$tirepressure_F"], 9, "tyres " .. when)
+    if not engineFixed then t.ok(math.abs(a.engine.outputTorqueState - 0.8) < 1e-9, "engine " .. when) end
+    t.ok(math.abs(a.radiatorDamage - 0.05) < 1e-9, "cooling " .. when)
+    t.ok(a.damage >= 3000 and a.broken.headlight_L, "accident damage " .. when)
+    t.eq(b.wheels[0].brakeTorque, 900, "brakes " .. when)
+    t.ok(math.abs(b.engine.slowIgnitionErrorChance - 0.11) < 1e-9, "ignition " .. when)
+    t.eq(b.vars["$spring_F"], 20000, "suspension " .. when)
+  end
+  stillThere("when applied")
+
+  w:chat(A, "/tg ready"); w:chat(B, "/tg ready")
+  w:step(20)
+  w:resetCar(A); w:resetCar(B); w:step(3)
+  stillThere("after an illegal reset")
+  w:step(20)
+  w:chat(A, "/tg respawn"); w:chat(B, "/tg respawn"); w:step(3)
+  stillThere("after a respawn")
+  w:step(20)
+  w:chat(A, "/tg tow"); w:chat(B, "/tg tow"); w:step(5)
+  stillThere("after a tow")
+  local f0 = B.current.fuel
+  w:step(30)
+  t.ok(B.current.fuel < f0, "the fuel leak keeps leaking after all that")
+
+  -- (both were towed to Race One's start) race, then the workshop
+  w:chat(A, "/tg go")
+  w:waitFor(function() return w:state(A).phase == "event" end, 10, "GO")
+  w:driveAll({ { A, p(900), 40 }, { B, p(900), 30 } })
+  w:waitFor(function() return w:state(A).phase == "workshop" end, 10, "the workshop")
+  w:chat(A, "/tg repair"); w:chat(B, "/tg repair"); w:step(5)   -- repairs the crash damage, not the faults
+  stillThere("after a workshop repair")
+  w:chat(A, "/tg fix engine"); w:step(5)
+  t.ok(math.abs(A.current.engine.outputTorqueState - 1) < 1e-9, "the fixed fault is gone")
+  w:resetCar(A); w:step(3)
+  stillThere("after a reset, with only the engine fixed", true)
+  t.ok(math.abs(A.current.engine.outputTorqueState - 1) < 1e-9, "and it stays fixed")
+  w:assertClean()
+end)
