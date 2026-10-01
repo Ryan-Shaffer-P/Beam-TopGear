@@ -154,7 +154,7 @@ setstart/addcp/undocp/clearcp/settrap/addbay/undobay/clearbays/addvia/undovia/cl
 settype/setmode/setlaps/settime/rename | addworkshop/undoworkshop/clearworkshops/importgas |
 trailersave/trailercones/trailertest | fault test/testoff`. The ImGui window exposes all of these.
 
-## Roadmap - Ryan's next three issues (one session each, any order)
+## Roadmap - Ryan's next issues (one session each, any order)
 
 Each starts with a plain-language explanation for Ryan, then a proposal he approves before code.
 
@@ -194,6 +194,22 @@ applied to every car in a group. Each new fault needs an in-game check of the Be
 (vehicle Lua: `electrics`/ignition, `powertrain` thermals, `energyStorage` drain, `beamstate` damage) -
 extend `/tg fault test` into a per-model capability report first; the test harness's vehicle Lua fakes
 (`World:freshPhysics`) need matching fakes.
+
+### 4. Upgrade prices: a price list before fitting, and cosmetic parts free
+Now: BeamNG's own parts menu fits a part immediately (the car rebuilds) and shows no price. After the
+rebuild the client diffs the parts (`checkRebuild`) and the server bills the change (`TG_onRebuild`:
+part value from jbeam `information.value`, $500 flat if unknown, $300 labour once per workshop).
+"Free" is decided only by keywords in the SLOT name (`FREE_SLOT_WORDS`, duplicated in client and server:
+skin, paint, interior, seat, mirror, bumper...) - so body-kit slots (spoiler, wing, fender, hood, skirt,
+lip, diffuser, grille, flares...) and interior slots without those words are billed.
+Wanted: cosmetic parts free (body kits, interior), and a price list players see BEFORE fitting.
+Options to discuss: (a) a better free/billed classifier (more words, the part's own jbeam category /
+slotType / `information.name`, a config list of extra free words; one shared list), (b) a "Parts price
+list" in the TG window - every slot of the current car with its options, price and free/billed, read from
+the game's part data (API unverified: `core_vehicle_manager.getVehicleData` ioCtx + `jbeam/io`,
+`core_vehicle_partmgmt` slot options), (c) a full in-window parts shop (pick a part, see the price, Buy
+fits it via `setPartsConfig`) - the only way to truly confirm before paying, since the game's own menu
+can't be intercepted. `/tg partsdiag` already shows what the game reports about prices.
 
 ## Waiting for in-game confirmation (this session's features)
 - Finish flag: does the checkered flag draw (draw list rects) and is the FINISH text big (SetWindowFontScale)?
