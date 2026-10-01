@@ -53,17 +53,25 @@ session (`workshopEvery`). The session is saved with the course. Chat: `/tg enab
 
 ## Event types
 
-| Type | How it runs | Winner | Placed with |
+Every event runs in one of two **modes**, whatever its type:
+
+- **Race mode** - everyone starts together on one countdown.
+- **Time trial mode** - one at a time, in the order you arrived, each with your own countdown.
+
+The winner is decided the same way in both (a destination race in time trial mode is the classic
+time trial: fastest run wins). Pick the mode per event in the Admin tab's course builder (**Mode:
+Race / Time trial**) or with `/tg setmode <n> race|trial`. The table shows each type's default.
+
+| Type | Default mode | Winner | Placed with |
 |---|---|---|---|
-| Destination race | everyone at once | first to the finish | start + checkpoints |
-| Circuit race | everyone at once | first to complete the laps | start (= start/finish line) + checkpoints round the lap + laps |
-| Time trial | one at a time | fastest run | start + checkpoints |
-| Speed trap | everyone at once | highest speed through the trap | start + trap |
-| Precision parking | one at a time | lowest score: 10 pts/m off centre + 0.5/deg skew (every bay) + 0.1/s + 0.01/damage + 50 per bay not reached | start + bays (in order) |
-| Fragile delivery | everyone at once | time + 0.01 s per point of damage picked up | start + checkpoints |
-| Economy run | everyone at once | least fuel used (inside the time limit) | start + checkpoints |
-| Slalom | one at a time | time + 5 s per missed gate | start + gates |
-| Trailer delivery | everyone at once | most points out of 100: 70 for the share of the load kept + 30 for speed | start + checkpoints |
+| Destination race | race | first to the finish (fastest run in time trial mode) | start + checkpoints |
+| Circuit race | race | first to complete the laps | start (= start/finish line) + checkpoints round the lap + laps |
+| Speed trap | race | highest speed through the trap | start + trap |
+| Precision parking | time trial | lowest score: 10 pts/m off centre + 0.5/deg skew (every bay) + 0.1/s + 0.01/damage + 50 per bay not reached | start + bays (in order) |
+| Fragile delivery | race | time + 0.01 s per point of damage picked up | start + checkpoints |
+| Economy run | race | least fuel used (inside the time limit) | start + checkpoints |
+| Slalom | time trial | time + 5 s per missed gate | start + gates |
+| Trailer delivery | race | most points out of 100: 70 for the share of the load kept + 30 for speed | start + checkpoints |
 
 - **Starting lights:** every countdown shows F1-style lights at the top of the screen - five
   reds, one per second, then all out (green) for GO. One-at-a-time runs show the runner's name.
@@ -77,9 +85,10 @@ session (`workshopEvery`). The session is saved with the course. Chat: `/tg enab
   window like the start lights: `/tg flag` (or **Position the finish flag** on the Status page) keeps
   it up so you can drag it by its title bar - the game remembers where - and `/tg flag` again hides
   it. `/tg flagtest` shows a sample.
-- **One at a time:** runners go in the order they arrived, each with their own countdown;
-  everyone else waits at the start. An admin's `/tg next` ends just the current run.
-  Any event can be forced either way with `"solo": true/false` on the event in config.json.
+- **Time trial mode:** runners go in the order they arrived, each with their own countdown;
+  everyone else waits at the start. The time limit is per run. An admin's `/tg next` ends just the
+  current run. The mode is stored as `"solo": true/false` on the event in config.json. An event's
+  mode can't be changed while that event is counting down or running.
 - **Parking:** a course of one or more bays, parked in the order they were added. Add each bay by
   parking in it the way it should face (`/tg addbay <n>`, `/tg undobay <n>`, `/tg clearbays <n>`,
   or the course builder buttons). A bay counts once you've been stopped inside it (5 m) for
@@ -129,7 +138,9 @@ session (`workshopEvery`). The session is saved with the course. Chat: `/tg enab
   parts, e.g. "3:05.20, 72% of the load: load 50.4 + speed 25.5 = 75.9 pts". Change the split with
   `loadWeight` / `speedWeight` in `eventTypes.trailer` (they're scaled to 100 whatever they add up to).
 - All the scoring weights live in `config.json` under `eventTypes`.
-- Saved courses: any race named "Hill Climb" is converted to a time trial once, automatically.
+- Saved courses from before 0.8.4: "Time trial" events become destination races in time trial mode
+  automatically (and `/tg settype <n> timetrial` still does that). Any race named "Hill Climb"
+  without a mode set is switched to time trial mode once.
 
 ## Build the course (one-time, in game)
 
@@ -143,7 +154,8 @@ Drive to each spot and type the command. Positions come from your current vehicl
 | Parking bays, in order (park in each, facing the right way) | `/tg addbay N`, `/tg undobay N`, `/tg clearbays N` |
 | Event time limit (per run for one-at-a-time events) | `/tg settime N <seconds>` |
 | Slalom gates, in order (last = finish) | `/tg addcp N` |
-| Change an event's type | `/tg settype N <race\|timetrial\|speedtrap\|parking\|fragile\|economy\|slalom\|trailer>` |
+| Change an event's type | `/tg settype N <race\|circuit\|speedtrap\|parking\|fragile\|economy\|slalom\|trailer>` |
+| Race or time trial mode | `/tg setmode N race` (everyone at once) / `/tg setmode N trial` (one at a time) |
 | Forced waypoints on the drive TO event N | `/tg addvia N` |
 | Finale finish + its route | `/tg setfinale`, `/tg addvia finale` |
 | Rename | `/tg rename N The Hill Climb` |

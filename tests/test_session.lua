@@ -11,7 +11,7 @@ local p = F.p
 local function sessionCourse()
   return F.config({
     { name = "Race One",     type = "race",      timeLimit = 300, start = p(500),  checkpoints = { p(700), p(900) }, via = {} },
-    { name = "Hill Climb",   type = "timetrial", timeLimit = 120, start = p(1500), checkpoints = { p(1700), p(1900) }, via = {} },
+    { name = "Hill Climb",   type = "race", solo = true, timeLimit = 120, start = p(1500), checkpoints = { p(1700), p(1900) }, via = {} },
     { name = "Speed Trap",   type = "speedtrap", timeLimit = 600, start = p(2500), trap = p(2800), runs = 3, trapRadius = 10, minRunSpeed = 20, via = {} },
     { name = "Fragile",      type = "fragile",   timeLimit = 300, start = p(3500), checkpoints = { p(3700), p(3900) }, via = {} },
     { name = "Economy",      type = "economy",   timeLimit = 300, start = p(4200), checkpoints = { p(4400), p(4600) }, via = {} },
@@ -58,7 +58,7 @@ t.test("full session: five events, two workshops, faults, tow, reset fine, final
   t.ok(w:chatHas(A, "1st  Alice"), "Alice wins the race")
   t.ok(w:chatHas(A, "2nd  Bob")); t.ok(w:chatHas(A, "3rd  Carol"))
 
-  -- 2: time trial, one at a time in arrival order ----------------------------------------
+  -- 2: a race in time trial mode, one at a time in arrival order -------------------------------------
   w:resetCar(B)   -- Bob gets round the reset lock: fined
   t.ok(w:chatHas(A, "Bob pressed the reset button! -$1,000"))
   travel(p(1500))

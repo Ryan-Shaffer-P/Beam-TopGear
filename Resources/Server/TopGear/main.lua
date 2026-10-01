@@ -7,7 +7,7 @@
   In game, type /tg help.
 ]]
 
-local SERVER_VERSION = "0.8.3"
+local SERVER_VERSION = "0.8.4"
 local PLUGIN_DIR  = "Resources/Server/TopGear/"
 local CONFIG_PATH = PLUGIN_DIR .. "config.json"
 local COURSES_PATH = PLUGIN_DIR .. "courses.json"   -- saved course library
@@ -91,11 +91,12 @@ local DEFAULT_CONFIG = {
   },
 
   -- The course is a pool of events; the session runs the ones with enabled ~= false, in order.
-  -- type: race | timetrial | speedtrap | parking | fragile | economy | slalom | trailer
+  -- type: race | circuit | speedtrap | parking | fragile | economy | slalom | trailer
+  -- solo: true = time trial mode (one at a time), false = race mode (everyone at once), nil = the type's default
   events = {
     { name = "The Drag Race",  type = "race", timeLimit = 180,
       description = "Flat out down the straight. First across the line wins.", via = {}, checkpoints = {} },
-    { name = "The Hill Climb", type = "timetrial", timeLimit = 300,
+    { name = "The Hill Climb", type = "race", solo = true, timeLimit = 300,
       description = "Up the mountain, one at a time. Fastest run wins.", via = {}, checkpoints = {} },
     { name = "The Circuit", type = "circuit", laps = 3, timeLimit = 900, enabled = false,
       description = "Round and round. First to complete the laps wins.", via = {}, checkpoints = {} },
@@ -210,11 +211,17 @@ local function migrateEvents(events)
     if e.type == "trailer" and e.description == "Hitch up and deliver the load. Lost cargo costs 20 seconds a piece." then
       e.description, changed = "Hitch up and deliver the load. 70 points for the load you keep, 30 for speed.", true   -- 0.8.3 scoring
     end
+    if e.type == "timetrial" then   -- 0.8.4: time trial is a mode of any event, not a type of its own
+      e.type, changed = "race", true
+      if e.solo == nil then e.solo = true end
+      e.ttMigrated = true
+      print("[TopGear] '" .. tostring(e.name) .. "' is now a destination race in time trial mode")
+    end
     if not e.ttMigrated then
       e.ttMigrated = true
-      if e.type == "race" and tostring(e.name):lower():find("hill climb") then
-        e.type, changed = "timetrial", true
-        print("[TopGear] '" .. tostring(e.name) .. "' is now a one-at-a-time time trial")
+      if e.type == "race" and e.solo == nil and tostring(e.name):lower():find("hill climb") then
+        e.solo, changed = true, true
+        print("[TopGear] '" .. tostring(e.name) .. "' now runs in time trial mode (one at a time)")
       end
     end
   end
@@ -449,11 +456,10 @@ end
 ---------------------------------------------------------------------------
 local function curEvent() return (game.events or {})[game.stage] end
 
-local TYPE_ORDER = { "race", "circuit", "timetrial", "speedtrap", "parking", "fragile", "economy", "slalom", "trailer" }
+local TYPE_ORDER = { "race", "circuit", "speedtrap", "parking", "fragile", "economy", "slalom", "trailer" }
 local TYPE_INFO = {
   race      = { label = "Destination race",  name = "The Race" },
   circuit   = { label = "Circuit race",      name = "The Circuit" },
-  timetrial = { label = "Time trial",        name = "The Time Trial" },
   speedtrap = { label = "Speed trap",        name = "The Speed Trap" },
   parking   = { label = "Precision parking", name = "Precision Parking" },
   fragile   = { label = "Fragile delivery",  name = "Fragile Delivery" },
@@ -461,11 +467,14 @@ local TYPE_INFO = {
   slalom    = { label = "Slalom",            name = "The Slalom" },
   trailer   = { label = "Trailer delivery",  name = "Trailer Delivery" },
 }
-local SOLO_DEFAULT = { timetrial = true, parking = true, slalom = true }
+-- Mode: every event runs in race mode (everyone at once) or time trial mode (one at a time, in arrival
+-- order). e.solo stores an explicit choice; without one, parking and slalom default to time trial mode.
+local SOLO_DEFAULT = { parking = true, slalom = true }
 local function isSolo(e)
   if e.solo ~= nil then return e.solo and true or false end
   return SOLO_DEFAULT[e.type] or false
 end
+local function modeLabel(e) return isSolo(e) and "time trial mode (one at a time)" or "race mode (everyone at once)" end
 local function typeCfg(t) return (cfg.eventTypes or {})[t] or {} end
 local function eventBays(e)
   if type(e.bays) == "table" and #e.bays > 0 then return e.bays end
@@ -2612,10 +2621,31 @@ end
 ADMIN_CMDS.settype = function(pid, _, args)
   local e, label = eventArg(pid, args[3]); if not e then return end
   local t = (args[4] or ""):lower()
+  if t == "timetrial" then   -- the old type: a destination race in time trial mode
+    e.type, e.solo = "race", true
+    markDirty()
+    say(pid, label .. " is now a destination race in time trial mode (one at a time). Time trial is a mode now: /tg setmode " ..
+      tostring(args[3]) .. " race|trial.")
+    return
+  end
   if not TYPE_INFO[t] then say(pid, "Type must be one of: " .. table.concat(TYPE_ORDER, ", ")); return end
   e.type, e.solo = t, nil
   markDirty()
-  say(pid, string.format("%s is now a %s%s.", label, TYPE_INFO[t].label:lower(), isSolo(e) and " (one at a time)" or ""))
+  say(pid, string.format("%s is now a %s, in %s.", label, TYPE_INFO[t].label:lower(), modeLabel(e)))
+end
+ADMIN_CMDS.setmode = function(pid, _, args)
+  local e, label = eventArg(pid, args[3]); if not e then return end
+  local m = (args[4] or ""):lower()
+  local solo
+  if m == "race" or m == "together" then solo = false
+  elseif m == "trial" or m == "timetrial" or m == "solo" then solo = true
+  else say(pid, "Usage: /tg setmode <event> race|trial  (race = everyone at once, trial = one at a time)"); return end
+  if (game.phase == "countdown" or game.phase == "event") and curEvent() == e then
+    say(pid, "That event is running right now - change its mode after it's finished."); return
+  end
+  e.solo = solo
+  markDirty()
+  say(pid, string.format("%s now runs in %s.", label, modeLabel(e)))
 end
 ADMIN_CMDS.addvia = function(pid, _, args)
   local e, label = eventArg(pid, args[3], true); if not e then return end

@@ -32,7 +32,7 @@ local RESET_ACTIONS = {
 local VEHSEL_ACTIONS = { "vehicle_selector" }
 local PARTS_ACTIONS  = { "parts_selector" }
 
-local VERSION = "0.8.3"
+local VERSION = "0.8.4"
 local recentErrors = {}
 local function warn(msg)
   log("W", "topgear", tostring(msg))
@@ -1330,7 +1330,7 @@ local function drawAdmin(d)
       end
       if e.enabled then pos = pos + 1 end
       local line = string.format("%s%s  (%s%s)", e.enabled and (pos .. ". ") or "off  ", e.name, e.typeLabel or e.type,
-        e.solo and ", one at a time" or "")
+        e.solo and ", time trial mode" or "")
       if e.enabled then colored(0.5, 1, 0.5, line) else txt(line) end
     end
     im.Separator()
@@ -1391,6 +1391,9 @@ local function drawAdmin(d)
       local tl = intPtr("time" .. target, e.timeLimit or 600)
       im.InputInt("Time limit (s)##tl", tl); same(); button("Set time##settime", "settime " .. target .. " " .. tl[0])
       if e.solo then same(); txt("(per run)") end
+      txt("Mode:"); same()
+      button((e.solo and "" or "> ") .. "Race - everyone at once##moderace", "setmode " .. target .. " race"); same()
+      button((e.solo and "> " or "") .. "Time trial - one at a time##modetrial", "setmode " .. target .. " trial")
       txt("Event type:")
       for i, t in ipairs(c.types or {}) do
         local label = (t.id == e.type and "> " or "") .. t.label .. "##ty_" .. t.id

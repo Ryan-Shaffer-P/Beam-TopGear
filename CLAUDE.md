@@ -44,9 +44,11 @@ Install = copy `Resources/` into the BeamMP server.
 **Server phases:** `idle -> dealer -> travel -> countdown -> event -> (workshop) -> ... -> finale -> results`.
 - A course is a pool of events (`cfg.events`); `/tg start` snapshots the enabled ones into `game.events`
   (the session). `game.stage` indexes the session. Course edits use `cfg.events`; game flow uses `game.events`.
-- Event types: `race` (destination), `circuit` (start point = start/finish line, laps), `timetrial`,
+- Event types: `race` (destination), `circuit` (start point = start/finish line, laps),
   `speedtrap`, `parking` (multiple bays in order), `fragile`, `economy`, `slalom`, `trailer`.
-  Solo (one at a time) by default: timetrial, parking, slalom (`isSolo`, overridable per event).
+  Every event has a **mode**: race (everyone at once) or time trial (one at a time) = `e.solo`
+  (`isSolo`; nil = type default: parking/slalom trial, rest race). `/tg setmode`. There is no
+  `timetrial` type since 0.8.4 - `migrateEvents` turns old ones into `race` + `solo = true`.
 - Run logic: `tickRoute` / `tickSlalom` / `tickParking` / `tickSpeedtrap`; all scoring in `finalizeScore`
   (lower `score` wins; speedtrap uses `-best`). Results -> prizes/points -> workshop every
   `workshopEvery` events (never after the last) -> finale drivability inspection -> summary table.
@@ -144,7 +146,7 @@ faults | fault take/undo <id> | quote | standings | diag | partsdiag | lights | 
 Admins: `start [force] | next | stop | traffic on|off | budget | setcash | give | workshop <min> | workshopevery <n> |
 importprices | gameprices | course list/save/load/new/delete | addevent/delevent/enable/moveevent |
 setstart/addcp/undocp/clearcp/settrap/addbay/undobay/clearbays/addvia/undovia/clearvia/setfinale |
-settype/setlaps/settime/rename | addworkshop/undoworkshop/clearworkshops/importgas |
+settype/setmode/setlaps/settime/rename | addworkshop/undoworkshop/clearworkshops/importgas |
 trailersave/trailercones/trailertest | fault test/testoff`. The ImGui window exposes all of these.
 
 ## Open items
