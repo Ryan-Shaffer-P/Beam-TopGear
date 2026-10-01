@@ -154,6 +154,53 @@ setstart/addcp/undocp/clearcp/settrap/addbay/undobay/clearbays/addvia/undovia/cl
 settype/setmode/setlaps/settime/rename | addworkshop/undoworkshop/clearworkshops/importgas |
 trailersave/trailercones/trailertest | fault test/testoff`. The ImGui window exposes all of these.
 
+## Roadmap - Ryan's next three issues (one session each, any order)
+
+Each starts with a plain-language explanation for Ryan, then a proposal he approves before code.
+
+### 1. Understand and rebalance the overall scoring ("the best drive with the best car wins")
+How it works now (server `finishEvent`, `tickFinale`, `showResults`; numbers in `cfg.scoring`/`cfg.economy`):
+- Points decide the winner: placement points `{10, 6, 3, 1}` per event (5th and lower get 0), + finale
+  drivability `10 x (1 - damage / 20000)` (0 if towed/respawned on the final leg, -1 per unfixed fault),
+  - 2 per illegal reset, - 1 per tow / roadside respawn. Ties: event wins, then cash.
+- Money never becomes points: prizes `{6000, 3000, 1500, 500}`, arrival bonuses `{500, 250}`, faults and
+  the unspent budget only matter as spending power (repairs, upgrades) and the final tie-break.
+- "Best car" isn't scored directly: a cheap car and an expensive one earn the same points for the same
+  placings. Car choice only matters through how it performs and survives.
+Start by laying this out for Ryan with worked examples (e.g. the 3-driver tally in `test_session.lua`), then
+discuss levers: points for leftover cash / value for money, a points share by margin rather than place,
+drivability weight, event-type weighting, the 4-place cutoff. Recompute `test_session.lua` by hand after.
+
+### 2. Dealership filters: which cars (models and trims) can be bought, and price adjustments
+Now: `cfg.dealer.cars` (model, optional config, name, price) is the allowed list; `useGamePrices` +
+`gamePrices` (from `/tg importprices`) price each stock trim; `strictConfigs` sells only listed model+config
+pairs; budget = `startingCash` + fault payouts (`playerBudget`); `lookupCar` decides at spawn
+(`TG_onVehicleSpawn`); `buildUi` builds the Dealership tab. Wanted: filtering by model and by trim (e.g.
+classes/categories), per-car price adjustments so taking faults can drop a car into a category. Decide with
+Ryan: where categories are defined (config + Admin tab?), how they interact with game prices, whether a
+session/course picks the allowed category.
+
+### 3. Fault system revamp
+Now (`cfg.faults`; server `PLAYER_CMDS.fault/fix`, `sendFaults`, `TG_onFaultReport`; client
+`applyConfigFaults` + `VLUA`): 5 faults the player picks (tires, alignment, bumpers = setup faults via
+`core_vehicle_partmgmt` vars/parts, respawn the car; engine, brakes = physics faults in vehicle Lua,
+re-applied after resets), each with its own payout, max 3, fix in a workshop at 1.5x payout, -1 drivability
+each unfixed at the finale; a fault the car can't take is refunded ("unavailable").
+Wanted: the player chooses only HOW MANY faults; the server picks them at random from those the car
+supports; every fault pays the same (normalised). New faults: ignition (engine randomly cuts out), cooling
+(radiator wear/damage -> overheating), bad suspension (soft/removed parts or tuning vars), fuel leak (extra
+fuel drain), extra body damage. Longer term: group cars by which faults they support, so every fault can be
+applied to every car in a group. Each new fault needs an in-game check of the BeamNG API it uses
+(vehicle Lua: `electrics`/ignition, `powertrain` thermals, `energyStorage` drain, `beamstate` damage) -
+extend `/tg fault test` into a per-model capability report first; the test harness's vehicle Lua fakes
+(`World:freshPhysics`) need matching fakes.
+
+## Waiting for in-game confirmation (this session's features)
+- Finish flag: does the checkered flag draw (draw list rects) and is the FINISH text big (SetWindowFontScale)?
+- Sounds: which `/tg soundtest` method is audible (`/tg soundtest next` cycles; `/tg diag` shows it).
+- Unstick on Ryan's BeamNG repairs the car - confirm it's now billed ("Unstick repaired your car...").
+- Traffic mode: AI traffic and parked cars accepted; raise `MaxCars` on the real server.
+
 ## Open items
 
 From the last Desktop session (server 0.8.2 / client 0.8.1 - both now in the repo):
