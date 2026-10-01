@@ -108,14 +108,15 @@ for the `/tg diag` "Client error" line or the matching `[TopGear]` server-consol
    (`luajit -e 'assert(loadfile("file.lua"))'`). Homebrew `lua`/`luac` on this Mac are 5.5 - close, not exact.
    Docker's CLI is in `~/.docker/bin` (not on the default PATH).
 2. Globals check on the client (rule 1).
-3. Simulations: plain Lua scripts that stub `MP`/`Util`, fake BeamNG globals (`be`, vehicles, partmgmt,
-   vlua envs), and a fake `ui_imgui` that records text/buttons/circles and lets the test "click" by label.
-   They run the real server and client files together, in **strict mode** (`setmetatable(_G, ...)` errors
-   on undeclared global reads/writes), under both `lua5.3` and `luajit`.
-   The Desktop-era harness (`sim13` full six-event three-player regression, `sim22`/`sim30`/`sim33`
-   workshop billing/overdraft/dealership, `sim31`/`sim37` trailer + lights, `sim32`/`sim36` circuits,
-   `sim38`/`sim39` theme + standings) **was not carried over**. Rebuild it under `tests/` on the same
-   pattern before changing gameplay code.
+3. Simulations: `tests/run.sh [filter]` runs `tests/test_*.lua` under LuaJIT, Lua 5.3 (Docker image) and
+   Homebrew Lua. `tests/lib/world.lua` loads the real main.lua + modScript.lua/topgear.lua in **strict**
+   sandboxes (undeclared global read/write = error) with fake BeamMP (`MP`, `Util`, in-memory files),
+   fake BeamNG per player (`be`, vehicles, partmgmt, `core_*`) and a fake `ui_imgui` (`tests/lib/imgui.lua`)
+   that records frames, clicks buttons by label and checks push/pop balance. `w:assertClean()` fails on any
+   handler error, server console error, client warn() or UI imbalance. Vehicle Lua strings are recorded;
+   only `requestReset` is simulated so far.
+   Stage 1 (smoke) exists. Still to rebuild from the Desktop era: a full multi-event regression (old `sim13`),
+   then workshop billing/overdraft/dealership, trailer + lights, circuits, theme + standings.
 4. Beware harness artifacts (wrong test coordinates, sequencing): say so explicitly when a failure is the
    test's fault, not the mod's.
 5. Real server: `docker compose -f server/compose.yaml restart`, then check `logs` for the
