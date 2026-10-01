@@ -70,6 +70,13 @@ session (`workshopEvery`). The session is saved with the course. Chat: `/tg enab
   `/tg lightstest` plays the sequence on your screen right away (no race needed). The lights are
   their own window: `/tg lights` (or **Position the start lights** on the Status page) keeps the box up
   so you can drag it by its title bar wherever you like - the game remembers where - and hides it again.
+- **Finish flag:** the moment your run is complete, a checkered flag with a big **FINISH**, the
+  event's name and your time (best speed for a speed trap) appears for 6 seconds - so you know
+  you're done even while others are still driving. It also shows when you reach the finale's finish
+  line, with your drivability score. No flag if you didn't finish (DNF, DNS or towed). It's its own
+  window like the start lights: `/tg flag` (or **Position the finish flag** on the Status page) keeps
+  it up so you can drag it by its title bar - the game remembers where - and `/tg flag` again hides
+  it. `/tg flagtest` shows a sample.
 - **One at a time:** runners go in the order they arrived, each with their own countdown;
   everyone else waits at the start. An admin's `/tg next` ends just the current run.
   Any event can be forced either way with `"solo": true/false` on the event in config.json.
@@ -187,7 +194,7 @@ next leg → … → finale → standings.
 Admin `/tg next` forces the current phase to end (e.g. someone is stuck: players who
 haven't arrived get a DNS). `/tg stop` cancels everything.
 
-Player commands: `/tg menu`, `/tg go`, `/tg unstick`, `/tg tow`, `/tg respawn`, `/tg hitchup`, `/tg status`, `/tg dealer`, `/tg quote`, `/tg repair` (workshop only),
+Player commands: `/tg menu`, `/tg go`, `/tg unstick`, `/tg tow`, `/tg respawn`, `/tg hitchup`, `/tg flag`, `/tg flagtest`, `/tg status`, `/tg dealer`, `/tg quote`, `/tg repair` (workshop only),
 `/tg standings`, `/tg join` (late joiners during the dealership).
 
 ## Rules as implemented

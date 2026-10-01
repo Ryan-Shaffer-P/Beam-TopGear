@@ -58,7 +58,7 @@ Install = copy `Resources/` into the BeamMP server.
 
 **Client:** receives `tg_state` (phase, cash, target, allow-flags, lights) and renders the HUD,
 ground arrows, target beacon, ImGui window (Results / Status / Dealership / Admin tabs, Top Gear colour
-theme), F1 start lights (own movable window), input locks (`core_input_actionFilter`), and does the
+theme), F1 start lights and the finish flag (own movable windows; the server sends `tg_finish` when a run ends), input locks (`core_input_actionFilter`), and does the
 car-side work: faults, tow/unstick placement, trailer spawn + load measurement, fuel/damage reports,
 parts snapshots/diffs, reverting refused parts.
 
@@ -116,7 +116,7 @@ for the `/tg diag` "Client error" line or the matching `[TopGear]` server-consol
    handler error, server console error, client warn() or UI imbalance. Vehicle Lua (`queueLuaCommand`) runs
    in a per-car sandbox with fake engine/brakes/fuel/reset (`World:freshPhysics`); `queueGameEngineLua`
    replies run in the client. Trailers with a load part get simulated bed/load nodes, so CARGO_VLUA really measures the load share.
-   Tests: `test_smoke.lua` (load, dealership, theme), `test_trailer.lua` (cones + prebuilt load, hitching via
+   Tests: `test_smoke.lua` (load, dealership, theme), `test_flag.lua` (finish flag), `test_trailer.lua` (cones + prebuilt load, hitching via
    `w:hitch`/`w:dropCargo`/`w:setLoad`, 70/30 scoring) and `test_session.lua` (full 5-event session, the
    successor of `sim13` - expected cash/points are hand-calculated in its comments; if a rule change
    moves them, recompute by hand rather than pasting the new output). Still to rebuild: workshop
@@ -140,7 +140,7 @@ for the `/tg diag` "Client error" line or the matching `[TopGear]` server-consol
 ## Quick command reference
 
 Players: `/tg menu | status | dealer | ready | go | repair | fix <id> | tow | respawn | unstick | hitchup |
-faults | fault take/undo <id> | quote | standings | diag | partsdiag | lights | lightstest | theme`.
+faults | fault take/undo <id> | quote | standings | diag | partsdiag | lights | lightstest | flag | flagtest | theme`.
 Admins: `start [force] | next | stop | budget | setcash | give | workshop <min> | workshopevery <n> |
 importprices | gameprices | course list/save/load/new/delete | addevent/delevent/enable/moveevent |
 setstart/addcp/undocp/clearcp/settrap/addbay/undobay/clearbays/addvia/undovia/clearvia/setfinale |

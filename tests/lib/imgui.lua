@@ -34,7 +34,7 @@ function M.new()
   function im.setText(label, s) texts[label] = s end
   function im.setInt(label, n) ints[label] = n end
   function im.beginFrame()
-    frame = { items = {}, windows = {}, circles = {} }
+    frame = { items = {}, windows = {}, circles = {}, rects = {} }
     st = newState()
     cur = nil
   end
@@ -71,7 +71,10 @@ function M.new()
     frame.windows[visible(name)] = cur
     return true
   end
-  function im.End() st.windows = st.windows - 1; cur = nil end
+  function im.End()
+    st.windows = st.windows - 1; cur = nil
+    if (st.fontScaled or 0) ~= 0 then problem("window ended with its font still scaled") ; st.fontScaled = 0 end
+  end
   function im.SetNextWindowPos() end
   function im.SetNextWindowSize() end
   function im.SetNextWindowCollapsed() end
@@ -132,6 +135,13 @@ function M.new()
   function im.GetColorU322(c) return c end
   function im.ImDrawList_AddCircleFilled(_, center, r, col)
     frame.circles[#frame.circles + 1] = { x = center.x, y = center.y, r = r, color = col }
+  end
+  function im.ImDrawList_AddRectFilled(_, a, b, col)
+    frame.rects[#frame.rects + 1] = { x1 = a.x, y1 = a.y, x2 = b.x, y2 = b.y, color = col }
+  end
+  function im.SetWindowFontScale(scale)
+    st.fontScaled = (scale ~= 1) and 1 or 0
+    record({ kind = "fontscale", scale = scale })
   end
 
   -- enum constants (Col_*, StyleVar_*, TableFlags_*, WindowFlags_*, Cond_*, TabItemFlags_*)

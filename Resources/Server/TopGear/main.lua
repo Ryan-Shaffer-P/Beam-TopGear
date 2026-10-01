@@ -888,12 +888,24 @@ local function startRun(p)
   r.endDamage, r.endFuel, r.sampleAfter = nil, nil, nil
 end
 
+-- the finish flag on this player's screen: { event, detail, seconds }
+local function showFinish(p, eventName, detail)
+  if p.pid then
+    MP.TriggerClientEvent(p.pid, "tg_finish", Util.JsonEncode({ event = eventName, detail = detail, seconds = 6 }))
+  end
+end
+
 local function endRun(p, status)
   local r = p.run
   r.status = status or "finished"
   if r.status == "finished" then
     r.endT = now()
     r.sampleAfter = now() + 0.5   -- the next damage/fuel report counts as the finish reading
+    local e = curEvent()
+    local detail
+    if e and e.type == "speedtrap" then detail = "Best " .. fmtSpeed(r.best or 0)
+    elseif r.time then detail = "Time " .. fmtTime(r.time) end
+    showFinish(p, e and e.name, detail)
   end
 end
 
@@ -1428,6 +1440,7 @@ local function tickFinale()
             local fpen = faultsOn() and nf * (cfg.faults.inspectionPenaltyPoints or 0) or 0
             if fpen > 0 then p.drivability = math.max(0, p.drivability - fpen) end
             p.points = p.points + p.drivability
+            showFinish(p, cfg.finale.name, string.format("Drivability %.1f/%s", p.drivability, tostring(s.drivabilityMaxPoints)))
             sayAll(string.format("%s made it to %s! Inspection: damage %d%s -> drivability %.1f/%s",
               p.name, cfg.finale.name, math.floor(p.damage or 0),
               fpen > 0 and string.format(", %d unfixed fault%s", nf, nf == 1 and "" or "s") or "",
@@ -1937,7 +1950,7 @@ end
 local PLAYER_CMDS, ADMIN_CMDS = {}, {}
 
 PLAYER_CMDS.help = function(pid, name)
-  say(pid, "/tg theme (menu colours on/off) | /tg lights (show/hide to position the box) | lightstest shows the sequence | Trailer event: /tg hitchup couples your trailer | /tg partsdiag shows what the game reports about your parts")
+  say(pid, "/tg theme (menu colours on/off) | /tg lights (show/hide to position the box) | lightstest shows the sequence | /tg flag (position the finish flag) | flagtest | Trailer event: /tg hitchup couples your trailer | /tg partsdiag shows what the game reports about your parts")
   say(pid, "Respawn your car: /tg respawn (free at the dealership, repair price in a workshop, otherwise " ..
     money(cfg.economy.respawnFee or 2000) .. ")")
   say(pid, "Stuck? /tg unstick (free, when stopped) | /tg tow (" .. money(cfg.economy.towFee) .. ", full repair, DSQ from a running event)")
@@ -2318,6 +2331,16 @@ end
 PLAYER_CMDS.lightstest = function(pid)
   MP.TriggerClientEvent(pid, "tg_lightstest", "")
   say(pid, "Starting lights test - watch the top of the screen.")
+end
+
+PLAYER_CMDS.flag = function(pid)
+  MP.TriggerClientEvent(pid, "tg_flagpin", "")
+  say(pid, "Finish flag box toggled - drag it where you want it (its title bar), then /tg flag again to hide it.")
+end
+
+PLAYER_CMDS.flagtest = function(pid)
+  MP.TriggerClientEvent(pid, "tg_flagtest", "")
+  say(pid, "Finish flag test - it shows for 6 seconds.")
 end
 
 PLAYER_CMDS.standings = function(pid)

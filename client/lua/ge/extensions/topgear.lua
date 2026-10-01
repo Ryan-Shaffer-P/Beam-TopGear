@@ -12,6 +12,7 @@ local onPartsDiag, onFindGas, onRevertParts, onTrailerSave   -- defined further 
 local copyTable, readParts, lastGoodSnap, walkTree, ordinal  -- shared helpers/state, defined further down
 local addLog                                                 -- window log, defined with the in-game window
 local lights = { clock = 0, goUntil = nil, wasOn = false, who = nil, test = nil, openPtr = nil, errored = false }
+local flag   = { clock = 0, untilT = nil, title = nil, detail = nil, pinned = false, openPtr = nil, errored = false }
 local ui          = { open = false, data = nil, log = {}, reqTimer = 0, t = 0, sel = 1, confirm = {}, player = nil, failed = {} }
 local stateAge    = 0
 local registered  = false
@@ -31,7 +32,7 @@ local RESET_ACTIONS = {
 local VEHSEL_ACTIONS = { "vehicle_selector" }
 local PARTS_ACTIONS  = { "parts_selector" }
 
-local VERSION = "0.8.1"
+local VERSION = "0.8.3"
 local recentErrors = {}
 local function warn(msg)
   log("W", "topgear", tostring(msg))
@@ -894,6 +895,18 @@ end
 
 local function onLightsTest() lights.test = lights.clock end
 local function onLightsPin() lights.pinned = not lights.pinned end
+-- finish flag: the server sends { event, detail, seconds } the moment your run is complete
+local function onFinish(data)
+  local ok, t = pcall(jsonDecode, data)
+  if not ok or type(t) ~= "table" then t = {} end
+  flag.title = t.event and tostring(t.event) or nil
+  flag.detail = t.detail and tostring(t.detail) or nil
+  flag.untilT = flag.clock + (tonumber(t.seconds) or 6)
+end
+local function onFlagTest()
+  flag.title, flag.detail, flag.untilT = "Test", "Your time shows here", flag.clock + 6
+end
+local function onFlagPin() flag.pinned = not flag.pinned end
 local function onTheme()
   ui.noTheme = not ui.noTheme
   addLog("Colour theme " .. (ui.noTheme and "off." or "on."))
@@ -1096,6 +1109,7 @@ end
 
 local function drawLightsButton()
   button("Position the start lights##lightspin", "lights"); same(); button("Test them##lightstest", "lightstest")
+  button("Position the finish flag##flagpin", "flag"); same(); button("Test it##flagtest", "flagtest")
 end
 
 local function drawAdminControls(d)
@@ -1598,6 +1612,57 @@ local function drawLights(dt)
   im.End()
 end
 
+-- Finish flag: its own movable window, shown for a few seconds when your run is complete
+local function drawFlag(dt)
+  flag.clock = flag.clock + dt
+  local showing = flag.untilT ~= nil and flag.clock < flag.untilT
+  if not showing then flag.untilT = nil end
+  if not showing and not flag.pinned then return end
+  im = im or ui_imgui
+  if not im then return end
+  local width = 800
+  pcall(function() width = im.GetIO().DisplaySize.x end)
+  local flags = 0
+  for _, f in ipairs({ "WindowFlags_NoResize", "WindowFlags_NoScrollbar", "WindowFlags_NoCollapse",
+                       "WindowFlags_AlwaysAutoResize", "WindowFlags_NoFocusOnAppearing", "WindowFlags_NoDocking" }) do
+    local okF, v = pcall(function() return im[f] end)
+    flags = flags + ((okF and tonumber(v)) or 0)
+  end
+  if im.SetNextWindowPos then im.SetNextWindowPos(im.ImVec2(width / 2 - 170, 170), im.Cond_FirstUseEver or 4) end
+  if not flag.openPtr then flag.openPtr = im.BoolPtr(true) end
+  flag.openPtr[0] = true
+  local okBody, errBody = true, nil
+  if im.Begin("Finish##tgflag", flag.openPtr, flags) then
+    okBody, errBody = pcall(function()
+      local okDraw = pcall(function()   -- a checkered flag: 12 x 4 squares
+        local dl = im.GetWindowDrawList()
+        local at = im.GetCursorScreenPos()
+        local sq = 28
+        for r = 0, 3 do
+          for c = 0, 11 do
+            local v = ((r + c) % 2 == 0) and 0.95 or 0.05
+            im.ImDrawList_AddRectFilled(dl, im.ImVec2(at.x + c * sq, at.y + r * sq), im.ImVec2(at.x + (c + 1) * sq, at.y + (r + 1) * sq),
+              im.GetColorU322(im.ImVec4(v, v, v, 1)))
+          end
+        end
+        im.Dummy(im.ImVec2(12 * sq, 4 * sq))
+      end)
+      if not okDraw then txt("[#] [ ] [#] [ ] [#] [ ] [#] [ ]") end   -- builds without draw lists
+      local scaled = im.SetWindowFontScale and pcall(im.SetWindowFontScale, 3) or false
+      colored(1, 0.85, 0.2, "FINISH")
+      if scaled then pcall(im.SetWindowFontScale, 1) end
+      if not showing then
+        txt("Drag this box by its title bar - /tg flag to hide")
+      else
+        if flag.title then txt(flag.title) end
+        if flag.detail then txt(flag.detail) end
+      end
+    end)
+  end
+  im.End()   -- always closed, even if the contents failed
+  if not okBody then error(errBody) end
+end
+
 local function updateWindow(dt)
   if not ui.open then return end
   im = im or ui_imgui
@@ -1667,6 +1732,9 @@ local function tryRegister(dt)
     add("tg_trailer_clear", onTrailerClear)
     add("tg_lightstest", onLightsTest)
     add("tg_lightspin", onLightsPin)
+    add("tg_finish", onFinish)
+    add("tg_flagtest", onFlagTest)
+    add("tg_flagpin", onFlagPin)
     add("tg_theme", onTheme)
     add("tg_partsdiag", onPartsDiag)
     add("tg_findgas", onFindGas)
@@ -1953,6 +2021,8 @@ function M.onUpdate(dtReal)
   updateWindow(dtReal)
   local okL, errL = pcall(drawLights, dtReal)
   if not okL and not lights.errored then lights.errored = true; warn("starting lights: " .. tostring(errL)) end
+  local okF, errF = pcall(drawFlag, dtReal)
+  if not okF and not flag.errored then flag.errored = true; warn("finish flag: " .. tostring(errF)) end
   updateFaults(dtReal)
   updateMove(dtReal)
   updateTrailer(dtReal)
