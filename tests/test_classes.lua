@@ -2,7 +2,8 @@
 -- and "needs N faults" in the dealership. Test cars (tests/lib/world.lua MODELS):
 --   covet   Japan Hatchback 1988-1996  base_M $4,200 / sport_M $7,800 / gtz_M $14,000, all manual
 --   pessima Japan Sedan     1988-1996  base_M $3,900 manual / gl_A $5,100 automatic
---   pickup  US Pickup (Truck) 1990-2010, miramar Japan Sedan 1970-1985, a trailer and cones
+--   pickup  US Pickup (Truck) 1990-2010, miramar Japan Sedan 1970-1985, a trailer and cones,
+--   modcar  Italy Coupe 1972-1978 - a "mod car" with no game prices (stradale / corsa)
 local t = require("t")
 local World = require("world")
 local F = require("fixtures")
@@ -23,13 +24,17 @@ t.test("importprices reads every car in the game with its details, without flood
   local w = World.new({ files = F.files(F.twoRaces()) })
   local A = w:join("Alice")
   setup(w, A)
-  t.ok(w:chatHas(A, "Imported 10 trim prices from 6 models. Game prices are ON and saved to config.json."))
+  t.ok(w:chatHas(A, "Imported 10 trim prices from 7 models. Game prices are ON and saved to config.json."))
+  t.ok(w:chatHas(A, "2 trims had no game price - kept; give them one with /tg setprice <model/config> <amount>"))
   local dealer = w:serverConfig().dealer
   local e = dealer.gamePrices.covet.gtz_M
   t.eq(e.price, 14000)
   t.eq(e.attrs.Country, "Japan"); t.eq(e.attrs.Transmission, "Manual"); t.eq(e.attrs.Years.min, 1988)
   t.eq(dealer.modelNames.covet, "Ibishu Covet")
   for _, c in ipairs(dealer.cars) do t.ok(c.model ~= "tsfb" and c.model ~= "cones", "props aren't added to the dealer list") end
+  local m = dealer.gamePrices.modcar.stradale
+  t.ok(m and m.noPrice and m.price == nil, "a trim with no game price is kept")
+  t.eq(m.attrs.Country, "Italy", "with its details")
   w:assertClean()
 end)
 
@@ -143,5 +148,86 @@ t.test("a class with no cars won't start; the admin tab builds a class with butt
   t.ok(im.hasButton("Set price"), "the class's cars, each with a price box")
   im.click("Use##clsuse_trucks"); w:step(1)
   t.ok(w:chatHas(A, "Next challenge's cars: trucks"))
+  w:assertClean()
+end)
+
+t.test("cars with no game price: a dealership-wide price makes them sellable; a class can still override it", function()
+  local w = World.new({ files = F.files(F.twoRaces()) })
+  local A, B = w:join("Alice"), w:join("Bob")
+  setup(w, A)
+  w:chat(A, "/tg setprice list")
+  t.ok(w:chatHas(A, "Fanto Bolide stradale [modcar/stradale] - no price"))
+  w:chat(A, "/tg class new italy")
+  w:chat(A, "/tg class rule italy country Italy")
+  t.ok(w:chatHas(A, "italy: Country: Italy - no cars."), "unpriced cars can't be sold yet")
+  w:chat(A, "/tg setprice modcar/stradale 6000")
+  t.ok(w:chatHas(A, "Fanto Bolide stradale now costs $6,000."))
+  w:chat(A, "/tg class show italy")
+  t.ok(w:chatHas(A, "italy: Country: Italy - 1 trim, $6,000 to $6,000."))
+  w:chat(A, "/tg class use italy")
+  w:chat(A, "/tg start")
+  t.eq(w:buy(B, "modcar", "corsa"), nil)
+  t.ok(w:chatHas(B, "it has no price yet (admin: /tg setprice modcar/corsa <amount>)"))
+  t.ok(w:buy(B, "modcar", "stradale"), "the priced one sells")
+  t.eq(w:state(B).cash, 4000)
+  w:chat(A, "/tg class price italy modcar/corsa 9500")   -- a class price works for an unpriced trim too
+  w:chat(A, "/tg class show italy")
+  t.ok(w:chatHas(A, "italy: Country: Italy - 2 trims, $6,000 to $9,500."))
+  -- the admin window lists the unpriced ones
+  w:chat(A, "/tg class edit italy"); w:step(2.5)
+  w:chat(A, "/tg class price italy modcar/corsa off"); w:step(2.5)
+  t.match(A.client.im.textOf(WIN), "Fanto Bolide corsa  %(no price %- not for sale until it has one%)")
+  t.match(A.client.im.textOf(WIN), "Cars without a price %(2%)")
+  w:assertClean()
+end)
+
+t.test("a dealership-wide price also changes a priced trim, in the normal dealer list too", function()
+  local w = World.new({ files = F.files(F.twoRaces()) })
+  local A = w:join("Alice")
+  setup(w, A)
+  w:chat(A, "/tg setprice covet/base_M 3000")
+  t.ok(w:chatHas(A, "Ibishu Covet base_M now costs $3,000."))
+  w:chat(A, "/tg start")
+  w:buy(A, "covet", "base_M")
+  t.eq(w:state(A).cash, 7000)
+  w:chat(A, "/tg stop")
+  w:chat(A, "/tg setprice covet/base_M off")
+  t.ok(w:chatHas(A, "Ibishu Covet base_M now costs $4,200 (its game price)."))
+  w:assertClean()
+end)
+
+t.test("base trims: every car's cheapest factory trim, on its own or with other rules", function()
+  local w = World.new({ files = F.files(F.twoRaces()) })
+  local A, B = w:join("Alice"), w:join("Bob")
+  setup(w, A)
+  w:chat(A, "/tg class new basics base")      -- all cars (and trucks), base trims only
+  t.ok(w:chatHas(A, "Made class basics: Base trims only; Type: Car, Truck - 4 trims, $3,100 to $6,800."))
+  w:chat(A, "/tg setprice modcar/stradale 6000")   -- a mod car with a price now has a base trim
+  w:chat(A, "/tg class show basics")
+  t.ok(w:chatHas(A, "basics: Base trims only; Type: Car, Truck - 5 trims, $3,100 to $6,800."))
+  -- combined with other rules
+  jdm(w, A)
+  w:chat(A, "/tg class rule jdm trims base")
+  t.ok(w:chatHas(A, "jdm: Country: Japan; Years 1986-1999; Type: Car; Base trims only - 2 trims, $3,900 to $4,200."))
+  w:chat(A, "/tg class use basics")
+  w:chat(A, "/tg start")
+  t.eq(w:buy(B, "covet", "sport_M"), nil)
+  t.ok(w:chatHas(B, "not in today's class (basics): not the base trim (that's Ibishu Covet base_M)"))
+  t.eq(w:buy(B, "tsfb", "base"), nil, "a trailer isn't a car")
+  t.ok(w:buy(B, "covet", "base_M"))
+  w:assertClean()
+end)
+
+t.test("the Admin tab's All cars, base trims button and its price boxes", function()
+  local w = World.new({ files = F.files(F.twoRaces()) })
+  local A = w:join("Alice")
+  setup(w, A)
+  w:chat(A, "/tg menu"); w:step(2.5)
+  local im = A.client.im
+  im.click("All cars, base trims##clsnewbase"); w:step(2.5)
+  t.ok(w:chatHas(A, "Made class basetrims: Base trims only; Type: Car, Truck - 4 trims"))
+  im.setInt("##unpriced_modcar/stradale", 6500); im.click("Set price##ups_modcar/stradale"); w:step(2.5)
+  t.ok(w:chatHas(A, "Fanto Bolide stradale now costs $6,500."))
+  t.match(im.textOf(WIN), "Fanto Bolide stradale  %- %$6,500")
   w:assertClean()
 end)

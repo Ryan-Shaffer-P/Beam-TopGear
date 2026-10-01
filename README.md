@@ -371,7 +371,8 @@ the imported trims that match its **rules**, plus any you **include** by hand, m
 **exclude**. Rules use the same details BeamNG's own vehicle menu filters by: `country`, `brand`,
 `body` (Body Style), `type` (Car/Truck/...), `years`, `transmission`, `drivetrain`, `fuel`,
 `propulsion`, `induction`, `configtype` (Factory/Police/...), `performance`, `derby`, and ranges
-for `value`, `weight`, `topspeed`, `accel` (0-100 km/h) and `offroad`. A trim must match every rule.
+for `value`, `weight`, `topspeed`, `accel` (0-100 km/h) and `offroad` - and `trims base`: only each
+model's **base trim** (its cheapest factory trim). A trim must match every rule.
 
 1. `/tg importprices` once (the class only sells imported stock trims).
 2. `/tg class new jdm`, then rules: `/tg class rule jdm country Japan`,
@@ -379,6 +380,9 @@ for `value`, `weight`, `topspeed`, `accel` (0-100 km/h) and `offroad`. A trim mu
    `/tg class values body` lists the values your cars have.
 3. Hand-picks: `/tg class include jdm pickup` (a whole model) or `.../exclude jdm covet/sport_M` (one trim);
    `/tg class clear jdm covet/sport_M` undoes either.
+   **Every car, base trims only:** `/tg class new basics base` (or **All cars, base trims** in the Admin
+   tab) makes a class with `trims base` and `type Car,Truck` (so props and trailers stay out); add rules
+   to narrow it, e.g. `/tg class rule basics country Japan`.
 4. Prices: `/tg class price jdm covet/gtz_M 13000` (one trim; `off` = back to the game price) and
    `/tg class multiplier jdm 0.8` (every trim's game price x 0.8). Price a car just over the budget
    and it's the prize for taking faults ("needs 2 faults").
@@ -386,6 +390,13 @@ for `value`, `weight`, `topspeed`, `accel` (0-100 km/h) and `offroad`. A trim mu
    dealer list). It isn't saved with courses. `/tg start` announces it, the Dealership tab shows it,
    and spawning anything else is refused with the reason ("not in today's class (jdm): Country is
    United States"). A class with no cars won't start.
+
+**Cars with no game price** (mostly mod cars): the import keeps them, but nothing sells without a price.
+`/tg setprice <model/config> <amount>` (or the Admin tab's **Cars without a price**) gives one a
+**dealership-wide price** - used in every class and in the normal dealer list (for listed models).
+It also changes a priced trim's price everywhere; `off` puts it back. `/tg setprice list` lists them.
+A class price (`/tg class price`) still wins for that class. In a class's car list the unpriced ones
+are marked "(no price)" with a price box.
 
 The Admin tab's **Car classes** section does all of this with buttons: Use / Edit per class, New
 class, Add rule (pick the field, type the value), Include / Exclude, the price %, and the class's

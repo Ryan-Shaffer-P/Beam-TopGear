@@ -38,6 +38,10 @@ local MODELS = {
   miramar = { brand = "Ibishu",  name = "Miramar", configs = { base_M = 3100 }, noFuelTank = true, noThermals = true, manual = true,
               info = { Country = "Japan", ["Body Style"] = "Sedan", Type = "Car", Years = { min = 1970, max = 1985 } } },
   tsfb    = { brand = "",        name = "Small flatbed trailer", configs = { base = 900 }, info = { Type = "Trailer" } },
+  -- a mod car the game has no prices for (false = no Value)
+  modcar  = { brand = "Fanto",   name = "Bolide", configs = { stradale = false, corsa = false },
+              info = { Country = "Italy", ["Body Style"] = "Coupe", Type = "Car", Years = { min = 1972, max = 1978 } },
+              trims = { stradale = { Transmission = "Manual", ["Config Type"] = "Factory" }, corsa = { Transmission = "Manual", ["Config Type"] = "Factory" } } },
   cones   = { brand = "",        name = "Cones", configs = { base = 10 }, info = { Type = "Prop" } },
 }
 
@@ -342,7 +346,7 @@ function World:loadClient(p)
       if not m then return nil end
       local configs = {}
       for key, price in pairs(m.configs) do
-        configs[key] = { key = key, Configuration = key, Value = price }
+        configs[key] = { key = key, Configuration = key, Value = price or nil }
         for k, val in pairs((m.trims or {})[key] or {}) do configs[key][k] = val end
       end
       local info = { key = model, Brand = m.brand, Name = m.name }

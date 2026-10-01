@@ -1710,6 +1710,11 @@ local function drawAdmin(d)
       local nm = trim(textOf(nb))
       if nm ~= "" then sendCmd("class new " .. nm) else addLog("Type a name for the class first.") end
     end
+    same()
+    if im.Button("All cars, base trims##clsnewbase") then   -- every car, each model's cheapest factory trim
+      local nm = trim(textOf(nb))
+      sendCmd("class new " .. (nm ~= "" and nm or "basetrims") .. " base")
+    end
     local v
     for _, c in ipairs(cl.list or {}) do if c.name == cl.view then v = c end end
     if v then
@@ -1739,7 +1744,8 @@ local function drawAdmin(d)
           local val = trim(textOf(vb))
           if val ~= "" then sendCmd("class rule " .. v.name .. " " .. f.key .. " " .. val) else addLog("Type a value for the rule.") end
         end
-        if f.kind == "range" then colored(0.65, 0.65, 0.65, "A range: 1985-1999, 1985- or -1999")
+        if f.kind == "base" then colored(0.65, 0.65, 0.65, "Type: base  (each model's cheapest factory trim only)")
+        elseif f.kind == "range" then colored(0.65, 0.65, 0.65, "A range: 1985-1999, 1985- or -1999")
         elseif f.values and #f.values > 0 then colored(0.65, 0.65, 0.65, "Comma separated, e.g.: " .. table.concat(f.values, ", ")) end
       end
       -- hand-picks
@@ -1757,15 +1763,27 @@ local function drawAdmin(d)
       if header(string.format("The %d cars in %s##clstrims", v.count or 0, v.name)) then
         for _, t in ipairs(v.trims or {}) do
           confirmButton("Leave out", "clsx_" .. t.key, "class exclude " .. v.name .. " " .. t.key); same()
-          local pp = intPtr("clsprice_" .. t.key, t.price)
+          local pp = intPtr("clsprice_" .. t.key, t.price or 0)
           im.InputInt("##clsprice_" .. t.key, pp); same()
           button("Set price##clsps_" .. t.key, "class price " .. v.name .. " " .. t.key .. " " .. pp[0]); same()
-          if t.override then button("Game price##clspo_" .. t.key, "class price " .. v.name .. " " .. t.key .. " off"); same() end
-          txt(t.name)
+          if t.override then button("Back to normal##clspo_" .. t.key, "class price " .. v.name .. " " .. t.key .. " off"); same() end
+          if t.noPrice then colored(1, 0.7, 0.3, t.name .. "  (no price - not for sale until it has one)") else txt(t.name) end
         end
         if (v.count or 0) > #(v.trims or {}) then txt(string.format("... and %d more", v.count - #(v.trims or {}))) end
       end
       confirmButton("Delete class " .. v.name, "clsdel", "class delete " .. v.name)
+    end
+    -- trims the game has no price for (mostly mod cars): a dealership-wide price makes them sellable
+    if (cl.unpricedCount or 0) > 0 and header(string.format("Cars without a price (%d)##unpriced", cl.unpricedCount)) then
+      txt("The game has no price for these (mostly mod cars). Give one a price to sell it - in any class or dealer list.")
+      for _, u in ipairs(cl.unpriced or {}) do
+        local pp = intPtr("unpriced_" .. u.key, u.price or 0)
+        im.InputInt("##unpriced_" .. u.key, pp); same()
+        button("Set price##ups_" .. u.key, "setprice " .. u.key .. " " .. pp[0]); same()
+        if u.price then button("Clear##upc_" .. u.key, "setprice " .. u.key .. " off"); same(); txt(u.name .. "  - " .. commas(u.price))
+        else colored(1, 0.7, 0.3, u.name .. "  - no price") end
+      end
+      if cl.unpricedCount > #(cl.unpriced or {}) then txt(string.format("... and %d more (/tg setprice list)", cl.unpricedCount - #cl.unpriced)) end
     end
   end
   if #(d.soundClips or {}) > 0 and header("Soundboard##soundboard") then

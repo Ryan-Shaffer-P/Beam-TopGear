@@ -185,7 +185,9 @@ drivability weight, event-type weighting, the 4-place cutoff. Recompute `test_se
 filter attributes (`trimAttrs`: Country, Body Style, Years {min,max}, Transmission, ...) into `dealer.gamePrices`.
 Classes (`dealer.classes`, helpers in the `Class` table: rules / include / exclude / prices / multiplier) are picked
 per challenge (`chosenClass`, not saved); `lookupCar` + `dealerOffers` respect the active class; `faultsNeeded` adds
-"needs N faults" in every dealer mode. `/tg class ...`; Admin tab "Car classes".
+"needs N faults" in every dealer mode. `/tg class ...`; Admin tab "Car classes". Unpriced trims are imported
+(`noPrice`); a price comes from: class `prices` > `dealer.prices` (`/tg setprice`, `trimPrice`) > game value, then x the
+class multiplier. Rule `trims base` = `Class.baseTrim` (cheapest priced factory trim); `/tg class new <n> base`.
 
 ### 3. Fault system revamp - DONE in 0.8.8
 Taken by number (`/tg fault take [n]`, $2,500 each = `faults.payout`), drawn at random (`rollFault` /

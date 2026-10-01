@@ -125,6 +125,8 @@ local DEFAULT_CONFIG = {
     useGamePrices = false,  -- true after /tg importprices: every trim costs its BeamNG value
     gamePrices = {},        -- filled by /tg importprices: { model = { configKey = { name, price, attrs } } }
     modelNames = {},        -- filled by /tg importprices: { model = "Ibishu Covet" }
+    prices = {},            -- dealership-wide prices, set with /tg setprice: { ["model/config"] = price } - for trims the
+                            -- game has no value for (mostly mods), or to change one; used everywhere, a class can override
     -- Car classes (/tg class ...): a class sells only the imported trims matching its rules (BeamNG's own vehicle
     -- attributes), plus hand-picked `include`s, minus `exclude`s ("model" or "model/config"), at their game price x
     -- `multiplier` or a per-trim `prices` override. The admin picks the class for each challenge (/tg class use).
@@ -627,9 +629,10 @@ Class.FIELDS = {
   performance = { "Performance Class", "list" }, derby = { "Derby Class", "list" },
   years = { "Years", "range" }, value = { "Value", "range" }, weight = { "Weight", "range" },
   topspeed = { "Top Speed", "range" }, accel = { "0-100 km/h", "range" }, offroad = { "Off-Road Score", "range" },
+  trims = { "Trims", "base" },   -- "base": only each model's cheapest factory trim
 }
 Class.ORDER = { "country", "brand", "body", "type", "years", "transmission", "drivetrain", "fuel", "propulsion",
-  "induction", "configtype", "performance", "derby", "value", "weight", "topspeed", "accel", "offroad" }
+  "induction", "configtype", "performance", "derby", "value", "weight", "topspeed", "accel", "offroad", "trims" }
 
 function Class.def(name) return name and (cfg.dealer.classes or {})[name] or nil end
 local function activeClass() return Class.def(chosenClass) end
@@ -639,6 +642,7 @@ function Class.rangeText(lo, hi)
   return "up to " .. tostring(hi)
 end
 function Class.ruleText(r)
+  if r.base then return "Base trims only" end
   if r.values then return r.field .. ": " .. table.concat(r.values, ", ") end
   return r.field .. " " .. Class.rangeText(r.min, r.max)
 end
@@ -651,7 +655,30 @@ local function classSummary(cls)
   return #parts > 0 and table.concat(parts, "; ") or "no rules yet"
 end
 -- does one rule match a trim's attributes? (a range matches if it overlaps, e.g. Years 1987-1995 vs 1985-1999)
-function Class.ruleCheck(r, attrs)
+local function trimPrice(model, config, entry)   -- before any class: the dealership price list, else the game's value
+  local o = tonumber((cfg.dealer.prices or {})[model .. "/" .. tostring(config)])
+  if o then return math.floor(o) end
+  return entry and tonumber(entry.price) and math.floor(tonumber(entry.price)) or nil
+end
+-- a model's base trim: its cheapest factory trim that has a price
+function Class.baseTrim(model)
+  local best, bestPrice
+  for config, e in pairs((cfg.dealer.gamePrices or {})[model] or {}) do
+    local ct = type(e) == "table" and e.attrs and e.attrs["Config Type"]
+    local price = type(e) == "table" and trimPrice(model, config, e)
+    if price and (ct == nil or ct == "Factory") and (not bestPrice or price < bestPrice or (price == bestPrice and config < best)) then
+      best, bestPrice = config, price
+    end
+  end
+  return best
+end
+function Class.ruleCheck(r, attrs, model, config)
+  if r.base then
+    local base = Class.baseTrim(model)
+    if base == config then return true end
+    return false, base and ("not the base trim (that's " .. (((cfg.dealer.gamePrices or {})[model] or {})[base] or {}).name .. ")")
+                        or "this model has no priced factory trim"
+  end
   local v = attrs and attrs[r.field]
   if r.values then
     if v == nil then return false, r.field .. " unknown" end
@@ -681,28 +708,37 @@ function Class.match(cls, model, config, entry)
   if Class.inPickList(cls.include, model, config) then return true end
   if #(cls.rules or {}) == 0 then return false, "not picked for the class" end
   for _, r in ipairs(cls.rules) do
-    local ok, why = Class.ruleCheck(r, entry and entry.attrs)
+    local ok, why = Class.ruleCheck(r, entry and entry.attrs, model, config)
     if not ok then return false, why end
   end
   return true
 end
-function Class.price(cls, model, config, entry)
+function Class.price(cls, model, config, entry)   -- nil = no price anywhere (can't be sold yet)
   local o = tonumber((cls.prices or {})[model .. "/" .. tostring(config)])
   if o then return math.floor(o) end
-  return math.floor((tonumber(entry.price) or 0) * (tonumber(cls.multiplier) or 1) + 0.5)
+  local base = trimPrice(model, config, entry)
+  return base and math.floor(base * (tonumber(cls.multiplier) or 1) + 0.5) or nil
 end
--- every imported trim in a class: { model, config, name, modelName, price }, cheapest first
-local function classTrims(cls)
+-- every imported trim in a class that can be sold (has a price): { model, config, name, modelName, price }, cheapest
+-- first. withUnpriced: also the matching trims with no price yet (price = nil), for the admin's list.
+local function classTrims(cls, withUnpriced)
   local out = {}
   for model, trims in pairs(cfg.dealer.gamePrices or {}) do
     for config, e in pairs(trims) do
-      if type(e) == "table" and tonumber(e.price) and Class.match(cls, model, config, e) then
-        out[#out + 1] = { model = model, config = config, name = e.name or (model .. " " .. config), price = Class.price(cls, model, config, e),
-                          modelName = (cfg.dealer.modelNames or {})[model] or model }
+      if type(e) == "table" and Class.match(cls, model, config, e) then
+        local price = Class.price(cls, model, config, e)
+        if price or withUnpriced then
+          out[#out + 1] = { model = model, config = config, name = e.name or (model .. " " .. config), price = price,
+                            modelName = (cfg.dealer.modelNames or {})[model] or model }
+        end
       end
     end
   end
-  table.sort(out, function(a, b) if a.price ~= b.price then return a.price < b.price end return a.name < b.name end)
+  table.sort(out, function(a, b)
+    if (a.price ~= nil) ~= (b.price ~= nil) then return a.price ~= nil end   -- priced first
+    if a.price and b.price and a.price ~= b.price then return a.price < b.price end
+    return a.name < b.name
+  end)
   return out
 end
 -- 0 = affordable now; n = n more faults would cover it; nil = out of reach even with the most faults
@@ -721,18 +757,21 @@ local function lookupCar(model, config)
   local cls = activeClass()
   if cls then   -- today's class decides what's sold, at its prices
     local e = ((cfg.dealer.gamePrices or {})[model] or {})[config or ""]
-    if not (e and tonumber(e.price)) then return nil, "today's class only sells stock trims with a game price" end
+    if not e then return nil, "today's class only sells stock trims (/tg importprices reads them)" end
     local ok, why = Class.match(cls, model, config, e)
     if not ok then return nil, "not in today's class (" .. chosenClass .. "): " .. why end
-    return { model = model, config = config, name = e.name or (model .. " " .. config), price = Class.price(cls, model, config, e) }
+    local price = Class.price(cls, model, config, e)
+    if not price then return nil, "it has no price yet (admin: /tg setprice " .. model .. "/" .. config .. " <amount>)" end
+    return { model = model, config = config, name = e.name or (model .. " " .. config), price = price }
   end
   if cfg.dealer.useGamePrices then
     if not modelListed(model) then return nil, "not sold here" end
     local gp = (cfg.dealer.gamePrices or {})[model]
     if not gp then return nil, "no imported prices for this model (/tg importprices)" end
     local e = config and gp[config]
-    if not (e and tonumber(e.price)) then return nil, "not a stock trim with a price (custom configs aren't sold)" end
-    return { model = model, config = config, name = e.name or (model .. " " .. config), price = tonumber(e.price) }
+    local price = e and trimPrice(model, config, e)
+    if not price then return nil, "not a stock trim with a price (custom configs aren't sold; admin: /tg setprice)" end
+    return { model = model, config = config, name = e.name or (model .. " " .. config), price = price }
   end
   local fallback
   for _, c in ipairs(cfg.dealer.cars) do
@@ -2409,9 +2448,8 @@ local function dealerOffers(p)
   elseif cfg.dealer.useGamePrices then
     for _, c in ipairs(listedModels()) do
       for key, e in pairs((cfg.dealer.gamePrices or {})[c.model] or {}) do
-        if type(e) == "table" and tonumber(e.price) then
-          add(c.model, c.name, { config = key, name = e.name or key, price = math.floor(tonumber(e.price)) })
-        end
+        local price = type(e) == "table" and trimPrice(c.model, key, e)
+        if price then add(c.model, c.name, { config = key, name = e.name or key, price = price }) end
       end
     end
   else
@@ -2914,9 +2952,12 @@ finishImport = function()
   if imp.imported > 0 then
     cfg.dealer.useGamePrices = true
     saveConfig()
-    say(imp.pid, string.format("Imported %s%s%s. Game prices are ON and saved to config.json.",
-      plural(imp.imported, "trim price"), imp.all and string.format(" from %s", plural(imp.models or 0, "model")) or "", imp.skipped > 0 and string.format(" (%s had no price and %s skipped)",
-      plural(imp.skipped, "trim"), imp.skipped == 1 and "was" or "were") or ""))
+    say(imp.pid, string.format("Imported %s%s. Game prices are ON and saved to config.json.",
+      plural(imp.imported, "trim price"), imp.all and string.format(" from %s", plural(imp.models or 0, "model")) or ""))
+    if imp.skipped > 0 then
+      say(imp.pid, string.format("%s had no game price - kept; give them one with /tg setprice <model/config> <amount> " ..
+        "or the Admin tab's Cars without a price (/tg setprice list shows them).", plural(imp.skipped, "trim")))
+    end
   else
     say(imp.pid, "Nothing was imported - prices unchanged.")
   end
@@ -2945,7 +2986,8 @@ function TG_onImportReply(pid, data)
         n = n + 1
         if price <= cfg.economy.startingCash then under = under + 1 end
         cheapest = math.min(cheapest or price, price)
-      else
+      elseif c.config then   -- no game value (mostly mod cars): kept, so it can be given a price (/tg setprice)
+        prices[c.config] = { name = c.name or c.config, attrs = type(c.attrs) == "table" and c.attrs or nil, noPrice = true }
         imp.skipped = imp.skipped + 1
       end
     end
@@ -3049,6 +3091,7 @@ ADMIN_CMDS.class = function(pid, name, args)
     local field, kind = Class.parseField(cname)
     if not field then say(pid, "Fields: " .. table.concat(Class.ORDER, ", ")); return end
     if kind == "range" then say(pid, field .. " is a range: e.g. /tg class rule <name> " .. cname .. " 1985-1999 (or 1985- / -1999)"); return end
+    if kind == "base" then say(pid, "Trims: base - each model's cheapest factory trim only."); return end
     local vals = Class.fieldValues(field)
     say(pid, field .. ": " .. (#vals > 0 and table.concat(vals, ", ") or "nothing imported yet (/tg importprices)"))
     return
@@ -3060,9 +3103,16 @@ ADMIN_CMDS.class = function(pid, name, args)
     if not cname:match("^[%w_%-]+$") then say(pid, "A class name is one word (letters, digits, - and _)."); return end
     if cls then say(pid, "There's already a class called " .. cname .. "."); return end
     classes[cname] = { rules = {}, include = {}, exclude = {}, prices = {}, multiplier = 1 }
+    if (args[5] or ""):lower() == "base" then   -- every car, base trims only (props and trailers left out)
+      classes[cname].rules = { { field = "Trims", base = true }, { field = "Type", values = { "Car", "Truck" } } }
+    end
     Class.view[name] = cname
     saveConfig()
-    say(pid, "Made class " .. cname .. ". Add rules: /tg class rule " .. cname .. " country Japan | years 1985-1999 | body Hatchback ...")
+    if #classes[cname].rules > 0 then
+      say(pid, string.format("Made class %s: %s - %s.", cname, classSummary(classes[cname]), Class.count(classes[cname])))
+    else
+      say(pid, "Made class " .. cname .. ". Add rules: /tg class rule " .. cname .. " country Japan | years 1985-1999 | body Hatchback | trims base ...")
+    end
   elseif sub == "delete" then
     if not need(cls) then return end
     if cname == chosenClass and game.phase ~= "idle" then say(pid, "That class is in use - after the challenge."); return end
@@ -3086,7 +3136,10 @@ ADMIN_CMDS.class = function(pid, name, args)
     if not field then say(pid, "Fields: " .. table.concat(Class.ORDER, ", ")); return end
     local text = table.concat(args, " ", 6)
     local rule = { field = field }
-    if kind == "range" then
+    if kind == "base" then
+      if text:lower() ~= "base" then say(pid, "Usage: /tg class rule " .. cname .. " trims base  (each model's cheapest factory trim)"); return end
+      rule.base = true
+    elseif kind == "range" then
       local lo, hi
       if text:find("-", 1, true) then lo, hi = text:match("^%s*([%d%.]*)%s*%-%s*([%d%.]*)%s*$") else lo, hi = text, text end
       rule.min, rule.max = tonumber(lo), tonumber(hi)
@@ -3137,6 +3190,42 @@ ADMIN_CMDS.class = function(pid, name, args)
   else
     say(pid, "Usage: /tg class list|use|new|delete|show|rule|unrule|include|exclude|clear|price|multiplier|values")
   end
+end
+
+-- dealership-wide prices: /tg setprice <model/config> <amount|off> ; /tg setprice list (the trims with no price)
+ADMIN_CMDS.setprice = function(pid, _, args)
+  cfg.dealer.prices = cfg.dealer.prices or {}
+  local key, amount = args[3], (args[4] or ""):lower()
+  if not key or key:lower() == "list" then
+    local list = {}
+    for model, trims in pairs(cfg.dealer.gamePrices or {}) do
+      for config, e in pairs(trims) do
+        if type(e) == "table" and not tonumber(e.price) then
+          local k = model .. "/" .. config
+          list[#list + 1] = string.format("%s [%s]%s", e.name or k, k, cfg.dealer.prices[k] and (" - " .. money(cfg.dealer.prices[k])) or " - no price")
+        end
+      end
+    end
+    table.sort(list)
+    if #list == 0 then say(pid, "Every imported trim has a game price."); return end
+    say(pid, plural(#list, "trim") .. " without a game price:")
+    for i, l in ipairs(list) do if i <= 15 then say(pid, "  " .. l) end end
+    if #list > 15 then say(pid, "  ... (the Admin tab lists them all)") end
+    return
+  end
+  local model, config = key:match("^([^/]+)/(.+)$")
+  if not model then say(pid, "Usage: /tg setprice <model/config> <amount|off>  (e.g. covet/base_M 4000)"); return end
+  model = model:lower()
+  key = model .. "/" .. config
+  local e = ((cfg.dealer.gamePrices or {})[model] or {})[config]
+  if not e then say(pid, "No imported trim " .. key .. " - /tg importprices first, or check the name."); return end
+  if amount == "off" then cfg.dealer.prices[key] = nil
+  elseif tonumber(amount) and tonumber(amount) >= 0 then cfg.dealer.prices[key] = math.floor(tonumber(amount))
+  else say(pid, "Give an amount, or off."); return end
+  saveConfig()
+  local nowPrice = trimPrice(model, config, e)
+  say(pid, string.format("%s now costs %s%s.", e.name or key, nowPrice and money(nowPrice) or "nothing (no price - it can't be sold)",
+    (not cfg.dealer.prices[key] and tonumber(e.price)) and " (its game price)" or ""))
 end
 
 ADMIN_CMDS.gameprices = function(pid, _, args)
@@ -3767,12 +3856,12 @@ local function buildUi(pid)
                   max = trims[#trims] and trims[#trims].price or nil, rules = {}, include = c.include or {}, exclude = c.exclude or {},
                   multiplier = tonumber(c.multiplier) or 1 }
       for _, r in ipairs(c.rules or {}) do e.rules[#e.rules + 1] = { field = r.field, text = Class.ruleText(r) } end
-      if Class.view[name] == n then   -- the one being edited: its cars (first 60)
+      if Class.view[name] == n then   -- the one being edited: its cars (first 60), unpriced ones last
         e.trims = {}
-        for i, t in ipairs(trims) do
+        for i, t in ipairs(classTrims(c, true)) do
           if i > 60 then break end
           local key = t.model .. "/" .. t.config
-          e.trims[#e.trims + 1] = { key = key, name = t.name, price = t.price, override = (c.prices or {})[key] ~= nil }
+          e.trims[#e.trims + 1] = { key = key, name = t.name, price = t.price, override = (c.prices or {})[key] ~= nil, noPrice = t.price == nil }
         end
       end
       clist[#clist + 1] = e
@@ -3784,8 +3873,20 @@ local function buildUi(pid)
       if vals and #vals > 30 then vals = { table.unpack and table.unpack(vals, 1, 30) or unpack(vals, 1, 30) } end
       fields[#fields + 1] = { key = k, name = f[1], kind = f[2], values = vals }
     end
+    local unpriced, nUnpriced = {}, 0
+    for model, trims in pairs(cfg.dealer.gamePrices or {}) do
+      for config, e in pairs(trims) do
+        if type(e) == "table" and not tonumber(e.price) then
+          nUnpriced = nUnpriced + 1
+          local key = model .. "/" .. config
+          unpriced[#unpriced + 1] = { key = key, name = e.name or key, price = tonumber((cfg.dealer.prices or {})[key]) }
+        end
+      end
+    end
+    table.sort(unpriced, function(a, b) return a.name < b.name end)
+    while #unpriced > 60 do table.remove(unpriced) end
     d.classes = { active = chosenClass, list = clist, view = Class.view[name], fields = fields, idle = game.phase == "idle",
-                  imported = next(cfg.dealer.gamePrices or {}) ~= nil }
+                  imported = next(cfg.dealer.gamePrices or {}) ~= nil, unpriced = unpriced, unpricedCount = nUnpriced }
     local ev = {}
     for i, e in ipairs(cfg.events) do
       ev[#ev + 1] = { n = i, name = e.name, type = e.type or "race", start = v3(e.start) ~= nil,
