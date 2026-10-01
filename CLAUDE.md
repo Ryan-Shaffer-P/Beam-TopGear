@@ -67,7 +67,7 @@ parts snapshots/diffs, reverting refused parts.
    *global* (nil at runtime) - this bit us ~10 times (most recently `addLog` in `onTheme`). Declare shared
    helpers/state at the top (`local copyTable, readParts, ...`) and assign later (`copyTable = function(...)`).
    Check the client with
-   `luac5.3 -l topgear.lua | grep -oE '(GET|SET)TABUP.*_ENV "[A-Za-z_]+"' | grep -oE '"[A-Za-z_]+"' | sort -u`
+   `luac -l -p topgear.lua | grep -oE '(GET|SET)TABUP.*_ENV "[A-Za-z_][A-Za-z0-9_]*"' | grep -oE '"[A-Za-z_][A-Za-z0-9_]*"' | sort -u`
    (only real BeamNG/BeamMP globals may appear). For the server this listing is unreliable (>255 constants):
    rely on the strict-mode simulations.
 2. **Never `cond and false or x`** in Lua - it can't yield `false`. Use explicit `if`.
@@ -102,8 +102,8 @@ for the `/tg diag` "Client error" line or the matching `[TopGear]` server-consol
 
 ## Testing workflow (do this for every change)
 
-1. Syntax: `luac5.3 -p` **and** `luajit -e 'assert(loadfile("file.lua"))'` on both files.
-   (As of 2026-09-30 neither is installed on this Mac - install via Homebrew before relying on this.)
+1. Syntax: `luac -p` **and** `luajit -e 'assert(loadfile("file.lua"))'` on both files.
+   Installed: Homebrew `lua` (5.5 - newer than the server's 5.3, so treat it as close, not exact) and `luajit`.
 2. Globals check on the client (rule 1).
 3. Simulations: plain Lua scripts that stub `MP`/`Util`, fake BeamNG globals (`be`, vehicles, partmgmt,
    vlua envs), and a fake `ui_imgui` that records text/buttons/circles and lets the test "click" by label.
