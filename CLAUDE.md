@@ -191,7 +191,8 @@ vars `$spring*`/`$damp*` to min, else empty sway-bar slots), engine, brakes, ign
 `clutchPermanentlyDamaged`), synchros (manualGearbox `synchroWear`), turbo (`turbocharger.applyDeformGroupDamage`),
 brakefade (`padGlazingFactor`, GE top-up every 10 s), abs (`wheels.setABSBehavior("off")`), oilleak (engine
 `damageFrictionCoef` x1.5; server rolls `p.oilDoomed` at draw = `blowChance` 0.2; a doomed engine `lockUp()`s after
-blowMin-blowMax s of driving > 15 m/s, client -> `tg_engine_blown`; can't blow twice) - 17 faults, all from the 0.36
+blowMin-blowMax s of driving > 15 m/s, client -> `tg_engine_blown`; can't blow twice), idle (engine
+`damageIdleAVReadErrorRangeCoef` x15), gearbox (every `*Gearbox` device's `damageFrictionCoef` x3) - 19 faults, all from the 0.36
 game Lua, NOT yet tried in game (devices found via `powertrain.getDevices()` by `.type`). "unavailable" -> swapped silently and remembered in `cfg.faultCaps["model/config"]` (`/tg fault caps`).
 Next step for "group cars by fault capability": build groups from `faultCaps`.
 

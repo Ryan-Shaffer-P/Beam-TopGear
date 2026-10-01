@@ -474,13 +474,36 @@ run("oilleak", function(f)   -- more engine friction: runs hot, a little less po
   tgFaults.oilleak = f
   out.oilleak = f and "ok" or "removed"
 end)
+run("idle", function(f)   -- a rough idle: the engine's idle-speed error (what wear raises) - it hunts and can stall
+  if not eng or type(eng.damageIdleAVReadErrorRangeCoef) ~= "number" then out.idle = "unavailable"; return end
+  local cur, target = afterReset and 1 or (tgFaults.idleMult or 1), f or 1
+  eng.damageIdleAVReadErrorRangeCoef = eng.damageIdleAVReadErrorRangeCoef / cur * target
+  tgFaults.idleMult = f
+  tgFaults.idle = f
+  out.idle = f and "ok" or "removed"
+end)
+run("gearbox", function(f)   -- a worn gearbox: more friction in whatever gearbox the car has
+  local n = 0
+  for _, d in pairs((powertrain and powertrain.getDevices and powertrain.getDevices()) or {}) do
+    if type(d) == "table" and type(d.type) == "string" and d.type:find("Gearbox") and type(d.damageFrictionCoef) == "number" then
+      local cur = afterReset and 1 or (tgFaults.gearboxMult or 1)
+      d.damageFrictionCoef = d.damageFrictionCoef / cur * (f or 1)
+      n = n + 1
+    end
+  end
+  if n == 0 then out.gearbox = "unavailable"; return end
+  tgFaults.gearboxMult = f
+  tgFaults.gearbox = f
+  out.gearbox = f and "ok" or "removed"
+end)
 local parts = {}
 for k, v in pairs(out) do parts[#parts + 1] = '"' .. k .. '":"' .. tostring(v):gsub('[%%c"\\%%]%%[]', ' ') .. '"' end
 obj:queueGameEngineLua("extensions.topgear.onVehicleFaultReport([[{" .. table.concat(parts, ",") .. "}]])")
 ]==]
 
 local PHYSICS = { engine = true, brakes = true, ignition = true, cooling = true, fuelleak = true, body = true,
-                  starter = true, clutch = true, synchros = true, turbo = true, brakefade = true, abs = true, oilleak = true }
+                  starter = true, clutch = true, synchros = true, turbo = true, brakefade = true, abs = true, oilleak = true,
+                  idle = true, gearbox = true }
 
 local function sendFaultReport()
   if not faults.report then return end

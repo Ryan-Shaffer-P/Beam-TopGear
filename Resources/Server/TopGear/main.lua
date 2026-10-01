@@ -80,6 +80,8 @@ local DEFAULT_CONFIG = {
       { id = "abs",        name = "ABS failure (wheels lock)" },
       { id = "oilleak",    name = "Oil leak (runs hot - might blow the engine)", factor = 0.5, -- engine friction +50%
         blowChance = 0.2, blowMin = 60, blowMax = 600 },   -- chance the engine is doomed; seconds of hard driving until it goes
+      { id = "idle",       name = "Rough idle (hunts and stalls)",           factor = 15 },    -- idle-speed error x this (worn engines go to 30)
+      { id = "gearbox",    name = "Worn gearbox (power lost to friction)",   factor = 3 },     -- gearbox friction x this
     },
   },
 
@@ -321,8 +323,8 @@ local function loadConfig()
         cfg.faults.list = list
       end
     end
-    if not cfg.migrations.faults17 then   -- 0.8.8: seven more faults
-      cfg.migrations.faults17, changed = true, true
+    if not cfg.migrations.faults19 then   -- 0.8.8: nine more faults
+      cfg.migrations.faults19, changed = true, true
       local have = {}
       for _, f in ipairs((cfg.faults or {}).list or {}) do have[f.id] = true end
       for _, f in ipairs(DEFAULT_CONFIG.faults.list) do

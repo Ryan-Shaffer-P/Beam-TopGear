@@ -7,7 +7,7 @@ local p = F.p
 
 -- the draw order is the fault list's order, minus faults already drawn / known not to fit the car
 local ORDER = { "tires", "alignment", "bumpers", "engine", "brakes", "ignition", "cooling", "suspension", "fuelleak", "body",
-                "starter", "clutch", "synchros", "turbo", "brakefade", "abs", "oilleak" }
+                "starter", "clutch", "synchros", "turbo", "brakefade", "abs", "oilleak", "idle", "gearbox" }
 local function pin(w, ids, exclude)
   local gone, rolls = {}, {}
   for _, x in ipairs(exclude or {}) do gone[x] = true end
@@ -226,7 +226,7 @@ t.test("saved configs with the old 5-fault menu get the 10 faults and the single
     { id = "brakes", name = "Brakes", payout = 3600, factor = 0.6 } } }
   local w = World.new({ files = F.files(F.config({}, { faults = old })) })
   local fl = w:serverConfig().faults
-  t.eq(#fl.list, 17)
+  t.eq(#fl.list, 19)
   t.eq(fl.payout, 2500)
   t.eq(fl.maxPerCar, 4, "the old limit of 3 becomes 4")
   local byId = {}
@@ -314,7 +314,8 @@ t.test("admin fault test: a button per fault, and the timed faults act outside a
       "Worn brakes (about -40% braking)", "Ignition problems (misfires, cuts out)", "Cooling problems (leaking radiator)",
       "Worn-out suspension (soft and bouncy)", "Fuel leak", "Accident damage (dents, broken lights)",
       "Weak starter (slow to start)", "Slipping clutch", "Worn gearbox synchros (gears grind)", "Damaged turbo (low boost)",
-      "Glazed brake pads (squeal, fade when hot)", "ABS failure (wheels lock)", "Oil leak (runs hot - might blow the engine)" }) do
+      "Glazed brake pads (squeal, fade when hot)", "ABS failure (wheels lock)", "Oil leak (runs hot - might blow the engine)",
+      "Rough idle (hunts and stalls)", "Worn gearbox (power lost to friction)" }) do
     t.ok(A.client.im.hasButton("Test: " .. name), "Test button for " .. name)
   end
   -- no challenge running: an admin tests on any car
@@ -427,14 +428,37 @@ t.test("oil leak test button: that engine blows within 40 s of hard driving, so 
   w:assertClean()
 end)
 
-t.test("saved configs with the 10 faults get the 7 new ones added", function()
+t.test("saved configs with the 10 faults get the 9 new ones added", function()
   local ten = {}
   for _, id in ipairs({ "tires", "alignment", "bumpers", "engine", "brakes", "ignition", "cooling", "suspension", "fuelleak", "body" }) do
     ten[#ten + 1] = { id = id, name = id, factor = 0.5 }
   end
   local w = World.new({ files = F.files(F.config({}, { faults = { list = ten }, migrations = { faults10 = true, tires30 = true } })) })
   local fl = w:serverConfig().faults.list
-  t.eq(#fl, 17)
+  t.eq(#fl, 19)
   t.eq(fl[1].factor, 0.5, "existing faults untouched")
   t.eq(fl[17].id, "oilleak"); t.eq(fl[17].blowChance, 0.2)
+end)
+
+t.test("rough idle and a worn gearbox (manual or automatic), re-applied after a reset without stacking", function()
+  local w = World.new({ files = F.files(F.twoRaces()) })
+  local A, B = w:join("Alice"), w:join("Bob")
+  w:chat(A, "/tg start")
+  w:buy(A, "covet", "base_M"); w:buy(B, "pessima", "base_M")   -- manual / automatic
+  pin(w, { "idle", "gearbox" }); w:chat(A, "/tg fault take 2")
+  pin(w, { "gearbox" }); w:chat(B, "/tg fault take")
+  w:step(10)
+  t.eq(A.current.engine.damageIdleAVReadErrorRangeCoef, 15, "rough idle")
+  t.eq(A.current.devices.gearbox.damageFrictionCoef, 3, "worn manual gearbox")
+  t.eq(B.current.devices.gearbox.damageFrictionCoef, 3, "worn automatic gearbox")
+  pin(w, { "brakes" }); w:chat(A, "/tg fault take")   -- the faults are sent again (no reset): nothing may multiply twice
+  w:step(10)
+  t.eq(A.current.engine.damageIdleAVReadErrorRangeCoef, 15, "idle not stacked")
+  t.eq(A.current.devices.gearbox.damageFrictionCoef, 3, "gearbox not stacked")
+  w:chat(A, "/tg ready"); w:chat(B, "/tg ready")
+  w:step(20)
+  w:resetCar(A); w:step(3)
+  t.eq(A.current.engine.damageIdleAVReadErrorRangeCoef, 15, "after a reset")
+  t.eq(A.current.devices.gearbox.damageFrictionCoef, 3, "after a reset, not stacked")
+  w:assertClean()
 end)

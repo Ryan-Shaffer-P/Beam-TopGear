@@ -393,6 +393,8 @@ and they're drawn again for the next one). Then:
 | brakefade | Glazed brake pads | fully glazed pads: the brakes squeal, are weaker and fade more as they heat up |
 | abs | ABS failure | ABS switched off: the wheels lock under hard braking |
 | oilleak | Oil leak | the engine runs hot with more friction and a little less power - and there's a **20% chance it's doomed**: a doomed engine lets go (seizes) after 1-10 minutes of hard driving (above ~54 km/h), on a leg, in an event or on the final leg. That's a tow; the leak stays, but that engine can't blow again. Nobody knows whether theirs is doomed - the workshop just says "oil leak" - and fixing it removes the risk. |
+| idle | Rough idle | the engine's idle-speed error turned way up (what engine wear does): it hunts at idle and can stall at junctions or on the start line |
+| gearbox | Worn gearbox | three times the gearbox friction (any gearbox type): a little less power at the wheels |
 
 **Every car is different.** If a drawn fault can't be applied to your car (no adjustable alignment,
 an electric car with no fuel tank...), it's quietly swapped for another - nothing to hand back - and
@@ -404,7 +406,7 @@ Everything is in `config.json` under `faults`: `payout`, `maxPerCar`, `fixMultip
 `inspectionPenaltyPoints`, and per fault `factor` (severity), `enabled` (false leaves it out of the
 draw), for ignition `cutoutMin`/`cutoutMax` (seconds between cut-outs) and for the oil leak
 `blowChance` (0.2) and `blowMin`/`blowMax` (seconds of hard driving before a doomed engine goes). Saved configs from before
-0.8.8 get all seventeen faults automatically (custom severities and switched-off faults are kept).
+0.8.8 get all nineteen faults automatically (custom severities and switched-off faults are kept).
 Setup faults (tires, alignment, bumpers, suspension) respawn the car when applied or fixed; the
 others run inside the car and are re-applied after every reset or respawn. Putting bumpers back or
 re-inflating tires via the parts/tuning menus doesn't work - the faults go straight back on.

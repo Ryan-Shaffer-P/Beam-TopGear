@@ -561,7 +561,7 @@ function World:freshPhysics(p, v)
   v.damage = 0
   local traits = w.models[v.model] or {}
   v.engine = { type = "combustionEngine", outputTorqueState = 1, slowIgnitionErrorChance = 0.01, fastIgnitionErrorChance = 0.01,
-               starterTorque = 100, damageFrictionCoef = 1, isBroken = false,
+               starterTorque = 100, damageFrictionCoef = 1, damageIdleAVReadErrorRangeCoef = 1, isBroken = false,
                lockUp = function(e) e.isBroken, e.outputTorqueState = true, 0 end }
   v.turboDamage, v.abs, v.devices = 0, "realistic", { mainEngine = v.engine }
   if traits.turbo then
@@ -572,7 +572,9 @@ function World:freshPhysics(p, v)
   if traits.manual then
     v.devices.clutch = { type = "frictionClutch", clutchPermanentlyDamaged = false }
     v.devices.gearbox = { type = "manualGearbox", gearRatios = { [-1] = -3.5, [0] = 0, [1] = 3.5, [2] = 2.1, [3] = 1.4, [4] = 1.0 },
-                          synchroWear = { [-1] = 0, [0] = 0, [1] = 0, [2] = 0, [3] = 0, [4] = 0 } }
+                          synchroWear = { [-1] = 0, [0] = 0, [1] = 0, [2] = 0, [3] = 0, [4] = 0 }, damageFrictionCoef = 1 }
+  else
+    v.devices.gearbox = { type = "automaticGearbox", damageFrictionCoef = 1 }
   end
   v.radiatorDamage, v.ignition, v.stalls, v.broken = 0, 3, v.stalls or 0, {}
   if not traits.noThermals then
@@ -616,10 +618,11 @@ function World:vehicleReset(p, v)
   v.damage = 0
   v.engine.outputTorqueState = 1
   v.engine.slowIgnitionErrorChance, v.engine.fastIgnitionErrorChance = 0.01, 0.01
-  v.engine.damageFrictionCoef, v.engine.isBroken = 1, false
+  v.engine.damageFrictionCoef, v.engine.isBroken, v.engine.damageIdleAVReadErrorRangeCoef = 1, false, 1
+  if v.devices.gearbox then v.devices.gearbox.damageFrictionCoef = 1 end
   v.radiatorDamage, v.broken, v.turboDamage = 0, {}, 0
   if v.devices.clutch then v.devices.clutch.clutchPermanentlyDamaged = false end
-  if v.devices.gearbox then for i in pairs(v.devices.gearbox.synchroWear) do v.devices.gearbox.synchroWear[i] = 0 end end
+  if v.devices.gearbox then for i in pairs(v.devices.gearbox.synchroWear or {}) do v.devices.gearbox.synchroWear[i] = 0 end end   -- (automatics have none)
   for _, wd in pairs(v.wheels) do wd.padGlazingFactor = 0 end
   for _, wd in pairs(v.wheels) do wd.brakeTorque = BRAKE_TORQUE end
   self:serverEvent("onVehicleReset", p.pid, v.vid, "{}")
