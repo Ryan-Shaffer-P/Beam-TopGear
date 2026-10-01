@@ -7,7 +7,7 @@
   In game, type /tg help.
 ]]
 
-local SERVER_VERSION = "0.8.5"
+local SERVER_VERSION = "0.8.6"
 local PLUGIN_DIR  = "Resources/Server/TopGear/"
 local CONFIG_PATH = PLUGIN_DIR .. "config.json"
 local COURSES_PATH = PLUGIN_DIR .. "courses.json"   -- saved course library
@@ -31,9 +31,12 @@ local DEFAULT_CONFIG = {
     repairCostPerDamage = 0.5,   -- $ per unit of BeamNG damage (calibrate with /tg status)
     repairCap           = 6000,
     repairMinDamage     = 50,
-    towFee              = 2000,  -- /tg tow (or respawning a lost car): full repair + delivery, DSQ from a running event
+    -- Roadside help repairs the car too, so it costs the repair price x roadsideMarkup plus a service fee:
+    -- tow = that + towFee (and delivery to the next start), respawn = that + respawnFee. The workshop is cheapest.
+    roadsideMarkup      = 1.25,
+    towFee              = 1000,  -- /tg tow (or respawning a lost car): + delivery, DSQ from a running event
     resetPenalty        = 1000,  -- if someone manages an illegal reset (R / Insert) anyway
-    respawnFee          = 2000,  -- /tg respawn outside the dealership/workshop (a fresh car on the spot)
+    respawnFee          = 500,   -- /tg respawn outside the dealership/workshop (a fresh car on the spot)
     unstickCooldown     = 15,    -- seconds between free /tg unstick uses
     unstickMaxSpeed     = 3,     -- m/s: unstick only works when (nearly) stopped
   },
@@ -42,7 +45,8 @@ local DEFAULT_CONFIG = {
     placementPoints          = { 10, 6, 3, 1 },
     drivabilityMaxPoints     = 10,     -- awarded at the finale for an undamaged car
     damageForZeroDrivability = 20000,  -- damage at which drivability hits 0
-    recoveryPenaltyPoints    = 2,      -- per illegal reset (tows don't cost points)
+    recoveryPenaltyPoints    = 2,      -- per illegal reset
+    towPenaltyPoints         = 1,      -- per tow and per roadside respawn
   },
 
   faults = {
@@ -166,6 +170,7 @@ local clock = MP.CreateTimer()
 local tickCount = 0
 local pendingImport, finishImport  -- price import state (defined with the admin commands)
 local performTow                   -- defined with the player commands
+local billUnstickRepair            -- defined with the tow
 local routePoints                  -- circuit: checkpoints + the start/finish line (defined with the event engine)
 local function now() return clock:GetCurrent() end
 
@@ -283,6 +288,11 @@ local function loadConfig()
       if f.id == "alignment" and f.factor == 0.7 then f.factor, changed = 1.4, true end
     end
     if not cfg.migrations.tires30 then cfg.migrations.tires30, changed = true, true end
+    if not cfg.migrations.roadside then   -- 0.8.6: repair price x markup + a smaller service fee, instead of a flat $2,000
+      cfg.migrations.roadside, changed = true, true
+      if cfg.economy.towFee == 2000 then cfg.economy.towFee = 1000 end
+      if cfg.economy.respawnFee == 2000 then cfg.economy.respawnFee = 500 end
+    end
     if changed then saveConfig() end
   else
     log("config.json is not valid JSON - running on defaults (file left untouched)")
@@ -721,6 +731,25 @@ local function repairQuote(p)
   local ec, d = cfg.economy, p.damage or 0
   if d < (ec.repairMinDamage or 50) then return 0 end
   return math.floor(ec.repairBaseFee + math.min(d * ec.repairCostPerDamage, ec.repairCap) + 0.5)
+end
+-- a repair done at the roadside (tow, respawn, an unstick that repaired the car): the workshop price x markup
+local function roadsideRepair(p)
+  return math.floor(repairQuote(p) * (tonumber(cfg.economy.roadsideMarkup) or 1.25) + 0.5)
+end
+-- kind = "tow" | "respawn": total, service fee, repair part
+local function roadsideCost(p, kind)
+  local ec = cfg.economy
+  local fee = kind == "tow" and (tonumber(ec.towFee) or 1000) or (tonumber(ec.respawnFee) or 500)
+  local repair = roadsideRepair(p)
+  return fee + repair, fee, repair
+end
+local function ptNote()   -- ", -1 pt" (tows and respawns cost points at the final standings)
+  local n = tonumber(cfg.scoring.towPenaltyPoints) or 0
+  return n > 0 and string.format(", -%s pt", tostring(n)) or ""
+end
+local function costNote(fee, repair)
+  if repair <= 0 then return money(fee) end
+  return string.format("%s: repair %s + fee %s", money(fee + repair), money(repair), money(fee))
 end
 -- slots whose parts are cosmetic (free in the workshop) or managed by the mod (bumpers)
 local FREE_SLOT_WORDS = { "skin", "paint", "livery", "decal", "sticker", "plate", "license", "licence", "badge",
@@ -1575,11 +1604,17 @@ showResults = function()
   game.phase = "results"
   local list = {}
   for _, p in pairs(game.players) do
-    local pen = (p.recoveries or 0) * (cfg.scoring.recoveryPenaltyPoints or 0)
+    local resetPen = (p.recoveries or 0) * (cfg.scoring.recoveryPenaltyPoints or 0)
+    local nHelp = (p.tows or 0) + (p.respawns or 0)
+    local helpPen = nHelp * (cfg.scoring.towPenaltyPoints or 0)
+    local pen = resetPen + helpPen
     p.penaltyPoints = pen
     if pen > 0 then
       p.points = p.points - pen
-      sayAll(string.format("%s loses %s pts for %d illegal reset(s).", p.name, tostring(pen), p.recoveries))
+      local why = {}
+      if resetPen > 0 then why[#why + 1] = string.format("%d illegal reset(s)", p.recoveries) end
+      if helpPen > 0 then why[#why + 1] = string.format("%d tow(s)/respawn(s)", nHelp) end
+      sayAll(string.format("%s loses %s pts for %s.", p.name, tostring(pen), table.concat(why, " and ")))
     end
     list[#list + 1] = p
   end
@@ -1663,8 +1698,8 @@ function TG_onPlayerJoin(pid)
     if game.phase == "dealer" then
       say(pid, "Welcome back - the dealership is still open.")
     else
-      say(pid, string.format("Welcome back %s. Respawn your %s (a %s tow fee applies).",
-        name, p.carName or "car", money(cfg.economy.towFee)))
+      say(pid, string.format("Welcome back %s. Respawn your %s - that counts as a tow (roadside repair + %s%s).",
+        name, p.carName or "car", money(cfg.economy.towFee), ptNote()))
     end
     pushState(p)
   elseif game.phase == "dealer" then
@@ -1812,7 +1847,7 @@ function TG_onVehicleDeleted(pid, vid)
   p.carVid, p.pos, p.prevPos = nil, nil, nil
   if p.run.status == "running" or p.run.status == "staged" then p.run.status = "dnf" end
   if game.phase ~= "results" then
-    sayAll(string.format("%s's %s is out of action! (Respawn the same car for a %s tow.)",
+    sayAll(string.format("%s's %s is out of action! (Respawning it counts as a tow: repair price + %s.)",
       p.name, p.carName or "car", money(cfg.economy.towFee)))
   end
   pushState(p)
@@ -1834,13 +1869,7 @@ function TG_onVehicleReset(pid, vid, data)
     return
   end
   if p.unstickPending and now() - p.unstickPending < 6 then
-    local cost = p.unstickRepairQuote or 0
-    p.unstickRepairQuote = 0   -- bill the repair once
-    if cost > 0 then
-      p.cash = p.cash - cost
-      spend(p, "repairs", cost)
-      say(p.pid, string.format("On this BeamNG version unstick resets the car, which also repaired it - that repair is billed (%s). The unstick itself is free.", money(cost)))
-    end
+    billUnstickRepair(p)
     p.damage = 0
     pushState(p)
     return
@@ -1856,14 +1885,25 @@ function TG_onVehicleReset(pid, vid, data)
   pushState(p)
 end
 
--- Tow: full repair (keeps upgrades, paid fixes and unfixed faults), $towFee, DSQ from a
+-- Unstick is free, but if the game repaired the car while moving it, that roadside repair is billed (once)
+billUnstickRepair = function(p)
+  local cost = p.unstickRepairQuote or 0
+  p.unstickRepairQuote = 0
+  if cost > 0 then
+    p.cash = p.cash - cost
+    spend(p, "repairs", cost)
+    say(p.pid, string.format("Unstick repaired your car on this BeamNG version - that roadside repair is billed (%s). The unstick itself is free.", money(cost)))
+  end
+end
+
+-- Tow: full repair (keeps upgrades, paid fixes and unfixed faults), repair x markup + towFee, DSQ from a
 -- running event, delivery to the next start. carExists=false when a lost car was respawned.
 performTow = function(p, carExists)
   local ph = game.phase
-  local fee = cfg.economy.towFee
+  local total, fee, repair = roadsideCost(p, "tow")
   playSound("out", p)
-  p.cash = p.cash - fee
-  spend(p, "towCost", fee)
+  p.cash = p.cash - total
+  spend(p, "towCost", total)
   p.tows = (p.tows or 0) + 1
   p.damage = 0
   local msg
@@ -1900,7 +1940,7 @@ performTow = function(p, carExists)
     config = (not carExists) and p.lastVcf or nil,
   }))
   if #(p.faults or {}) > 0 then sendFaults(p) end   -- unfixed faults come back with the car
-  sayAll(string.format("%s calls the tow truck (-%s): %s.", p.name, money(fee), msg))
+  sayAll(string.format("%s calls the tow truck (-%s%s): %s.", p.name, costNote(fee, repair), ptNote(), msg))
   pushState(p)
 end
 
@@ -1978,7 +2018,10 @@ function TG_onReport(pid, data)
     local before, nowDmg = p.damage or 0, tonumber(t.damage)
     local paidRecently = p.repairPending and now() - p.repairPending < 10
     local rebuiltOutside = p.putBackAt and now() - p.putBackAt < 15
-    if (game.phase == "workshop" or rebuiltOutside) and not paidRecently and before >= (cfg.economy.repairMinDamage or 50)
+    local unsticking = p.unstickPending and now() - p.unstickPending < 10
+    if unsticking and before >= (cfg.economy.repairMinDamage or 50) and nowDmg < before * 0.2 then
+      billUnstickRepair(p)   -- the move repaired the car without the game reporting a reset
+    elseif (game.phase == "workshop" or rebuiltOutside) and not paidRecently and before >= (cfg.economy.repairMinDamage or 50)
        and nowDmg < before * 0.2 then
       -- the car got repaired (a part change rebuilds it, or a reset): bill what the repair would have cost
       local cost = math.floor(cfg.economy.repairBaseFee + math.min(before * cfg.economy.repairCostPerDamage, cfg.economy.repairCap) + 0.5)
@@ -2068,8 +2111,9 @@ local PLAYER_CMDS, ADMIN_CMDS = {}, {}
 PLAYER_CMDS.help = function(pid, name)
   say(pid, "/tg theme (menu colours on/off) | /tg lights (show/hide to position the box) | lightstest shows the sequence | /tg flag (position the finish flag) | flagtest | /tg sounds on|off|list | soundtest [clip|next] | Trailer event: /tg hitchup couples your trailer | /tg partsdiag shows what the game reports about your parts")
   say(pid, "Respawn your car: /tg respawn (free at the dealership, repair price in a workshop, otherwise " ..
-    money(cfg.economy.respawnFee or 2000) .. ")")
-  say(pid, "Stuck? /tg unstick (free, when stopped) | /tg tow (" .. money(cfg.economy.towFee) .. ", full repair, DSQ from a running event)")
+    "roadside repair + " .. money(cfg.economy.respawnFee or 500) .. ptNote() .. ")")
+  say(pid, "Stuck? /tg unstick (free, when stopped) | /tg tow (roadside repair + " .. money(cfg.economy.towFee) ..
+    ptNote() .. ", DSQ from a running event). Roadside repair = the workshop price x " .. tostring(cfg.economy.roadsideMarkup or 1.25) .. ".")
   say(pid, "Problem cars: /tg faults | fault take <id> | fault undo <id> | fix <id> (workshop)")
   say(pid, "/tg menu (window; /tg menu reset if it's squashed) | status | dealer | join | ready | go | quote | repair | standings | diag")
   if isAdmin(name) then
@@ -2387,9 +2431,9 @@ PLAYER_CMDS.respawn = function(pid)
     return
   end
   if p.finaleTowed or (ph == "finale" and p.leg.arrived) then say(pid, "You've already finished."); return end
-  local fee = cfg.economy.respawnFee or cfg.economy.towFee or 2000
-  p.cash = p.cash - fee
-  spend(p, "towCost", fee)
+  local total, fee, repair = roadsideCost(p, "respawn")
+  p.cash = p.cash - total
+  spend(p, "towCost", total)
   p.respawns = (p.respawns or 0) + 1
   p.damage, p.respawnPending = 0, now()
   local extra = ""
@@ -2402,7 +2446,8 @@ PLAYER_CMDS.respawn = function(pid)
     extra = " - a fresh car scores 0 drivability at the inspection"
   end
   MP.TriggerClientEvent(pid, "tg_respawn", Util.JsonEncode({ reset = true }))
-  sayAll(string.format("%s respawns their %s on the spot (-%s)%s.", p.name, p.carName or "car", money(fee), extra))
+  sayAll(string.format("%s respawns their %s on the spot (-%s%s)%s.", p.name, p.carName or "car", costNote(fee, repair),
+    ptNote(), extra))
   pushState(p)
 end
 
@@ -2415,7 +2460,7 @@ PLAYER_CMDS.unstick = function(pid)
   if p.lastUnstick and now() - p.lastUnstick < cd then
     say(pid, string.format("Unstick is cooling down - try again in %d s.", math.ceil(cd - (now() - p.lastUnstick)))); return
   end
-  p.lastUnstick, p.unstickPending, p.unstickRepairQuote = now(), now(), repairQuote(p)
+  p.lastUnstick, p.unstickPending, p.unstickRepairQuote = now(), now(), roadsideRepair(p)
   MP.TriggerClientEvent(pid, "tg_unstick", "")
 end
 
@@ -3208,7 +3253,8 @@ local function buildUi(pid)
   local d = {
     admin = isAdmin(name), phase = game.phase, budget = budget, baseBudget = cfg.economy.startingCash,
     towFee = cfg.economy.towFee, workshopSpots = #workshopSpots(),
-    respawnFee = cfg.economy.respawnFee or cfg.economy.towFee,
+    respawnFee = cfg.economy.respawnFee,
+    helpPoints = cfg.scoring.towPenaltyPoints or 0,
     workshopEvery = tonumber(cfg.workshopEvery) or 2,
     workshopMinutes = cfg.workshop.minutes,
     gamePrices = cfg.dealer.useGamePrices and true or false, allHere = game.allHere and true or false,
@@ -3219,6 +3265,7 @@ local function buildUi(pid)
     d.me = {
       cash = p.cash, points = p.points, wins = p.wins, car = p.carName, damage = math.floor(p.damage or 0),
       repair = repairQuote(p), upgrade = (upgradeBill(p)), ready = p.ready and true or false,
+      towCost = (roadsideCost(p, "tow")), respawnCost = (roadsideCost(p, "respawn")),
       arrived = p.leg.arrived and true or false, hasCar = p.carVid ~= nil, tows = p.tows or 0,
       canTow = p.carVid ~= nil and TOW_PHASES[game.phase] and not p.finaleTowed and not (game.phase == "finale" and p.leg.arrived) or false,
       canUnstick = p.carVid ~= nil and game.phase ~= "countdown" or false,

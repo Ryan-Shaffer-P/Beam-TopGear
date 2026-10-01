@@ -336,6 +336,11 @@ local function makeObj(w, p, v)
     v.pos = vec3(x, y, z)
     v.yaw = (math.atan2 or math.atan)(2 * (qw * qz + qx * qy), 1 - 2 * (qy * qy + qz * qz))
     v.upsideDown = false
+    -- some BeamNG versions repair the car when it's moved like this (set by a test):
+    --   "silent" = the damage just disappears; "reset" = and BeamMP reports a reset
+    local c = p.client
+    if c and c.teleportRepairs == "silent" then v.damage = 0
+    elseif c and c.teleportRepairs == "reset" then w:vehicleReset(p, v) end
   end
   function obj:delete() w:clientDelete(p, v) end
   function obj:getSpawnWorldOOBB()

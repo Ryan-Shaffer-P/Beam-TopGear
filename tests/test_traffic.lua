@@ -78,8 +78,8 @@ t.test("traffic mode: a lost challenge car still comes back as a tow, not as tra
   w:chat(A, "/tg respawn")
   w:step(1)
   t.eq(w:state(A).car, "Ibishu Covet")
-  t.ok(w:chatHas(A, "Alice calls the tow truck (-$2,000)"), "billed as a tow")
-  t.eq(w:state(A).cash, 3500)
+  t.ok(w:chatHas(A, "Alice calls the tow truck (-$1,000, -1 pt)"), "billed as a tow")
+  t.eq(w:state(A).cash, 4500)
   w:assertClean()
 end)
 

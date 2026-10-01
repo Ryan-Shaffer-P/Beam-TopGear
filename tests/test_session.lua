@@ -131,16 +131,18 @@ t.test("full session: five events, two workshops, faults, tow, reset fine, final
   t.ok(w:chatHas(A, "Carol made it to The Test Track! Inspection: damage 10000, 1 unfixed fault -> drivability 4.0/10"))
   t.ok(w:chatHas(A, "Alice made it to The Test Track! Inspection: damage 0 -> drivability 10.0/10"))
   t.ok(w:chatHas(A, "Bob loses 2 pts for 1 illegal reset(s)."))
+  t.ok(w:chatHas(A, "Carol loses 1 pts for 1 tow(s)/respawn(s)."))
 
   -- the tally ----------------------------------------------------------------------------------
   -- Alice: 10000 - 4500 car + 5 x 500 arrivals + prizes (6000 + 1500 + 3000 + 1500 + 6000) - 1250 repair = 24750
   --        points 10 + 3 + 6 + 3 + 10 + 10 drivability = 42
   -- Bob:   10000 - 5000 + 2400 fault + 5 x 250 + (3000 + 6000 + 1500 + 6000 + 1500) - 3600 fix - 1000 fine = 22050
   --        points 6 + 10 + 3 + 10 + 3 + 10 - 2 reset penalty = 40
-  -- Carol: 10000 - 7500 + 6000 fault + 0 arrivals + (1500 + 3000 + 6000 + 3000 + 3000) - 2000 tow = 23000
-  --        points 3 + 6 + 10 + 6 + 6 + (5.0 - 1 unfixed fault) = 35
-  t.eq(cash(A), 24750, "Alice's cash"); t.eq(cash(B), 22050, "Bob's cash"); t.eq(cash(C), 23000, "Carol's cash")
-  t.eq(w:state(A).points, 42, "Alice's points"); t.eq(w:state(B).points, 40, "Bob's points"); t.eq(w:state(C).points, 35, "Carol's points")
+  -- Carol: 10000 - 7500 + 6000 fault + 0 arrivals + (1500 + 3000 + 6000 + 3000 + 3000) - 1000 tow = 24000
+  --        (her car was undamaged when towed: 0 repair x 1.25 + $1,000 fee)
+  --        points 3 + 6 + 10 + 6 + 6 + (5.0 - 1 unfixed fault) - 1 for the tow = 34
+  t.eq(cash(A), 24750, "Alice's cash"); t.eq(cash(B), 22050, "Bob's cash"); t.eq(cash(C), 24000, "Carol's cash")
+  t.eq(w:state(A).points, 42, "Alice's points"); t.eq(w:state(B).points, 40, "Bob's points"); t.eq(w:state(C).points, 34, "Carol's points")
   t.ok(w:chatHas(A, "Alice and the Ibishu Covet win!"))
 
   -- the results window -----------------------------------------------------------------------
@@ -153,7 +155,7 @@ t.test("full session: five events, two workshops, faults, tow, reset fine, final
   t.eq(rows.Alice.place, 1); t.eq(rows.Bob.place, 2); t.eq(rows.Carol.place, 3)
   t.eq(rows.Alice.repairs, 1250)
   t.eq(rows.Bob.faultFixes, 3600); t.eq(rows.Bob.resets, 1); t.eq(rows.Bob.fines, 1000)
-  t.eq(rows.Carol.tows, 1); t.eq(rows.Carol.towCost, 2000); t.eq(rows.Carol.faultsLeft[1], "Tired engine (about -20% power)")
+  t.eq(rows.Carol.tows, 1); t.eq(rows.Carol.towCost, 1000); t.eq(rows.Carol.penalty, 1); t.eq(rows.Carol.faultsLeft[1], "Tired engine (about -20% power)")
   t.eq(rows.Carol.places[3], "1st (180 km/h)", "speed trap cell")
   t.match(A.client.im.textOf("Top Gear Challenge"), "WINNER: Alice in the Ibishu Covet %- 42%.0 points")
   w:assertClean()

@@ -33,7 +33,7 @@ local RESET_ACTIONS = {
 local VEHSEL_ACTIONS = { "vehicle_selector" }
 local PARTS_ACTIONS  = { "parts_selector" }
 
-local VERSION = "0.8.5"
+local VERSION = "0.8.6"
 local recentErrors = {}
 local function warn(msg)
   log("W", "topgear", tostring(msg))
@@ -1119,12 +1119,12 @@ local function drawDriverButtons(d, me)
   im.Separator()
   heading("YOUR CAR")
   button(((me.repair or 0) > 0 and ("Repair (" .. commas(me.repair) .. ")") or "Repair") .. "##drv_repair", "repair"); same()
-  confirmButton("Tow (" .. commas(d.towFee or 2000) .. ")", "drv_tow", "tow"); same()
+  confirmButton("Tow (" .. commas(me.towCost or d.towFee or 1000) .. ")", "drv_tow", "tow"); same()
   button("Unstick (free)##drv_unstick", "unstick"); same()
   local rl
   if ph == "dealer" or ph == "idle" or ph == "results" then rl = "Respawn (free)"
   elseif ph == "workshop" then rl = "Respawn (repair price)"
-  else rl = "Respawn (" .. commas(d.respawnFee or 2000) .. ")" end
+  else rl = "Respawn (" .. commas(me.respawnCost or d.respawnFee or 500) .. ")" end
   confirmButton(rl, "drv_respawn", "respawn")
   if state.eventType == "trailer" and (ph == "travel" or ph == "countdown" or ph == "event") then
     button("Hitch up (couple the trailer)##hitchup", "hitchup"); same()
@@ -1137,6 +1137,9 @@ local function drawDriverButtons(d, me)
     notes[#notes + 1] = "Tow/Respawn mid-run = DSQ"
   end
   notes[#notes + 1] = "Tow and Respawn need two clicks"
+  if (d.helpPoints or 0) > 0 then
+    notes[#notes + 1] = string.format("Tow/Respawn price = repair x markup + fee, and -%s pt each", tostring(d.helpPoints))
+  end
   if (me.tows or 0) + (me.respawns or 0) > 0 then
     notes[#notes + 1] = string.format("So far: %d tow%s, %d respawn%s", me.tows or 0, me.tows == 1 and "" or "s",
       me.respawns or 0, me.respawns == 1 and "" or "s")
@@ -1544,7 +1547,7 @@ local function drawResults(d)
   txt("How the points add up:")
   for _, r in ipairs(rows) do
     txt(string.format("  %s: %g from events + %.1f drivability%s = %.1f   (%d win%s)", r.name, r.eventPoints or 0,
-      r.drivability or 0, (r.penalty or 0) > 0 and string.format(" - %g illegal-reset penalty", r.penalty) or "",
+      r.drivability or 0, (r.penalty or 0) > 0 and string.format(" - %g penalties (resets, tows, respawns)", r.penalty) or "",
       r.points or 0, r.wins or 0, r.wins == 1 and "" or "s"))
   end
 end

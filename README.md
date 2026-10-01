@@ -261,21 +261,34 @@ Player commands: `/tg menu`, `/tg go`, `/tg unstick`, `/tg tow`, `/tg respawn`, 
 - **Resets are locked** during the challenge (R, Insert/recovery, reload, home, node grabber,
   editor) because BeamNG's own resets and rewinds all repair the car. Anyone who gets round
   the lock is fined $1,000 and loses 2 points.
+- **Roadside help costs the repair too.** Tow, respawn and an unstick that repairs the car all fix
+  it, so they all charge the **roadside repair** = the workshop repair price x 1.25
+  (`economy.roadsideMarkup`) - the workshop is always the cheapest place to get repaired. Tows and
+  respawns add a service fee on top and cost **1 point each** at the final standings
+  (`scoring.towPenaltyPoints`). The Status tab buttons show the current price. Examples:
+
+  | Damage | Workshop repair | Respawn | Tow |
+  |---|---|---|---|
+  | 0 (just stuck) | $0 | $500 | $1,000 |
+  | 2,000 (dented) | $1,250 | $2,063 | $2,563 |
+  | 10,000 (wrecked) | $5,250 | $7,063 | $7,563 |
 - **Stuck? `/tg unstick`** (or the Status tab button) is free: it sets the car upright in place
   and keeps all damage and faults. Only when (nearly) stopped, 15 s cooldown, not in a
-  countdown. If on your BeamNG version the move turns out to reset the car, the repair it
-  caused is billed (the unstick itself stays free).
+  countdown. If on your BeamNG version the move repairs the car (with or without a reset), that
+  roadside repair is billed once; the unstick itself stays free and costs no points.
 - **`/tg respawn`** (Status tab button, click twice) respawns your car where it is: free at the
-  dealership, the normal repair price in a workshop, otherwise $2,000 (`economy.respawnFee`).
+  dealership, the normal repair price in a workshop, otherwise the roadside repair + $500
+  (`economy.respawnFee`) and -1 point.
   Mid-run it's a DSQ from that event; on the final leg it means 0 drivability. If your car has
   been lost or deleted, Respawn brings it back (that counts as a tow). Respawns are counted
   with tows on the final screen.
-- **`/tg tow`** (Status tab button, click twice) costs $2,000 and is a full repair that keeps
+- **`/tg tow`** (Status tab button, click twice) costs the roadside repair + $1,000 (`economy.towFee`)
+  and -1 point, and is a full repair that keeps
   upgrades, paid fault fixes and unfixed faults. During an event: DSQ from that event and
   delivered to the next event's start, ready to race. During a travel leg: delivered to that
   event's start (no arrival bonus). On the final leg: delivered to the finish with 0
   drivability. Respawning a lost/deleted car counts as a tow and restores its upgrades.
-  Tows don't cost points; they're counted on the final screen.
+  Tows and respawns are counted on the final screen.
 - **How events end:** DNS = not at the start when the countdown began (only possible when an
   admin forces a start). DNF = still running when the event's time limit (`timeLimit` per
   event) runs out or the admin calls time, or the car was lost mid-event. DSQ = towed.
@@ -314,7 +327,8 @@ Player commands: `/tg menu`, `/tg go`, `/tg unstick`, `/tg tow`, `/tg respawn`, 
   - Every workshop edit, rebuild and reset is logged in the server console (`[TopGear] edit by ...`),
     with the phase it happened in - check there if a charge looks wrong.
 - **Scoring**: placement points (10/6/3/1) per event + up to 10 drivability points at the
-  finale (scaled by damage; cars that don't arrive score 0) − 2 per tow/reset.
+  finale (scaled by damage; cars that don't arrive score 0) − 2 per illegal reset − 1 per tow or
+  roadside respawn.
   Ties break on event wins, then cash. Every number is in `config.json`.
 
 ## Money and prices

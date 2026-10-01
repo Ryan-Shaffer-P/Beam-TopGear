@@ -56,6 +56,9 @@ Install = copy `Resources/` into the BeamMP server.
 - Economy: dealer prices (manual or imported game values), faults for cash (setup faults change config,
   physics faults run in vlua), workshop billing (parts from the client's before/after rebuild diff,
   labour once, damage-drop repairs), $1,500 overdraft (`creditLimit`), tows/respawns/unstick.
+  Roadside help (`roadsideCost`): workshop repair price x `roadsideMarkup` (1.25) + `towFee` 1000 /
+  `respawnFee` 500, and -`towPenaltyPoints` (1) each at the results; an unstick that repairs the car
+  bills the roadside repair once (reset event or damage drop, `billUnstickRepair`).
 - Workshops: anywhere, or at course `workshopSpots` (imported gas stations / placed) + the dealership.
   The dealership stays a workshop after the doors close until the player drives away.
 
@@ -120,7 +123,7 @@ for the `/tg diag` "Client error" line or the matching `[TopGear]` server-consol
    handler error, server console error, client warn() or UI imbalance. Vehicle Lua (`queueLuaCommand`) runs
    in a per-car sandbox with fake engine/brakes/fuel/reset (`World:freshPhysics`); `queueGameEngineLua`
    replies run in the client. Trailers with a load part get simulated bed/load nodes, so CARGO_VLUA really measures the load share.
-   Tests: `test_smoke.lua` (load, dealership, theme), `test_flag.lua` (finish flag), `test_traffic.lua` (admin traffic mode), `test_modes.lua` (race/time trial mode), `test_speedtrap.lua` (one run), `test_sounds.lua` (sound bites; the fake Engine.Audio checks the .ogg exists), `test_trailer.lua` (cones + prebuilt load, hitching via
+   Tests: `test_smoke.lua` (load, dealership, theme), `test_flag.lua` (finish flag), `test_traffic.lua` (admin traffic mode), `test_modes.lua` (race/time trial mode), `test_speedtrap.lua` (one run), `test_sounds.lua` (sound bites; the fake Engine.Audio checks the .ogg exists), `test_roadside.lua` (tow/respawn/unstick pricing), `test_trailer.lua` (cones + prebuilt load, hitching via
    `w:hitch`/`w:dropCargo`/`w:setLoad`, 70/30 scoring) and `test_session.lua` (full 5-event session, the
    successor of `sim13` - expected cash/points are hand-calculated in its comments; if a rule change
    moves them, recompute by hand rather than pasting the new output). Still to rebuild: workshop
