@@ -352,13 +352,44 @@ Player commands: `/tg menu`, `/tg go`, `/tg unstick`, `/tg tow`, `/tg respawn`, 
 - `/tg workshop <minutes>`: set the workshop length (saved). If a workshop is open, its
   timer moves by the difference.
 - `/tg setcash <name> <amount>` / `/tg give <name> <amount>`: adjust one player.
-- `/tg importprices`: an admin's game reads the BeamNG value of every stock trim of the
-  listed models and saves them to config.json; from then on each trim costs its game price.
-  `/tg importprices covet pickup` imports specific models (new ones are added to the dealer).
+- `/tg importprices`: an admin's game reads **every car in the game** (mods too): each stock
+  trim's BeamNG value plus its details (country, body style, years, transmission... - what car
+  classes filter on), saved to config.json; from then on each trim costs its game price.
+  `/tg importprices covet pickup` imports specific models (new ones are added to the dealer list);
+  `/tg importprices listed` re-reads just the dealer list.
   Custom/modified configs have no price and can't be bought. `/tg gameprices off|on` switches
   between game prices and the manual list.
-- Trims over the budget are hidden from `/tg dealer` (and refused if spawned). Raising the
-  budget reveals them without re-importing. `/tg dealer <model>` lists one model's trims.
+- Trims over your budget that **taking faults could pay for** are listed with **"needs N faults"**
+  (no Buy button until you've taken them); anything out of reach even with the most faults is
+  hidden. Spawning one you can't afford yet says how many faults would cover it. Raising the
+  budget reveals more without re-importing. `/tg dealer <model>` lists one model's trims.
+
+## Car classes (which cars the dealership sells)
+
+Like a Top Gear brief - "a Japanese hatchback from the 90s" - a **class** limits the dealership to
+the imported trims that match its **rules**, plus any you **include** by hand, minus any you
+**exclude**. Rules use the same details BeamNG's own vehicle menu filters by: `country`, `brand`,
+`body` (Body Style), `type` (Car/Truck/...), `years`, `transmission`, `drivetrain`, `fuel`,
+`propulsion`, `induction`, `configtype` (Factory/Police/...), `performance`, `derby`, and ranges
+for `value`, `weight`, `topspeed`, `accel` (0-100 km/h) and `offroad`. A trim must match every rule.
+
+1. `/tg importprices` once (the class only sells imported stock trims).
+2. `/tg class new jdm`, then rules: `/tg class rule jdm country Japan`,
+   `/tg class rule jdm years 1986-1999` (or `1986-` / `-1999`), `/tg class rule jdm body Hatchback,Coupe`.
+   `/tg class values body` lists the values your cars have.
+3. Hand-picks: `/tg class include jdm pickup` (a whole model) or `.../exclude jdm covet/sport_M` (one trim);
+   `/tg class clear jdm covet/sport_M` undoes either.
+4. Prices: `/tg class price jdm covet/gtz_M 13000` (one trim; `off` = back to the game price) and
+   `/tg class multiplier jdm 0.8` (every trim's game price x 0.8). Price a car just over the budget
+   and it's the prize for taking faults ("needs 2 faults").
+5. **Pick the class for each challenge**, before `/tg start`: `/tg class use jdm` (`none` = the normal
+   dealer list). It isn't saved with courses. `/tg start` announces it, the Dealership tab shows it,
+   and spawning anything else is refused with the reason ("not in today's class (jdm): Country is
+   United States"). A class with no cars won't start.
+
+The Admin tab's **Car classes** section does all of this with buttons: Use / Edit per class, New
+class, Add rule (pick the field, type the value), Include / Exclude, the price %, and the class's
+cars each with **Leave out** and a price box. `/tg class list` and `/tg class show <name>` in chat.
 
 ## Problem cars (faults for cash)
 

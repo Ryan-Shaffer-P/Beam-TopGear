@@ -98,7 +98,11 @@ parts snapshots/diffs, reverting refused parts.
     (where it spawned / was last reset), i.e. it teleports it. To repair where it stands use `repairInPlace` (client):
     `spawn.safeTeleport(car, pos, quatFromDir(dir))`, BeamNG's own "reset here". A reset followed by our own placement
     (tow/unstick `startMove`) is fine. The harness models this (`requestReset` -> `v.resetPos`).
-12. **Wrap every BeamNG/BeamMP internal in `pcall`** with a logged fallback (`warn()` on the client;
+12. **Lua allows at most 200 locals per chunk.** main.lua's top level is near it (~190): group new helpers into a
+    table (like `Class.*`) instead of adding many top-level `local function`s. Check with
+    `luac -l -l -p Resources/Server/TopGear/main.lua | awk '/^main/{m=1} m&&/^locals \(/{print; exit}'`.
+13. **Don't assign to a `for` loop variable** (`for v in ... do v = ...`) - Lua 5.5 rejects it; use a new local.
+14. **Wrap every BeamNG/BeamMP internal in `pcall`** with a logged fallback (`warn()` on the client;
     players filter "topgear" in the game console). These APIs change between game versions.
 
 ## BeamNG/BeamMP APIs used but NOT verified in game (suspect these first)
@@ -127,7 +131,7 @@ for the `/tg diag` "Client error" line or the matching `[TopGear]` server-consol
    handler error, server console error, client warn() or UI imbalance. Vehicle Lua (`queueLuaCommand`) runs
    in a per-car sandbox with fake engine/brakes/fuel/reset (`World:freshPhysics`); `queueGameEngineLua`
    replies run in the client. Trailers with a load part get simulated bed/load nodes, so CARGO_VLUA really measures the load share.
-   Tests: `test_smoke.lua` (load, dealership, theme), `test_flag.lua` (finish flag), `test_traffic.lua` (admin traffic mode), `test_modes.lua` (race/time trial mode), `test_speedtrap.lua` (one run), `test_sounds.lua` (sound bites; the fake Engine.Audio checks the .ogg exists), `test_roadside.lua` (tow/respawn/unstick pricing), `test_parts.lua` (Parts tab; fake catalogue `World.partCatalogue`, `c.partsFormat = "tree"`), `test_faults.lua` (fault revamp; `w.rolls` pins the server's random draws), `test_trailer.lua` (cones + prebuilt load, hitching via
+   Tests: `test_smoke.lua` (load, dealership, theme), `test_flag.lua` (finish flag), `test_traffic.lua` (admin traffic mode), `test_modes.lua` (race/time trial mode), `test_speedtrap.lua` (one run), `test_sounds.lua` (sound bites; the fake Engine.Audio checks the .ogg exists), `test_roadside.lua` (tow/respawn/unstick pricing), `test_parts.lua` (Parts tab; fake catalogue `World.partCatalogue`, `c.partsFormat = "tree"`), `test_faults.lua` (fault revamp; `w.rolls` pins the server's random draws), `test_classes.lua` (car classes; test cars carry BeamNG attributes in `MODELS[].info/trims`), `test_trailer.lua` (cones + prebuilt load, hitching via
    `w:hitch`/`w:dropCargo`/`w:setLoad`, 70/30 scoring) and `test_session.lua` (full 5-event session, the
    successor of `sim13` - expected cash/points are hand-calculated in its comments; if a rule change
    moves them, recompute by hand rather than pasting the new output). Still to rebuild: workshop
@@ -153,7 +157,8 @@ for the `/tg diag` "Client error" line or the matching `[TopGear]` server-consol
 Players: `/tg menu | status | dealer | ready | go | repair | fix <id> | tow | respawn | unstick | hitchup |
 faults | fault take [n] | quote | standings | diag | partsdiag | lights | lightstest | flag | flagtest | sounds on|off|list | soundtest [clip|next] | theme`.
 Admins: `start [force] | next | stop | traffic on|off | play <clip> | budget | setcash | give | workshop <min> | workshopevery <n> |
-importprices | gameprices | course list/save/load/new/delete | addevent/delevent/enable/moveevent |
+importprices [listed|models] | gameprices | class list/use/new/delete/show/rule/unrule/include/exclude/clear/price/multiplier/values |
+course list/save/load/new/delete | addevent/delevent/enable/moveevent |
 setstart/addcp/undocp/clearcp/settrap/addbay/undobay/clearbays/addvia/undovia/clearvia/setfinale |
 settype/setmode/setlaps/settime/rename | addworkshop/undoworkshop/clearworkshops/importgas |
 trailersave/trailercones/trailertest | fault test/testoff/caps`. The ImGui window exposes all of these.
@@ -175,14 +180,12 @@ Start by laying this out for Ryan with worked examples (e.g. the 3-driver tally 
 discuss levers: points for leftover cash / value for money, a points share by margin rather than place,
 drivability weight, event-type weighting, the 4-place cutoff. Recompute `test_session.lua` by hand after.
 
-### 2. Dealership filters: which cars (models and trims) can be bought, and price adjustments
-Now: `cfg.dealer.cars` (model, optional config, name, price) is the allowed list; `useGamePrices` +
-`gamePrices` (from `/tg importprices`) price each stock trim; `strictConfigs` sells only listed model+config
-pairs; budget = `startingCash` + fault payouts (`playerBudget`); `lookupCar` decides at spawn
-(`TG_onVehicleSpawn`); `buildUi` builds the Dealership tab. Wanted: filtering by model and by trim (e.g.
-classes/categories), per-car price adjustments so taking faults can drop a car into a category. Decide with
-Ryan: where categories are defined (config + Admin tab?), how they interact with game prices, whether a
-session/course picks the allowed category.
+### 2. Dealership filters - DONE in 0.9.0 (car classes)
+`/tg importprices` (no names) imports every model (`core_vehicles.getModelList`) with each trim's price + BeamNG
+filter attributes (`trimAttrs`: Country, Body Style, Years {min,max}, Transmission, ...) into `dealer.gamePrices`.
+Classes (`dealer.classes`, helpers in the `Class` table: rules / include / exclude / prices / multiplier) are picked
+per challenge (`chosenClass`, not saved); `lookupCar` + `dealerOffers` respect the active class; `faultsNeeded` adds
+"needs N faults" in every dealer mode. `/tg class ...`; Admin tab "Car classes".
 
 ### 3. Fault system revamp - DONE in 0.8.8
 Taken by number (`/tg fault take [n]`, $2,500 each = `faults.payout`), drawn at random (`rollFault` /
@@ -217,6 +220,7 @@ billed; "mirror" always free). Needs in-game confirmation: does the tab list a r
 
 ## Waiting for in-game confirmation
 - Workshop repair / respawn stay where the car is (0.8.9 `repairInPlace`, `spawn.safeTeleport`).
+- Car classes (0.9.0): `/tg importprices` reads every car with its details (`/tg class values country` shows them).
 - Parts tab: lists your car's parts and Fit works (`/tg partsdiag` shows the Parts tab line).
 - New faults (0.8.8): each Admin-tab Test button on a real car (manual + automatic, turbo + not) - ok, and felt?
   Cooling `factor` 0.05 and fuel leak 0.5 L/min are guesses to tune.

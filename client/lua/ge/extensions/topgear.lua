@@ -35,7 +35,7 @@ local RESET_ACTIONS = {
 local VEHSEL_ACTIONS = { "vehicle_selector" }
 local PARTS_ACTIONS  = { "parts_selector" }
 
-local VERSION = "0.8.9"
+local VERSION = "0.9.0"
 local recentErrors = {}
 local function warn(msg)
   log("W", "topgear", tostring(msg))
@@ -303,7 +303,21 @@ local function onDiag()
   if TriggerServerEvent then TriggerServerEvent("tg_diag_reply", jsonEncode(r)) end
 end
 
--- /tg importprices: read every stock configuration's value from this game install
+-- /tg importprices: read every stock configuration's value - and the details car classes filter on (the same
+-- attributes BeamNG's own vehicle menu filters by) - from this game install
+local ATTR_FIELDS = { "Brand", "Country", "Body Style", "Type", "Drivetrain", "Transmission", "Fuel Type", "Propulsion",
+  "Induction Type", "Config Type", "Performance Class", "Derby Class", "Commercial Class", "Source", "Years", "Value",
+  "Weight", "Top Speed", "0-100 km/h", "0-60 mph", "Weight/Power", "Off-Road Score" }
+local function trimAttrs(info, c)
+  local a = {}
+  for _, f in ipairs(ATTR_FIELDS) do
+    local v = c[f]
+    if v == nil then v = info[f] end
+    if type(v) == "string" or type(v) == "number" then a[f] = v
+    elseif type(v) == "table" and (tonumber(v.min) or tonumber(v.max)) then a[f] = { min = tonumber(v.min), max = tonumber(v.max) } end
+  end
+  return a
+end
 local function readModelPrices(model)
   local m = core_vehicles.getModel(model)
   if not (m and m.configs) then return nil, nil end
@@ -313,14 +327,23 @@ local function readModelPrices(model)
   for key, c in pairs(m.configs) do
     local price = tonumber(c.Value)
     local trim = c.Configuration or c.Name or key
-    out[#out + 1] = { config = c.key or key, name = modelName .. " " .. tostring(trim), price = price }
+    out[#out + 1] = { config = c.key or key, name = modelName .. " " .. tostring(trim), price = price, attrs = trimAttrs(info, c) }
   end
   return out, modelName
 end
 
 local function onImport(data)
   local ok, req = pcall(jsonDecode, data)
-  if not ok or type(req) ~= "table" or type(req.models) ~= "table" then return end
+  if not ok or type(req) ~= "table" then return end
+  if req.all then   -- every model installed, mods included
+    req.models = {}
+    local okL, err = pcall(function()
+      for key in pairs((core_vehicles.getModelList() or {}).models or {}) do req.models[#req.models + 1] = key end
+    end)
+    if not okL then warn("listing the game's cars failed: " .. tostring(err)) end
+    table.sort(req.models)
+  end
+  if type(req.models) ~= "table" then return end
   for _, model in ipairs(req.models) do
     local okRead, configs, modelName = pcall(readModelPrices, model)
     local reply = { model = model }
@@ -328,6 +351,7 @@ local function onImport(data)
     else reply.err = tostring(configs); warn("price import failed for " .. model .. ": " .. reply.err) end
     TriggerServerEvent("tg_import_reply", jsonEncode(reply))  -- one message per model keeps each packet small
   end
+  if req.all then TriggerServerEvent("tg_import_reply", jsonEncode({ done = true, models = #req.models })) end
 end
 
 -- Problem-car faults -------------------------------------------------------------
@@ -1564,15 +1588,22 @@ local function drawDealer(d)
     end
     im.Separator()
   end
+  if d.dealerClass then
+    heading("TODAY'S CARS: " .. d.dealerClass.name)
+    txt(d.dealerClass.summary)
+  end
   if #(d.dealer or {}) == 0 then txt("Nothing fits the budget.") end
   for _, m in ipairs(d.dealer or {}) do
     if header(m.name .. " (" .. #m.trims .. ")##" .. m.model) then
       for _, t in ipairs(m.trims) do
-        if canBuy then
+        local needs = tonumber(t.needs) or 0
+        if canBuy and needs == 0 then
           if im.Button("Buy##" .. m.model .. "_" .. tostring(t.config)) then buyCar(m.model, t.config) end
           same()
         end
-        if me and t.price > (me.cash or 0) then colored(1, 0.45, 0.45, commas(t.price) .. "  " .. t.name)
+        if needs > 0 then
+          colored(1, 0.7, 0.3, string.format("%s  %s  - needs %d fault%s", commas(t.price), t.name, needs, needs == 1 and "" or "s"))
+        elseif me and t.price > (me.cash or 0) then colored(1, 0.45, 0.45, commas(t.price) .. "  " .. t.name)
         else txt(commas(t.price) .. "  " .. t.name) end
       end
     end
@@ -1659,6 +1690,82 @@ local function drawAdmin(d)
         button("Set " .. ui.player .. "'s cash##sc", "setcash " .. ui.player .. " " .. a[0]); same()
         button("Give##gv", "give " .. ui.player .. " " .. a[0])
       end
+    end
+  end
+  local cl = d.classes
+  if cl and header("Car classes - which cars the dealership sells##classes") then
+    if not cl.imported then colored(1, 0.8, 0.3, "Import the game's cars first (prices + details):"); same(); button("Import every car", "importprices") end
+    txt("Next challenge: " .. (cl.active or "no class - the normal dealer list"))
+    if cl.idle and cl.active then same(); button("Use no class##clsnone", "class use none") end
+    for _, c in ipairs(cl.list or {}) do
+      if cl.idle and c.name ~= cl.active then button("Use##clsuse_" .. c.name, "class use " .. c.name); same() end
+      button((cl.view == c.name and "> " or "") .. "Edit##clsedit_" .. c.name, "class edit " .. c.name); same()
+      local line = string.format("%s%s - %d trims%s", c.name, c.name == cl.active and " (in use)" or "", c.count or 0,
+        c.min and string.format(", %s to %s", commas(c.min), commas(c.max)) or "")
+      if c.name == cl.active then colored(0.4, 1, 0.4, line) else txt(line) end
+    end
+    local nb = textBuf("newclass")
+    im.InputText("##newclass", nb); same()
+    if im.Button("New class (one word)##clsnew") then
+      local nm = trim(textOf(nb))
+      if nm ~= "" then sendCmd("class new " .. nm) else addLog("Type a name for the class first.") end
+    end
+    local v
+    for _, c in ipairs(cl.list or {}) do if c.name == cl.view then v = c end end
+    if v then
+      im.Separator()
+      heading("CLASS " .. v.name)
+      txt(v.summary)
+      for _, r in ipairs(v.rules or {}) do
+        button("Remove##rm_" .. r.field, "class unrule " .. v.name .. " " .. r.field); same(); txt(r.text)
+      end
+      -- add a rule: pick the field, type the value(s)
+      ui.clsField = ui.clsField or 1
+      local fields = cl.fields or {}
+      local f = fields[ui.clsField]
+      if f then
+        if im.BeginCombo and im.BeginCombo("##clsfield", f.name) then
+          local okC = pcall(function()
+            local selectable = im.Selectable1 or im.Selectable
+            for i, ff in ipairs(fields) do if selectable(ff.name .. "##fld_" .. ff.key, i == ui.clsField) then ui.clsField = i end end
+          end)
+          im.EndCombo()
+          if not okC then error("field list failed") end
+        end
+        same()
+        local vb = textBuf("clsvalue")
+        im.InputText("##clsvalue", vb); same()
+        if im.Button("Add rule##clsaddrule") then
+          local val = trim(textOf(vb))
+          if val ~= "" then sendCmd("class rule " .. v.name .. " " .. f.key .. " " .. val) else addLog("Type a value for the rule.") end
+        end
+        if f.kind == "range" then colored(0.65, 0.65, 0.65, "A range: 1985-1999, 1985- or -1999")
+        elseif f.values and #f.values > 0 then colored(0.65, 0.65, 0.65, "Comma separated, e.g.: " .. table.concat(f.values, ", ")) end
+      end
+      -- hand-picks
+      local kb = textBuf("clskey")
+      im.InputText("##clskey", kb); same()
+      local key = trim(textOf(kb))
+      if im.Button("Include##clsinc") and key ~= "" then sendCmd("class include " .. v.name .. " " .. key) end; same()
+      if im.Button("Exclude##clsexc") and key ~= "" then sendCmd("class exclude " .. v.name .. " " .. key) end
+      colored(0.65, 0.65, 0.65, "A model (covet) or one trim (covet/base_M).")
+      for _, k in ipairs(v.include or {}) do button("Remove##inc_" .. k, "class clear " .. v.name .. " " .. k); same(); txt("Included: " .. k) end
+      for _, k in ipairs(v.exclude or {}) do button("Remove##exc_" .. k, "class clear " .. v.name .. " " .. k); same(); txt("Left out: " .. k) end
+      local mp = intPtr("clsmult_" .. v.name, math.floor((v.multiplier or 1) * 100 + 0.5))
+      im.InputInt("Price %##clsmult", mp); same(); button("Set##clsmultset", "class multiplier " .. v.name .. " " .. (mp[0] / 100))
+      -- the cars it sells
+      if header(string.format("The %d cars in %s##clstrims", v.count or 0, v.name)) then
+        for _, t in ipairs(v.trims or {}) do
+          confirmButton("Leave out", "clsx_" .. t.key, "class exclude " .. v.name .. " " .. t.key); same()
+          local pp = intPtr("clsprice_" .. t.key, t.price)
+          im.InputInt("##clsprice_" .. t.key, pp); same()
+          button("Set price##clsps_" .. t.key, "class price " .. v.name .. " " .. t.key .. " " .. pp[0]); same()
+          if t.override then button("Game price##clspo_" .. t.key, "class price " .. v.name .. " " .. t.key .. " off"); same() end
+          txt(t.name)
+        end
+        if (v.count or 0) > #(v.trims or {}) then txt(string.format("... and %d more", v.count - #(v.trims or {}))) end
+      end
+      confirmButton("Delete class " .. v.name, "clsdel", "class delete " .. v.name)
     end
   end
   if #(d.soundClips or {}) > 0 and header("Soundboard##soundboard") then

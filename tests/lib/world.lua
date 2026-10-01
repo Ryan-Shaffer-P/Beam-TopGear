@@ -24,13 +24,21 @@ local World = {}
 World.__index = World
 
 -- default model catalogue for core_vehicles.getModel (price import) and spawn configs
+-- (info = the model's attributes BeamNG's vehicle menu filters on; trims = per-trim overrides)
 local MODELS = {
-  covet   = { brand = "Ibishu",  name = "Covet",   configs = { base_M = 4200, sport_M = 7800, gtz_M = 14000 }, adjustable = true, manual = true },
-  pessima = { brand = "Ibishu",  name = "Pessima", configs = { base_M = 3900, gl_A = 5100 }, adjustable = true, turbo = true },
-  pickup  = { brand = "Gavril",  name = "D-Series", configs = { d15_M = 6800, d35_A = 12500 }, manual = true },
-  miramar = { brand = "Ibishu",  name = "Miramar", configs = { base_M = 3100 }, noFuelTank = true, noThermals = true, manual = true },
-  tsfb    = { brand = "",        name = "Small flatbed trailer", configs = { base = 900 } },
-  cones   = { brand = "",        name = "Cones", configs = { base = 10 } },
+  covet   = { brand = "Ibishu",  name = "Covet",   configs = { base_M = 4200, sport_M = 7800, gtz_M = 14000 }, adjustable = true, manual = true,
+              info = { Country = "Japan", ["Body Style"] = "Hatchback", Type = "Car", Years = { min = 1988, max = 1996 } },
+              trims = { base_M = { Transmission = "Manual", ["Config Type"] = "Factory" }, sport_M = { Transmission = "Manual", ["Config Type"] = "Factory" },
+                        gtz_M = { Transmission = "Manual", ["Config Type"] = "Factory" } } },
+  pessima = { brand = "Ibishu",  name = "Pessima", configs = { base_M = 3900, gl_A = 5100 }, adjustable = true, turbo = true,
+              info = { Country = "Japan", ["Body Style"] = "Sedan", Type = "Car", Years = { min = 1988, max = 1996 } },
+              trims = { base_M = { Transmission = "Manual", ["Config Type"] = "Factory" }, gl_A = { Transmission = "Automatic", ["Config Type"] = "Factory" } } },
+  pickup  = { brand = "Gavril",  name = "D-Series", configs = { d15_M = 6800, d35_A = 12500 }, manual = true,
+              info = { Country = "United States", ["Body Style"] = "Pickup", Type = "Truck", Years = { min = 1990, max = 2010 } } },
+  miramar = { brand = "Ibishu",  name = "Miramar", configs = { base_M = 3100 }, noFuelTank = true, noThermals = true, manual = true,
+              info = { Country = "Japan", ["Body Style"] = "Sedan", Type = "Car", Years = { min = 1970, max = 1985 } } },
+  tsfb    = { brand = "",        name = "Small flatbed trailer", configs = { base = 900 }, info = { Type = "Trailer" } },
+  cones   = { brand = "",        name = "Cones", configs = { base = 10 }, info = { Type = "Prop" } },
 }
 
 -- every car's fake part catalogue: slot key -> options { part name, game value (nil = no price), nice name }.
@@ -333,8 +341,18 @@ function World:loadClient(p)
       local m = w.models[model]
       if not m then return nil end
       local configs = {}
-      for key, price in pairs(m.configs) do configs[key] = { key = key, Configuration = key, Value = price } end
-      return { model = { Brand = m.brand, Name = m.name }, configs = configs }
+      for key, price in pairs(m.configs) do
+        configs[key] = { key = key, Configuration = key, Value = price }
+        for k, val in pairs((m.trims or {})[key] or {}) do configs[key][k] = val end
+      end
+      local info = { key = model, Brand = m.brand, Name = m.name }
+      for k, val in pairs(m.info or {}) do info[k] = val end
+      return { model = info, configs = configs }
+    end,
+    getModelList = function()
+      local models = {}
+      for key, m in pairs(w.models) do models[key] = { key = key, Brand = m.brand, Name = m.name } end
+      return { models = models }
     end,
   })
   -- c.partsFormat = "tree": the newer parts-tree format (each slot node lists the parts that fit it)
