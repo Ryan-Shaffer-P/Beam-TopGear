@@ -172,8 +172,8 @@ West Coast USA layout:
 - **Leg 2 → The Hill Climb** (via the dirt trails in the hills): race up a twisting mountain road.
 - **Workshop 1** after the drag race, **Workshop 2** after Rush Hour.
 - **Leg 3 → Rush Hour** (via a gravel/back-road detour): checkpoints zig-zag across downtown.
-  For "crowded streets", an admin buys their car first, then spawns AI traffic or parks
-  extra vehicles as obstacles (admins' extra vehicles are allowed and don't score).
+  For "crowded streets", an admin buys their car first, then turns on **traffic mode** and spawns
+  AI traffic or parks extra vehicles as obstacles (see "Adding traffic" below).
 - **Leg 4 → The Speed Trap**: a long highway straight. Three runs; slow passes don't count.
 - **Finale**: back to a "test track" finish, via a rough road so damage matters.
 
@@ -193,6 +193,22 @@ racer types `/tg go` (everyone must be at the start line) and a 5-second countdo
 next leg → … → finale → standings.
 Admin `/tg next` forces the current phase to end (e.g. someone is stuck: players who
 haven't arrived get a DNS). `/tg stop` cancels everything.
+
+### Adding traffic (admins)
+
+`/tg traffic on` (or **Traffic mode** under Admin controls on the Status page) is a pause button on
+the spawn rules, for you only: while it's on, everything you spawn - BeamNG's AI traffic, parked cars
+from the vehicle menu - is non-scoring traffic, in any phase including the dealership, and your
+vehicle menu is unlocked. Your HUD shows **TRAFFIC MODE** as a reminder. Your own car, cash and score
+are untouched, and every other player's restrictions stay as they are. `/tg traffic off` puts the
+rules back; the traffic you placed stays on the map.
+
+- Buy your own car **before** turning it on at the dealership - while it's on, a car you spawn is
+  traffic, not a purchase (the server reminds you).
+- If your own car is lost, respawning it still works as a tow, even in traffic mode.
+- Course-builder positions always come from your own car, never from your traffic.
+- Every traffic vehicle uses one of your vehicle slots: raise `MaxCars` in ServerConfig.toml.
+- `/tg start` clears everyone's vehicles, so add traffic after starting.
 
 Player commands: `/tg menu`, `/tg go`, `/tg unstick`, `/tg tow`, `/tg respawn`, `/tg hitchup`, `/tg flag`, `/tg flagtest`, `/tg status`, `/tg dealer`, `/tg quote`, `/tg repair` (workshop only),
 `/tg standings`, `/tg join` (late joiners during the dealership).

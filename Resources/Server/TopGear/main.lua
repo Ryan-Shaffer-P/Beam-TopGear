@@ -324,6 +324,9 @@ local function playerByPid(pid)
   return nil
 end
 local function racing(p) return p.pid ~= nil and p.carVid ~= nil end
+-- admins in traffic mode (/tg traffic on): everything they spawn is non-scoring traffic, in any phase
+local trafficMode = {}   -- player name -> true
+local function inTrafficMode(name) return trafficMode[name] == true and isAdmin(name) end
 local function spend(p, kind, amount)
   p.spent = p.spent or {}
   p.spent[kind] = (p.spent[kind] or 0) + amount
@@ -612,7 +615,8 @@ local function stateFor(p)
   local s = {
     phase = ph, title = title, cash = p.cash, points = p.points, wins = p.wins,
     car = p.carName, carId = p.carVid and (tostring(p.pid) .. "-" .. tostring(p.carVid)) or nil,
-    allowVehicleSelector = (ph == "dealer"),
+    allowVehicleSelector = (ph == "dealer") or inTrafficMode(p.name),
+    traffic = inTrafficMode(p.name) or nil,
     allowParts = inWorkshop(p),
     allowReset = (ph == "dealer" or ph == "results"),
     timeLeft = timeLeft(),
@@ -1605,18 +1609,24 @@ function TG_onVehicleSpawn(pid, vid, data)
     if m == a.trailer and not ev.trailer then ev.trailer = vid; return 0 end
     if m == a.cargo and #ev.cargo < a.count then ev.cargo[#ev.cargo + 1] = vid; return 0 end
   end
-  local extraOK = cfg.adminExtraVehicles and isAdmin(name) and game.phase ~= "dealer"  -- traffic only after the dealership
   if cfg.debugSpawns then log("spawn " .. name .. " vid " .. tostring(vid) .. ": " .. tostring(data):sub(1, 400)) end
+  local bringingBack = p and p.carModel and not p.carVid and game.phase ~= "dealer" and parseVehicle(data) == p.carModel
+  if inTrafficMode(name) and not bringingBack then   -- the admin is placing traffic: never a purchase, never scored
+    log(string.format("traffic: %s spawned %s (vid %s)", name, tostring((parseVehicle(data))), tostring(vid)))
+    return 0
+  end
+  local extraOK = cfg.adminExtraVehicles and isAdmin(name) and game.phase ~= "dealer"  -- traffic only after the dealership
+  local hint = isAdmin(name) and " (Admin: /tg traffic on to add traffic.)" or ""
 
   if not p then
     if extraOK then return 0 end
-    say(pid, "A challenge is running - spectators can't spawn vehicles.")
+    say(pid, "A challenge is running - spectators can't spawn vehicles." .. hint)
     return 1
   end
   if p.carVid then
     if extraOK then say(pid, "Extra (non-scoring) vehicle spawned."); return 0 end
-    say(pid, game.phase == "dealer" and "You already have a car - delete it first to swap." or
-      "You already have your car.")
+    say(pid, (game.phase == "dealer" and "You already have a car - delete it first to swap." or
+      "You already have your car.") .. hint)
     return 1
   end
 
@@ -1908,8 +1918,20 @@ end
 ---------------------------------------------------------------------------
 -- Chat commands
 ---------------------------------------------------------------------------
+-- the admin's vehicles, their own challenge car first (so traffic they spawned never moves a course point)
+local function adminVehicles(pid)
+  local list, own = {}, nil
+  local p = playerByPid(pid)
+  if p and p.carVid then own = p.carVid; list[1] = own end
+  local rest = {}
+  for vid in pairs(MP.GetPlayerVehicles(pid) or {}) do if vid ~= own then rest[#rest + 1] = vid end end
+  table.sort(rest)
+  for _, vid in ipairs(rest) do list[#list + 1] = vid end
+  return ipairs(list)
+end
+
 local function adminPos(pid)
-  for vid in pairs(MP.GetPlayerVehicles(pid) or {}) do
+  for _, vid in adminVehicles(pid) do
     local raw = MP.GetPositionRaw(pid, vid)
     local pos = type(raw) == "table" and v3(raw.pos)
     if pos then return roundPos(pos) end
@@ -1918,7 +1940,7 @@ local function adminPos(pid)
 end
 
 local function adminPose(pid)
-  for vid in pairs(MP.GetPlayerVehicles(pid) or {}) do
+  for _, vid in adminVehicles(pid) do
     local raw = MP.GetPositionRaw(pid, vid)
     local pos = type(raw) == "table" and v3(raw.pos)
     if pos then return roundPos(pos), yawFromQuat(raw.rot) end
@@ -1958,6 +1980,7 @@ PLAYER_CMDS.help = function(pid, name)
   say(pid, "/tg menu (window; /tg menu reset if it's squashed) | status | dealer | join | ready | go | quote | repair | standings | diag")
   if isAdmin(name) then
     say(pid, "Admin: /tg start [force] | next (force the next phase) | stop | where | workshop <minutes> | workshopevery <n>")
+    say(pid, "Traffic: /tg traffic on|off - while on, what you spawn is non-scoring traffic (any phase) and your vehicle menu is open")
     say(pid, "Faults: /tg fault test [id] (applies to your car) | fault testoff")
     say(pid, "Money: /tg budget <amount> | setcash <name> <amount> | give <name> <amount> | importprices [models] | gameprices on|off")
     say(pid, "Course: /tg setstart <n> | addcp <n> | undocp <n> | clearcp <n> | settrap <n> | settype <n> <type> | settime <n> <s>")
@@ -2354,6 +2377,26 @@ end
 ADMIN_CMDS.start = function(pid, _, args)
   if game.phase ~= "idle" then say(pid, "Already running - /tg stop first."); return end
   startGame(pid, args[3] == "force")
+end
+
+ADMIN_CMDS.traffic = function(pid, name, args)
+  local want = (args[3] or ""):lower()
+  local on
+  if want == "on" then on = true elseif want == "off" then on = false else on = not trafficMode[name] end
+  trafficMode[name] = on or nil
+  if on then
+    say(pid, "Traffic mode ON: everything you spawn now is non-scoring traffic (AI traffic, parked cars), in any phase, " ..
+      "and your vehicle menu is unlocked. Your own car, cash and score are untouched. /tg traffic off when you're done.")
+    local p = playerByPid(pid)
+    if p and game.phase == "dealer" and not p.carVid then
+      say(pid, "Heads-up: you haven't bought your own car yet - while traffic mode is on, a car you spawn is traffic, not a purchase.")
+    end
+  else
+    say(pid, "Traffic mode OFF: spawning is back to the challenge rules. The traffic you placed stays.")
+  end
+  log(string.format("traffic mode %s for %s", on and "on" or "off", name))
+  local p = playerByPid(pid)
+  if p then pushState(p) end
 end
 
 ADMIN_CMDS.stop = function()
@@ -3007,6 +3050,7 @@ local function buildUi(pid)
     workshopEvery = tonumber(cfg.workshopEvery) or 2,
     workshopMinutes = cfg.workshop.minutes,
     gamePrices = cfg.dealer.useGamePrices and true or false, allHere = game.allHere and true or false,
+    traffic = inTrafficMode(name),
   }
   if p then
     d.me = {

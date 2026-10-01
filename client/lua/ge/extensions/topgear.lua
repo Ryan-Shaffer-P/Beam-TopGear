@@ -188,6 +188,7 @@ end
 local function hud()
   if state.phase == "idle" then return end
   local bits = { "TOP GEAR: " .. (state.title or "") }
+  if state.traffic then bits[#bits + 1] = "TRAFFIC MODE" end
   if state.cash then bits[#bits + 1] = commas(state.cash) end
   if state.points then bits[#bits + 1] = string.format("%.1f pts", state.points) end
   if state.timeLeft then
@@ -1119,6 +1120,12 @@ local function drawAdminControls(d)
     button("Start", "start"); same(); button("Start (unfinished course)", "start force"); same()
     button("Next phase", "next"); same(); confirmButton("Stop", "stop", "stop")
     colored(0.65, 0.65, 0.65, "Next phase: closes the dealership, forces a start, ends a run or event, or closes a workshop.")
+    if d.traffic then
+      colored(1, 0.8, 0.3, "Traffic mode is ON: what you spawn is non-scoring traffic, and your vehicle menu is open.")
+      button("Turn traffic mode off##traffic", "traffic off")
+    else
+      button("Traffic mode (add AI traffic / parked cars)##traffic", "traffic on")
+    end
   end
 end
 
