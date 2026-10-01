@@ -93,6 +93,7 @@ local DEFAULT_CONFIG = {
   -- The course is a pool of events; the session runs the ones with enabled ~= false, in order.
   -- type: race | circuit | speedtrap | parking | fragile | economy | slalom | trailer
   -- solo: true = time trial mode (one at a time), false = race mode (everyone at once), nil = the type's default
+  --       (speedtrap, parking and slalom default to time trial mode, the rest to race mode)
   events = {
     { name = "The Drag Race",  type = "race", timeLimit = 180,
       description = "Flat out down the straight. First across the line wins.", via = {}, checkpoints = {} },
@@ -475,8 +476,8 @@ local TYPE_INFO = {
   trailer   = { label = "Trailer delivery",  name = "Trailer Delivery" },
 }
 -- Mode: every event runs in race mode (everyone at once) or time trial mode (one at a time, in arrival
--- order). e.solo stores an explicit choice; without one, parking and slalom default to time trial mode.
-local SOLO_DEFAULT = { parking = true, slalom = true }
+-- order). e.solo stores an explicit choice; without one, speed traps, parking and slalom default to time trial mode.
+local SOLO_DEFAULT = { speedtrap = true, parking = true, slalom = true }
 local function isSolo(e)
   if e.solo ~= nil then return e.solo and true or false end
   return SOLO_DEFAULT[e.type] or false

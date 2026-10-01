@@ -66,7 +66,7 @@ Race / Time trial**) or with `/tg setmode <n> race|trial`. The table shows each 
 |---|---|---|---|
 | Destination race | race | first to the finish (fastest run in time trial mode) | start + checkpoints |
 | Circuit race | race | first to complete the laps | start (= start/finish line) + checkpoints round the lap + laps |
-| Speed trap | race | highest speed on one run through the trap (passes under `minRunSpeed`, 20 m/s, don't count) | start + trap |
+| Speed trap | time trial | highest speed on one run through the trap (passes under `minRunSpeed`, 20 m/s, don't count) | start + trap |
 | Precision parking | time trial | lowest score: 10 pts/m off centre + 0.5/deg skew (every bay) + 0.1/s + 0.01/damage + 50 per bay not reached | start + bays (in order) |
 | Fragile delivery | race | time + 0.01 s per point of damage picked up | start + checkpoints |
 | Economy run | race | least fuel used (inside the time limit) | start + checkpoints |

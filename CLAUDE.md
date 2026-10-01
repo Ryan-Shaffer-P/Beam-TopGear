@@ -47,7 +47,7 @@ Install = copy `Resources/` into the BeamMP server.
 - Event types: `race` (destination), `circuit` (start point = start/finish line, laps),
   `speedtrap` (one run through the trap by default, `runs`), `parking` (multiple bays in order), `fragile`, `economy`, `slalom`, `trailer`.
   Every event has a **mode**: race (everyone at once) or time trial (one at a time) = `e.solo`
-  (`isSolo`; nil = type default: parking/slalom trial, rest race). `/tg setmode`. There is no
+  (`isSolo`; nil = type default: speedtrap/parking/slalom trial, rest race). `/tg setmode`. There is no
   `timetrial` type since 0.8.4 - `migrateEvents` turns old ones into `race` + `solo = true`.
 - Run logic: `tickRoute` / `tickSlalom` / `tickParking` / `tickSpeedtrap`; all scoring in `finalizeScore`
   (lower `score` wins; speedtrap uses `-best`). Results -> prizes/points -> workshop every

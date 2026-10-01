@@ -12,7 +12,7 @@ local function sessionCourse()
   return F.config({
     { name = "Race One",     type = "race",      timeLimit = 300, start = p(500),  checkpoints = { p(700), p(900) }, via = {} },
     { name = "Hill Climb",   type = "race", solo = true, timeLimit = 120, start = p(1500), checkpoints = { p(1700), p(1900) }, via = {} },
-    { name = "Speed Trap",   type = "speedtrap", timeLimit = 600, start = p(2500), trap = p(2800), trapRadius = 10, minRunSpeed = 20, via = {} },
+    { name = "Speed Trap",   type = "speedtrap", solo = false, timeLimit = 600, start = p(2500), trap = p(2800), trapRadius = 10, minRunSpeed = 20, via = {} },
     { name = "Fragile",      type = "fragile",   timeLimit = 300, start = p(3500), checkpoints = { p(3700), p(3900) }, via = {} },
     { name = "Economy",      type = "economy",   timeLimit = 300, start = p(4200), checkpoints = { p(4400), p(4600) }, via = {} },
   }, { finale = { name = "The Test Track", pos = p(6000), radius = 25, timeLimit = 1200, via = {} } })
