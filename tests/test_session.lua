@@ -12,7 +12,7 @@ local function sessionCourse()
   return F.config({
     { name = "Race One",     type = "race",      timeLimit = 300, start = p(500),  checkpoints = { p(700), p(900) }, via = {} },
     { name = "Hill Climb",   type = "race", solo = true, timeLimit = 120, start = p(1500), checkpoints = { p(1700), p(1900) }, via = {} },
-    { name = "Speed Trap",   type = "speedtrap", timeLimit = 600, start = p(2500), trap = p(2800), runs = 3, trapRadius = 10, minRunSpeed = 20, via = {} },
+    { name = "Speed Trap",   type = "speedtrap", timeLimit = 600, start = p(2500), trap = p(2800), trapRadius = 10, minRunSpeed = 20, via = {} },
     { name = "Fragile",      type = "fragile",   timeLimit = 300, start = p(3500), checkpoints = { p(3700), p(3900) }, via = {} },
     { name = "Economy",      type = "economy",   timeLimit = 300, start = p(4200), checkpoints = { p(4400), p(4600) }, via = {} },
   }, { finale = { name = "The Test Track", pos = p(6000), radius = 25, timeLimit = 1200, via = {} } })
@@ -93,10 +93,7 @@ t.test("full session: five events, two workshops, faults, tow, reset fine, final
   t.ok(w:chatHas(A, "Alice arrives at Speed Trap (1st) - $500 bonus"))
   t.ok(w:chatHas(A, "Bob arrives at Speed Trap (2nd) - $250 bonus"))
   go()
-  for _ = 1, 3 do
-    w:driveAll({ { A, p(3000), 45 }, { B, p(3000), 40 }, { C, p(3000), 50 } })
-    w:driveAll({ { A, p(2500), 15 }, { B, p(2500), 15 }, { C, p(2500), 15 } })   -- slow way back: doesn't count
-  end
+  w:driveAll({ { A, p(3000), 45 }, { B, p(3000), 40 }, { C, p(3000), 50 } })   -- one run each
   waitPhase("travel")
   t.ok(w:chatHas(A, "1st  Carol")); t.ok(w:chatHas(A, "2nd  Alice")); t.ok(w:chatHas(A, "3rd  Bob"))
 

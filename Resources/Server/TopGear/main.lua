@@ -102,8 +102,8 @@ local DEFAULT_CONFIG = {
       description = "Round and round. First to complete the laps wins.", via = {}, checkpoints = {} },
     { name = "Rush Hour",      type = "race", timeLimit = 900,
       description = "Across downtown through the traffic. Every checkpoint, in order.", via = {}, checkpoints = {} },
-    { name = "The Speed Trap", type = "speedtrap", runs = 3, trapRadius = 10, minRunSpeed = 20, timeLimit = 600,
-      description = "Three runs through the trap. Highest speed wins.", via = {} },
+    { name = "The Speed Trap", type = "speedtrap", runs = 1, trapRadius = 10, minRunSpeed = 20, timeLimit = 600,
+      description = "One run through the trap. Highest speed wins.", via = {} },
     { name = "Precision Parking", type = "parking", timeLimit = 180, enabled = false,
       description = "Park in every bay, in order. Precise, quick and without a scratch wins.", via = {}, bays = {} },
     { name = "Fragile Delivery", type = "fragile", timeLimit = 600, enabled = false,
@@ -210,6 +210,13 @@ local function migrateEvents(events)
     end
     if e.type == "trailer" and e.description == "Hitch up and deliver the load. Lost cargo costs 20 seconds a piece." then
       e.description, changed = "Hitch up and deliver the load. 70 points for the load you keep, 30 for speed.", true   -- 0.8.3 scoring
+    end
+    if e.type == "speedtrap" and not e.oneRun then   -- 0.8.4: one run through the trap instead of three
+      e.oneRun, changed = true, true
+      if e.runs == 3 then e.runs = 1 end
+      if e.description == "Three runs through the trap. Highest speed wins." then
+        e.description = "One run through the trap. Highest speed wins."
+      end
     end
     if e.type == "timetrial" then   -- 0.8.4: time trial is a mode of any event, not a type of its own
       e.type, changed = "race", true
@@ -474,6 +481,7 @@ local function isSolo(e)
   if e.solo ~= nil then return e.solo and true or false end
   return SOLO_DEFAULT[e.type] or false
 end
+local function trapRuns(e) return math.max(1, math.floor(tonumber(e.runs) or 1)) end   -- speed trap passes that count
 local function modeLabel(e) return isSolo(e) and "time trial mode (one at a time)" or "race mode (everyone at once)" end
 local function typeCfg(t) return (cfg.eventTypes or {})[t] or {} end
 local function eventBays(e)
@@ -572,7 +580,7 @@ local function currentTarget(p)
     end
     if e.type == "speedtrap" then
       return { pos = e.trap, r = e.trapRadius or 10,
-               label = string.format("Speed trap (run %d/%d)", p.run.attempts + 1, e.runs or 3) }
+               label = trapRuns(e) == 1 and "Speed trap" or string.format("Speed trap (run %d/%d)", p.run.attempts + 1, trapRuns(e)) }
     end
     local cps = routePoints(e)
     if e.type == "circuit" then
@@ -916,7 +924,7 @@ local function endRun(p, status)
     r.sampleAfter = now() + 0.5   -- the next damage/fuel report counts as the finish reading
     local e = curEvent()
     local detail
-    if e and e.type == "speedtrap" then detail = "Best " .. fmtSpeed(r.best or 0)
+    if e and e.type == "speedtrap" then detail = (trapRuns(e) == 1 and "Speed " or "Best ") .. fmtSpeed(r.best or 0)
     elseif r.time then detail = "Time " .. fmtTime(r.time) end
     showFinish(p, e and e.name, detail)
   end
@@ -1159,11 +1167,13 @@ local function tickSpeedtrap(p, e)
     if run.trapMax < (e.minRunSpeed or 20) then run.trapMax = 0; return end  -- slow pass (e.g. driving back) doesn't count
     run.attempts = run.attempts + 1
     run.best = math.max(run.best, run.trapMax)
-    say(p.pid, string.format("Run %d: %s (best %s)", run.attempts, fmtSpeed(run.trapMax), fmtSpeed(run.best)))
+    local runs = trapRuns(e)
+    if runs == 1 then say(p.pid, "Through the trap at " .. fmtSpeed(run.trapMax) .. ".")
+    else say(p.pid, string.format("Run %d: %s (best %s)", run.attempts, fmtSpeed(run.trapMax), fmtSpeed(run.best))) end
     run.trapMax = 0
-    if run.attempts >= (e.runs or 3) then
+    if run.attempts >= runs then
       endRun(p)
-      sayAll(string.format("%s is done - best %s", p.name, fmtSpeed(run.best)))
+      sayAll(string.format("%s is done - %s%s", p.name, runs == 1 and "" or "best ", fmtSpeed(run.best)))
     end
     pushState(p)
   end

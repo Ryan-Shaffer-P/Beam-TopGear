@@ -66,7 +66,7 @@ Race / Time trial**) or with `/tg setmode <n> race|trial`. The table shows each 
 |---|---|---|---|
 | Destination race | race | first to the finish (fastest run in time trial mode) | start + checkpoints |
 | Circuit race | race | first to complete the laps | start (= start/finish line) + checkpoints round the lap + laps |
-| Speed trap | race | highest speed through the trap | start + trap |
+| Speed trap | race | highest speed on one run through the trap (passes under `minRunSpeed`, 20 m/s, don't count) | start + trap |
 | Precision parking | time trial | lowest score: 10 pts/m off centre + 0.5/deg skew (every bay) + 0.1/s + 0.01/damage + 50 per bay not reached | start + bays (in order) |
 | Fragile delivery | race | time + 0.01 s per point of damage picked up | start + checkpoints |
 | Economy run | race | least fuel used (inside the time limit) | start + checkpoints |
@@ -186,7 +186,7 @@ West Coast USA layout:
 - **Leg 3 → Rush Hour** (via a gravel/back-road detour): checkpoints zig-zag across downtown.
   For "crowded streets", an admin buys their car first, then turns on **traffic mode** and spawns
   AI traffic or parks extra vehicles as obstacles (see "Adding traffic" below).
-- **Leg 4 → The Speed Trap**: a long highway straight. Three runs; slow passes don't count.
+- **Leg 4 → The Speed Trap**: a long highway straight. One run; slow passes don't count.
 - **Finale**: back to a "test track" finish, via a rough road so damage matters.
 
 Italy is a great alternative theme (narrow villages, mountain passes, gravel): change the
