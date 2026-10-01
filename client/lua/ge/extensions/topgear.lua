@@ -1,0 +1,1994 @@
+-- TOP GEAR CHALLENGE - BeamMP client extension (v0.1)
+-- Packaged in Resources/Client/topgear.zip as lua/ge/extensions/topgear.lua
+-- The server is authoritative; this file only displays state, blocks menus/resets,
+-- reports damage + parts value, and performs paid repairs.
+
+local M = {}
+
+local state       = { phase = "idle" }
+local faults      = { want = {}, restore = {}, test = false, applyAt = nil, report = false,
+                      results = {}, waitSpawn = nil, physicsDeadline = nil, active = false }
+local onPartsDiag, onFindGas, onRevertParts, onTrailerSave   -- defined further down, registered in tryRegister
+local copyTable, readParts, lastGoodSnap, walkTree, ordinal  -- shared helpers/state, defined further down
+local lights = { clock = 0, goUntil = nil, wasOn = false, who = nil, test = nil, openPtr = nil, errored = false }
+local ui          = { open = false, data = nil, log = {}, reqTimer = 0, t = 0, sel = 1, confirm = {}, player = nil, failed = {} }
+local stateAge    = 0
+local registered  = false
+local reportTimer = 0
+local hudTimer    = 0
+local partsValue  = nil   -- cached parts value; nil = recompute, false = unavailable
+local lastTarget  = nil
+local filterState = {}
+
+local RESET_ACTIONS = {
+  "reset_physics", "reset_all_physics", "reload_vehicle", "reload_all_vehicles",
+  "loadHome", "saveHome", "recover_vehicle", "recover_vehicle_alt", "recover_to_last_road",
+  "dropPlayerAtCamera", "dropPlayerAtCameraNoReset",
+  "nodegrabberAction", "nodegrabberGrab", "nodegrabberRender",
+  "editorToggle", "editorSafeModeToggle",
+}
+local VEHSEL_ACTIONS = { "vehicle_selector" }
+local PARTS_ACTIONS  = { "parts_selector" }
+
+local VERSION = "0.8.1"
+local recentErrors = {}
+local function warn(msg)
+  log("W", "topgear", tostring(msg))
+  recentErrors[#recentErrors + 1] = tostring(msg):sub(1, 160)
+  if #recentErrors > 4 then table.remove(recentErrors, 1) end
+end
+
+-- input locks ----------------------------------------------------------------
+local function setFilter(group, actions, blocked)
+  if filterState[group] == blocked then return end
+  local ok, err = pcall(function()
+    core_input_actionFilter.setGroup(group, actions)
+    core_input_actionFilter.addAction(0, group, blocked)
+  end)
+  if not ok then warn("actionFilter failed: " .. tostring(err)) end
+  filterState[group] = blocked
+end
+
+local function applyFilters()
+  local active = state.phase ~= "idle"
+  setFilter("tg_reset",  RESET_ACTIONS,  active and not state.allowReset)
+  setFilter("tg_vehsel", VEHSEL_ACTIONS, active and not state.allowVehicleSelector)
+  setFilter("tg_parts",  PARTS_ACTIONS,  active and not state.allowParts)
+end
+
+-- which vehicle is my challenge car? -------------------------------------------
+local function getCar()
+  if state.carId and MPVehicleGE and MPVehicleGE.getGameVehicleID then
+    local ok, gid = pcall(MPVehicleGE.getGameVehicleID, state.carId)
+    if ok and gid and gid ~= -1 then
+      local v = be:getObjectByID(gid)
+      if v then return v end
+    end
+  end
+  return be:getPlayerVehicle(0)
+end
+
+local function getDamage(v)
+  local o = map and map.objects and map.objects[v:getID()]
+  return (o and o.damage) or 0
+end
+
+local FREE_SLOT_WORDS = { "skin", "paint", "livery", "decal", "sticker", "plate", "license", "licence", "badge",
+  "mirror", "trim", "interior", "seat", "steering_wheel", "dash", "hubcap", "wheelcover", "light", "lamp",
+  "antenna", "mudflap", "horn", "glass", "window", "wiper", "bumper" }
+local function isFreeSlot(slot)
+  slot = tostring(slot or ""):lower()
+  for _, w in ipairs(FREE_SLOT_WORDS) do if slot:find(w, 1, true) then return true end end
+  return false
+end
+
+-- Sum of jbeam "information.value" over the car's installed parts.
+-- Used to bill workshop upgrades. Returns nil if this game version doesn't expose it.
+local function getPartsValue(v)
+  local ok, total = pcall(function()
+    local vd = core_vehicle_manager.getVehicleData(v:getID())
+    if not vd then return nil end
+    local sum, found = 0, false
+    -- path 1: processed vehicle data keeps the active parts
+    local active = vd.vdata and vd.vdata.activeParts
+    if type(active) == "table" then
+      for key, part in pairs(active) do
+        local val = type(part) == "table" and part.information and tonumber(part.information.value)
+        local st = type(part) == "table" and part.slotType or ""
+        local skip = isFreeSlot(key) or isFreeSlot(type(st) == "table" and table.concat(st, " ") or st)
+        if val and not skip then sum = sum + val; found = true end
+      end
+      if found then return sum end
+    end
+    -- path 2: look each chosen part up through jbeam io
+    local chosen = vd.chosenParts or (vd.config and vd.config.parts)
+    if type(chosen) == "table" and vd.ioCtx then
+      local jbeamIO = require("jbeam/io")
+      for slot, partName in pairs(chosen) do
+        if type(partName) == "string" and partName ~= "" and not isFreeSlot(slot) then
+          local part = jbeamIO.getPart(vd.ioCtx, partName)
+          local val = part and part.information and tonumber(part.information.value)
+          if val then sum = sum + val; found = true end
+        end
+      end
+    end
+    return found and sum or nil
+  end)
+  if not ok then warn("parts value failed: " .. tostring(total)); return nil end
+  return total
+end
+
+-- navigation arrows --------------------------------------------------------------
+-- Ground arrows follow the AI road network. Several BeamNG versions name this API
+-- differently, so try each and log which one worked (see the game console, filter "topgear").
+local pathMethod, pathCarId, pathKey, reassertTimer = nil, nil, nil, 0
+
+local function trySetPath(pos)
+  local attempts = {
+    { "core_groundMarkers.setPath",  function() return core_groundMarkers and core_groundMarkers.setPath end },
+    { "core_groundMarkers.setFocus", function() return core_groundMarkers and core_groundMarkers.setFocus end },
+    { "freeroam_bigMapMode.setNavFocus", function() return freeroam_bigMapMode and freeroam_bigMapMode.setNavFocus end },
+  }
+  for _, a in ipairs(attempts) do
+    local okGet, fn = pcall(a[2])
+    if okGet and type(fn) == "function" then
+      local ok, err = pcall(fn, pos)
+      if ok then return a[1] end
+      warn(a[1] .. " failed: " .. tostring(err))
+    end
+  end
+  return nil
+end
+
+local function applyPath(force)
+  local t = state.target
+  local key = t and string.format("%.1f,%.1f,%.1f", t.x, t.y, t.z) or "none"
+  local car = getCar()
+  local carId = car and car:getID() or -1
+  if not force and key == pathKey and carId == pathCarId and (pathMethod or not t) then return end
+  pathKey, pathCarId = key, carId
+  if not t then trySetPath(nil); pathMethod = nil; return end
+  pathMethod = trySetPath(vec3(t.x, t.y, t.z))
+  log("I", "topgear", string.format("target '%s' at %s, arrows via %s", tostring(t.label), key, tostring(pathMethod or "NONE")))
+end
+
+-- Some versions clear the route on arrival or vehicle change; re-apply when that happens.
+local function reassertPath(dt)
+  reassertTimer = reassertTimer + dt
+  if reassertTimer < 3 then return end
+  reassertTimer = 0
+  if not state.target then return end
+  local lost = false
+  pcall(function()
+    if core_groundMarkers and core_groundMarkers.currentlyHasTarget then
+      lost = not core_groundMarkers.currentlyHasTarget()
+    end
+  end)
+  applyPath(lost)
+end
+
+-- HUD --------------------------------------------------------------------------
+local function commas(n)
+  n = math.floor((n or 0) + 0.5)
+  local s = tostring(math.abs(n)):reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", "")
+  return (n < 0 and "-$" or "$") .. s
+end
+
+-- Arrow showing where the target is relative to the car's heading.
+local ARROWS = { "↑", "↗", "→", "↘", "↓", "↙", "←", "↖" }
+function M.compass(fx, fy, dx, dy)
+  local atan2 = math.atan2 or math.atan
+  local ccw = atan2(fx * dy - fy * dx, fx * dx + fy * dy)   -- + = target to the left
+  local cw = (-math.deg(ccw)) % 360
+  return ARROWS[math.floor((cw + 22.5) / 45) % 8 + 1]
+end
+
+local function hud()
+  if state.phase == "idle" then return end
+  local bits = { "TOP GEAR: " .. (state.title or "") }
+  if state.cash then bits[#bits + 1] = commas(state.cash) end
+  if state.points then bits[#bits + 1] = string.format("%.1f pts", state.points) end
+  if state.timeLeft then
+    local left = state.timeLeft - stateAge
+    if left > 0 then bits[#bits + 1] = string.format("%d:%02d left", math.floor(left / 60), math.floor(left % 60)) end
+  end
+  local t, v = state.target, getCar()
+  if t and v then
+    local pos = vec3(v:getPosition())
+    local to = vec3(t.x, t.y, t.z) - pos
+    local d = to:length()
+    local dir = vec3(v:getDirectionVector())
+    bits[#bits + 1] = string.format("%s %s %s", M.compass(dir.x, dir.y, to.x, to.y), t.label or "Target",
+      d >= 1000 and string.format("%.1f km", d / 1000) or string.format("%d m", math.floor(d)))
+  end
+  ui_message(table.concat(bits, "  |  "), 2, "tg_hud", "flag")
+end
+
+local function drawTarget()
+  local t = state.target
+  if not t or state.phase == "idle" then return end
+  local p, r = vec3(t.x, t.y, t.z), t.r or 10
+  local ok = pcall(function()
+    debugDrawer:drawCylinder(p, p + vec3(0, 0, 6), r, ColorF(1, 0.45, 0, 0.18))
+    debugDrawer:drawCylinder(p, p + vec3(0, 0, 120), 0.8, ColorF(1, 0.45, 0, 0.6))  -- beacon, visible from afar
+    debugDrawer:drawTextAdvanced(p + vec3(0, 0, 7), String(t.label or ""), ColorF(1, 1, 1, 1), true, false, ColorI(0, 0, 0, 180))
+  end)
+  if not ok then  -- older builds want Point3F
+    pcall(function()
+      debugDrawer:drawCylinder(p:toPoint3F(), (p + vec3(0, 0, 6)):toPoint3F(), r, ColorF(1, 0.45, 0, 0.18))
+    end)
+  end
+end
+
+-- server -> client -----------------------------------------------------------
+local function onState(data)
+  local ok, t = pcall(jsonDecode, data)
+  if not ok or type(t) ~= "table" then return end
+  state, stateAge = t, 0
+  if ui.open then ui.reqTimer = math.min(ui.reqTimer, 0.2) end
+  applyFilters()
+  applyPath(false)
+  if state.phase == "idle" and not faults.test then
+    faults.want, faults.restore, faults.active = {}, {}, false
+    faults.applyAt, faults.waitSpawn, faults.physicsDeadline, faults.report = nil, nil, nil, false
+  end
+  if state.phase == "idle" then ui_message("", 0, "tg_hud") else hudTimer = 0 end
+end
+
+local function onRepair()
+  local v = getCar()
+  if v then v:queueLuaCommand("obj:requestReset(RESET_PHYSICS)") end
+  partsValue = nil
+  ui_message("The mechanics have fixed your car.", 5, "tg_msg", "build")
+end
+
+local function onMsg(text)
+  ui_message(tostring(text), 4, "tg_msg", "flag")
+end
+
+-- /tg diag: report what this client sees back to the server
+local function onDiag()
+  applyPath(true)
+  local r = { version = VERSION, phase = state.phase, pathMethod = pathMethod, errors = recentErrors, carId = state.carId }
+  local t = state.target
+  if t then r.target = string.format("%s at (%.0f, %.0f, %.0f)", tostring(t.label), t.x, t.y, t.z) end
+  pcall(function()
+    r.gmLoaded  = core_groundMarkers ~= nil
+    r.gmSetPath = core_groundMarkers ~= nil and core_groundMarkers.setPath ~= nil
+    r.gmSetFocus = core_groundMarkers ~= nil and core_groundMarkers.setFocus ~= nil
+    if core_groundMarkers and core_groundMarkers.currentlyHasTarget then r.hasTarget = core_groundMarkers.currentlyHasTarget() end
+  end)
+  pcall(function() r.bigMap = freeroam_bigMapMode ~= nil and freeroam_bigMapMode.setNavFocus ~= nil end)
+  local car, pv = getCar(), be:getPlayerVehicle(0)
+  r.carFound = car and car:getID() or nil
+  r.playerVeh = pv and pv:getID() or nil
+  if TriggerServerEvent then TriggerServerEvent("tg_diag_reply", jsonEncode(r)) end
+end
+
+-- /tg importprices: read every stock configuration's value from this game install
+local function readModelPrices(model)
+  local m = core_vehicles.getModel(model)
+  if not (m and m.configs) then return nil, nil end
+  local info = m.model or {}
+  local modelName = ((info.Brand and (info.Brand .. " ") or "") .. (info.Name or model))
+  local out = {}
+  for key, c in pairs(m.configs) do
+    local price = tonumber(c.Value)
+    local trim = c.Configuration or c.Name or key
+    out[#out + 1] = { config = c.key or key, name = modelName .. " " .. tostring(trim), price = price }
+  end
+  return out, modelName
+end
+
+local function onImport(data)
+  local ok, req = pcall(jsonDecode, data)
+  if not ok or type(req) ~= "table" or type(req.models) ~= "table" then return end
+  for _, model in ipairs(req.models) do
+    local okRead, configs, modelName = pcall(readModelPrices, model)
+    local reply = { model = model }
+    if okRead then reply.configs, reply.modelName = configs, modelName
+    else reply.err = tostring(configs); warn("price import failed for " .. model .. ": " .. reply.err) end
+    TriggerServerEvent("tg_import_reply", jsonEncode(reply))  -- one message per model keeps each packet small
+  end
+end
+
+-- Problem-car faults -------------------------------------------------------------
+-- Setup faults (tires, alignment, bumpers) change the car's configuration and respawn it.
+-- Physics faults (engine, brakes) run inside the car's own Lua and are re-applied after
+-- every reset or respawn. The server says which faults this car should have; applying is
+-- idempotent, and anything a fault changed is recorded in `restore` so it can be undone.
+
+local function sanitize(v) return (tostring(v):gsub("[%c\"\\%]%[]", " ")) end
+
+local VLUA = [==[
+tgFaults = tgFaults or {}
+local want, afterReset = %s, %s
+local out = {}
+if afterReset and tgFaults.engine then
+  local e = powertrain and powertrain.getDevice and powertrain.getDevice("mainEngine")
+  if not e or type(e.outputTorqueState) ~= "number" or math.abs(e.outputTorqueState - 1) < 1e-6 then tgFaults.engine = nil end
+end
+local function run(id, fn)
+  if not want[id] and not tgFaults[id] then return end
+  local ok, err = pcall(fn, want[id])
+  if not ok then out[id] = "error: " .. tostring(err) end
+end
+run("engine", function(factor)
+  local e = powertrain and powertrain.getDevice and powertrain.getDevice("mainEngine")
+  if not e then out.engine = "unavailable"; return end
+  local cur, target = tgFaults.engine or 1, factor or 1
+  if math.abs(cur - target) > 1e-6 then
+    if type(e.outputTorqueState) == "number" then e.outputTorqueState = e.outputTorqueState / cur * target
+    elseif e.scaleOutputTorque then e:scaleOutputTorque(target / cur)
+    else error("engine has no torque control") end
+  end
+  tgFaults.engine = factor
+  out.engine = factor and "ok" or "removed"
+end)
+run("brakes", function(factor)
+  if not (wheels and wheels.wheels) then out.brakes = "unavailable"; return end
+  tgFaults.brakeOrig = tgFaults.brakeOrig or {}
+  local n = 0
+  for i, wd in pairs(wheels.wheels) do
+    if type(wd) == "table" and tonumber(wd.brakeTorque) then
+      if tgFaults.brakeOrig[i] == nil then tgFaults.brakeOrig[i] = wd.brakeTorque end
+      wd.brakeTorque = tgFaults.brakeOrig[i] * (factor or 1)
+      n = n + 1
+    end
+  end
+  tgFaults.brakes = factor
+  if n == 0 then out.brakes = "unavailable" else out.brakes = factor and "ok" or "removed" end
+end)
+local parts = {}
+for k, v in pairs(out) do parts[#parts + 1] = '"' .. k .. '":"' .. tostring(v):gsub('[%%c"\\%%]%%[]', ' ') .. '"' end
+obj:queueGameEngineLua("extensions.topgear.onVehicleFaultReport([[{" .. table.concat(parts, ",") .. "}]])")
+]==]
+
+local PHYSICS = { engine = true, brakes = true }
+
+local function sendFaultReport()
+  if not faults.report then return end
+  faults.report = false
+  if TriggerServerEvent then
+    TriggerServerEvent("tg_fault_report", jsonEncode({ results = faults.results, restore = faults.restore, test = faults.test }))
+  end
+end
+
+local function runPhysicsFaults(afterReset)
+  local car = getCar()
+  if not car then return end
+  local items = {}
+  for id, f in pairs(faults.want) do
+    if PHYSICS[id] then items[#items + 1] = string.format("[%q]=%s", id, tostring(tonumber(f.factor) or 1)) end
+  end
+  local code = string.format(VLUA, "{" .. table.concat(items, ",") .. "}", afterReset and "true" or "false")
+  car:queueLuaCommand(code)
+  faults.physicsDeadline = 5
+end
+
+function M.onVehicleFaultReport(js)
+  faults.physicsDeadline = nil
+  local ok, t = pcall(jsonDecode, js)
+  if ok and type(t) == "table" then
+    for id, st in pairs(t) do
+      faults.results[id] = st
+      if st ~= "ok" and st ~= "removed" then warn("fault " .. id .. ": " .. tostring(st)) end
+    end
+  end
+  sendFaultReport()
+end
+
+local function applyConfigFaults()
+  local car = getCar()
+  if not car then faults.applyAt = 1; return end
+  faults.results = {}
+  local changedVars, changedParts = false, false
+  local ok, err = pcall(function()
+    local pm = core_vehicle_partmgmt
+    local conf = pm.getConfig() or {}
+    local vars, parts = conf.vars or {}, conf.parts or {}
+    local defs = {}
+    pcall(function()
+      local vd = core_vehicle_manager.getVehicleData(car:getID())
+      defs = (vd and vd.vdata and vd.vdata.variables) or {}
+    end)
+    local function info(n) return type(defs[n]) == "table" and defs[n] or {} end
+    local function names(pattern, prefer)
+      local out, seen = {}, {}
+      for _, src in ipairs({ defs, vars }) do
+        for n in pairs(src) do
+          if type(n) == "string" and n:find(pattern) and not seen[n] then seen[n] = true; out[#out + 1] = n end
+        end
+      end
+      if prefer then
+        local preferred = {}
+        for _, n in ipairs(out) do if n:find(prefer) then preferred[#preferred + 1] = n end end
+        if #preferred > 0 then out = preferred end
+      end
+      table.sort(out)
+      return out
+    end
+    local function current(n)
+      local v = vars[n]
+      if v == nil then v = info(n).val or info(n).default end
+      return tonumber(v)
+    end
+
+    local function varFault(id, pattern, prefer, target)
+      local rec = faults.restore[id]
+      if faults.want[id] then
+        rec = rec or { vars = {} }
+        rec.vars = rec.vars or {}
+        local applied = 0
+        for _, n in ipairs(names(pattern, prefer)) do
+          if rec.vars[n] == nil then rec.vars[n] = current(n) or "default" end
+          local orig = rec.vars[n]
+          local t = target(orig ~= "default" and orig or tonumber(info(n).default), info(n), tonumber(faults.want[id].factor), n)
+          if t then
+            applied = applied + 1
+            if vars[n] ~= t then vars[n] = t; changedVars = true end
+          end
+        end
+        if applied == 0 then faults.results[id] = "unavailable"; faults.restore[id] = nil; return end
+        faults.restore[id] = rec
+        faults.results[id] = "ok"
+      elseif rec and rec.vars then
+        for n, orig in pairs(rec.vars) do
+          local want = (orig ~= "default") and orig or nil
+          if vars[n] ~= want then vars[n] = want; changedVars = true end
+        end
+        faults.restore[id] = nil
+        faults.results[id] = "removed"
+      end
+    end
+
+    -- tires: pressure down to factor x normal (never below the car's minimum)
+    varFault("tires", "^%$tirepressure", nil, function(base, d, factor)
+      base = base or 30
+      local t = math.floor(base * (factor or 0.55) + 0.5)
+      if tonumber(d.min) then t = math.max(tonumber(d.min), t) end
+      return t
+    end)
+    -- alignment: front toe pushed min(factor, 1) of the way to its limit; any factor above 1 goes on the rear toe
+    varFault("alignment", "^%$toe", nil, function(base, d, factor, name)
+      local hi, lo = tonumber(d.max), tonumber(d.min)
+      base = base or tonumber(d.default)
+      if not (hi and lo and base) then return nil end
+      factor = factor or 1.4
+      local frac
+      if tostring(name):find("_F") then frac = math.min(factor, 1)
+      else frac = math.min(math.max(factor - 1, 0), 1) end
+      if frac <= 0 then return nil end
+      return base + (hi - base) * frac
+    end)
+
+    -- bumpers: empty the front and rear bumper slots
+    local rec = faults.restore.bumpers
+    if faults.want.bumpers then
+      rec = rec or { parts = {} }
+      rec.parts = rec.parts or {}
+      local n = 0
+      for slot, part in pairs(parts) do
+        if type(slot) == "string" and slot:find("bumper_[FR]/?$") then
+          if rec.parts[slot] == nil and part ~= "" then rec.parts[slot] = part end
+          if rec.parts[slot] ~= nil then
+            n = n + 1
+            if part ~= "" then parts[slot] = ""; changedParts = true end
+          end
+        end
+      end
+      if n == 0 then faults.results.bumpers = "unavailable"; faults.restore.bumpers = nil
+      else faults.restore.bumpers = rec; faults.results.bumpers = "ok" end
+    elseif rec and rec.parts then
+      for slot, orig in pairs(rec.parts) do
+        if parts[slot] ~= orig then parts[slot] = orig; changedParts = true end
+      end
+      faults.restore.bumpers = nil
+      faults.results.bumpers = "removed"
+    end
+
+    if changedParts or changedVars then faults.waitSpawn = 8 end   -- armed before the respawn can fire
+    if changedParts and changedVars then
+      pm.setPartsConfig(parts, false)
+      pm.setConfigVars(vars, true)
+    elseif changedParts then
+      pm.setPartsConfig(parts, true)
+    elseif changedVars then
+      pm.setConfigVars(vars, true)
+    end
+  end)
+  if not ok then
+    warn("setup faults failed: " .. tostring(err))
+    for _, id in ipairs({ "tires", "alignment", "bumpers" }) do
+      if faults.want[id] then faults.results[id] = "error: " .. sanitize(err) end
+    end
+    changedVars, changedParts = false, false
+    faults.waitSpawn = nil
+  end
+  if not (changedVars or changedParts) then runPhysicsFaults(false) end   -- otherwise after the respawn
+end
+
+local function onFaults(data)
+  local ok, t = pcall(jsonDecode, data)
+  if not ok or type(t) ~= "table" then return end
+  faults.want = {}
+  for _, f in ipairs(t.faults or {}) do if type(f) == "table" and f.id then faults.want[f.id] = f end end
+  faults.restore = type(t.restore) == "table" and t.restore or {}
+  faults.test = t.test and true or false
+  faults.active = next(faults.want) ~= nil or next(faults.restore) ~= nil
+  faults.report = true
+  faults.applyAt = 0.5   -- let a fresh purchase finish spawning first
+end
+
+local function updateFaults(dt)
+  if faults.applyAt then
+    faults.applyAt = faults.applyAt - dt
+    if faults.applyAt <= 0 then faults.applyAt = nil; applyConfigFaults() end
+  end
+  if faults.waitSpawn then
+    faults.waitSpawn = faults.waitSpawn - dt
+    if faults.waitSpawn <= 0 then faults.waitSpawn = nil; runPhysicsFaults(false) end  -- no respawn seen; try anyway
+  end
+  if faults.physicsDeadline then
+    faults.physicsDeadline = faults.physicsDeadline - dt
+    if faults.physicsDeadline <= 0 then
+      faults.physicsDeadline = nil
+      for id in pairs(faults.want) do
+        if PHYSICS[id] and not faults.results[id] then faults.results[id] = "error: no reply from the car" end
+      end
+      sendFaultReport()
+    end
+  end
+end
+
+-- Tow + unstick: moving the car -------------------------------------------------------
+-- The server decides where the car goes; this moves it without a reset where possible
+-- (unstick keeps all damage), verifies it ended up upright and facing the right way,
+-- and reports the method that worked.
+local move = nil
+
+local function flatDir(v)
+  if not v then return nil end
+  local d = vec3(v.x, v.y, 0)
+  if d:length() < 0.01 then return nil end
+  return d:normalized()
+end
+
+local function moveReport(ok, method, detail)
+  if TriggerServerEvent and move then
+    TriggerServerEvent("tg_move_report", jsonEncode({ kind = move.kind, ok = ok, method = method or "none", detail = tostring(detail or "") }))
+  end
+  if not ok then warn(tostring(move and move.kind) .. " failed: " .. tostring(detail)) end
+  move = nil
+end
+
+local function rotationCandidates(car, dir)
+  local out = {}
+  if dir and quatFromDir then
+    for _, d in ipairs({ dir, -dir }) do
+      local ok, q = pcall(quatFromDir, d, vec3(0, 0, 1))
+      if ok and q then out[#out + 1] = q end
+    end
+  end
+  if #out == 0 then
+    local ok, q = pcall(function() return quat(car:getRotation()) end)
+    if ok and q then out[#out + 1] = q end
+  end
+  return out
+end
+
+local function setPose(car, pos, q)
+  if car.setPositionRotation then
+    car:setPositionRotation(pos.x, pos.y, pos.z, q.x, q.y, q.z, q.w)
+    return "setPositionRotation"
+  end
+  if spawn and spawn.safeTeleport then
+    spawn.safeTeleport(car, pos, q, nil, nil, nil, nil, false)
+    return "safeTeleport"
+  end
+  error("no teleport function on this BeamNG version")
+end
+
+local function poseOK(car, dir)
+  local okU, up = pcall(function() return vec3(car:getDirectionVectorUp()) end)
+  if okU and up and up.z < 0.8 then return false end
+  if dir then
+    local okF, f = pcall(function() return flatDir(vec3(car:getDirectionVector())) end)
+    if okF and f and f:dot(dir) < 0.7 then return false end
+  end
+  return true
+end
+
+local function startMove(kind, t)
+  local car = getCar()
+  if not car then return end
+  move = { kind = kind, t = 0, reset = t.reset, config = t.config, idx = 1 }
+  if kind == "unstick" then
+    local pos = vec3(car:getPosition())
+    move.pos = pos + vec3(0, 0, 1.2)
+    move.dir = flatDir(vec3(car:getDirectionVector()))
+  else
+    move.pos = t.pos and vec3(t.pos.x, t.pos.y, t.pos.z) or nil
+    move.dir = t.dir and flatDir(vec3(t.dir.x, t.dir.y, 0)) or flatDir(vec3(car:getDirectionVector()))
+  end
+  move.stage = move.config and "config" or "reset"
+end
+
+local function updateMove(dt)
+  if not move then return end
+  move.t = move.t + dt
+  local car = getCar()
+  if not car then if move.t > 10 then moveReport(false, nil, "car not found") end return end
+  if move.stage == "config" then
+    if not move.started then
+      move.started, move.t = true, 0
+      local ok, err = pcall(function()
+        local pm = core_vehicle_partmgmt
+        local c = move.config
+        if type(c.parts) == "table" and type(c.vars) == "table" then
+          pm.setPartsConfig(c.parts, false); pm.setConfigVars(c.vars, true)
+        elseif type(c.parts) == "table" then pm.setPartsConfig(c.parts, true)
+        elseif type(c.vars) == "table" then pm.setConfigVars(c.vars, true) end
+      end)
+      if not ok then warn("couldn't restore the car's upgrades: " .. tostring(err)); move.stage, move.t = "reset", 0 end
+    elseif move.spawned or move.t > 4 then
+      move.stage, move.t = "reset", 0
+    end
+  elseif move.stage == "reset" then
+    if move.reset and not move.resetSent then
+      move.resetSent, move.t = true, 0
+      car:queueLuaCommand("obj:requestReset(RESET_PHYSICS)")
+    elseif not move.reset or move.t > 0.7 then
+      if not move.pos then moveReport(true, "reset", "repaired in place"); return end
+      move.stage, move.t = "place", 0
+    end
+  elseif move.stage == "place" then
+    move.cands = move.cands or rotationCandidates(car, move.dir)
+    local q = move.cands[move.idx]
+    if not q then moveReport(false, nil, "no usable rotation"); return end
+    local ok, res = pcall(setPose, car, move.pos, q)
+    if not ok then moveReport(false, nil, res); return end
+    move.method, move.stage, move.t = res, "verify", 0
+  elseif move.stage == "verify" and move.t > 0.4 then
+    if poseOK(car, move.dir) then moveReport(true, move.method, "candidate " .. move.idx); return end
+    move.idx = move.idx + 1
+    if move.cands[move.idx] then move.stage = "place"
+    else moveReport(true, move.method, "placed, but orientation not verified") end
+  end
+end
+
+local function onRespawn(data)
+  local ok, t = pcall(jsonDecode, data)
+  if not ok or type(t) ~= "table" then return end
+  if t.spawn and t.model then   -- the car was lost: bring it back (the server treats that as a tow)
+    pcall(function() core_vehicles.spawnNewVehicle(t.model, t.config and { config = t.config } or {}) end)
+    return
+  end
+  local car = getCar()
+  if car then car:queueLuaCommand("obj:requestReset(RESET_PHYSICS)") end
+end
+
+local function onTow(data)
+  local ok, t = pcall(jsonDecode, data)
+  if ok and type(t) == "table" then startMove("tow", t) end
+end
+local function onUnstick() startMove("unstick", {}) end
+
+-- Trailer delivery: spawn a trailer behind the car, then loose cargo on its deck --------
+local trailerJob, spawnedTest = nil, {}
+
+-- bounding box of a spawned object: centre + half extents (x/y horizontal, z up), or nil
+local function bbox(obj)
+  local ok, c, h = pcall(function()
+    local b = obj:getSpawnWorldOOBB()
+    return vec3(b:getCenter()), vec3(b:getHalfExtents())
+  end)
+  if ok and c and h then return c, h end
+  local ok2, cx, cy, cz = pcall(function() return be:getObjectOOBBCenterXYZ(obj:getID()) end)
+  local ok3, hx, hy, hz = pcall(function() return be:getObjectOOBBHalfExtentsXYZ(obj:getID()) end)
+  if ok2 and cx then return vec3(cx, cy, cz), (ok3 and hx) and vec3(hx, hy, hz) or nil end
+  return nil
+end
+local function halfLength(h) return h and math.max(h.x, h.y) or nil end
+
+local function couple(car, alsoTrailer)
+  local code = "if beamstate then if beamstate.activateAutoCoupling then beamstate.activateAutoCoupling() " ..
+               "elseif beamstate.toggleCouplers then beamstate.toggleCouplers() end end"
+  pcall(function() car:queueLuaCommand(code) end)
+  if alsoTrailer then pcall(function() alsoTrailer:queueLuaCommand(code) end) end
+end
+
+local function spawnProp(model, pos, rot, config)
+  local opts = { pos = pos, rot = rot, autoEnterVehicle = false }
+  if config ~= nil then opts.config = config end
+  return core_vehicles.spawnNewVehicle(model, opts)
+end
+
+-- the prebuilt trailer's load: how much of it is still on the bed (0..1), measured in the trailer's own Lua
+local activeTrailer, activeLoad, cargoValue = nil, nil, nil
+function M.onCargo(v)
+  v = tonumber(v)
+  if v and v >= 0 then cargoValue = v else cargoValue = nil end
+end
+local CARGO_VLUA = [==[
+local LOAD = %s
+local fwd, up = vec3(obj:getDirectionVector()), vec3(obj:getDirectionVectorUp())
+local right = fwd:cross(up)
+local lo, hi, loads = { 1e9, 1e9, 1e9 }, { -1e9, -1e9, -1e9 }, {}
+for _, n in pairs(v.data.nodes) do
+  local p = vec3(obj:getNodePosition(n.cid))
+  local a = { p:dot(fwd), p:dot(right), p:dot(up) }
+  if LOAD[tostring(n.partOrigin or "")] then loads[#loads + 1] = a
+  else for i = 1, 3 do lo[i] = math.min(lo[i], a[i]); hi[i] = math.max(hi[i], a[i]) end end
+end
+local on = 0
+for _, a in ipairs(loads) do
+  if a[1] >= lo[1] - 0.3 and a[1] <= hi[1] + 0.3 and a[2] >= lo[2] - 0.3 and a[2] <= hi[2] + 0.3
+     and a[3] >= lo[3] - 0.5 and a[3] <= hi[3] + 2.5 then on = on + 1 end
+end
+obj:queueGameEngineLua("extensions.topgear.onCargo(" .. string.format("%%.3f", #loads > 0 and on / #loads or -1) .. ")")
+]==]
+local function measureCargo()
+  if not (activeTrailer and activeLoad) then return end
+  local items = {}
+  for _, name in ipairs(activeLoad) do items[#items + 1] = string.format("[%q]=true", name) end
+  local ok = pcall(function() activeTrailer:queueLuaCommand(string.format(CARGO_VLUA, "{" .. table.concat(items, ",") .. "}")) end)
+  if not ok then activeTrailer, activeLoad, cargoValue = nil, nil, nil end
+end
+
+local function trailerReport(ok, hasTrailer, nCargo, err, onDeck)
+  if TriggerServerEvent then
+    TriggerServerEvent("tg_trailer_report", jsonEncode({ ok = ok, trailer = hasTrailer, cargo = nCargo, onDeck = onDeck,
+      err = err and tostring(err) or nil }))
+  end
+  if not ok then warn("trailer: " .. tostring(err)) end
+end
+
+local function onTrailer(data)
+  local ok, t = pcall(jsonDecode, data)
+  if ok and type(t) == "table" then trailerJob = { t = t, stage = "wait", timer = 0.5 } end
+end
+
+local function updateTrailer(dt)
+  local job = trailerJob
+  if not job then return end
+  if move then return end                    -- a tow delivery finishes first
+  job.timer = job.timer - dt
+  if job.timer > 0 then return end
+  local car = getCar()
+  if not car then trailerReport(false, false, 0, "no car"); trailerJob = nil; return end
+  local t = job.t
+  if job.stage == "wait" then
+    local ok, err = pcall(function()
+      local pos = vec3(car:getPosition())
+      local fwd = vec3(car:getDirectionVector()):normalized()
+      local rot = quat(car:getRotation())
+      job.fwd, job.rot = fwd, rot
+      -- put the trailer's front just behind the car's rear, so a short reverse couples it
+      local cc, ch = bbox(car)
+      local back = t.back or 7
+      if cc and ch then back = halfLength(ch) + 2.2; pos = cc end
+      local config = nil
+      if type(t.setup) == "table" then
+        if type(t.setup.parts) == "table" and next(t.setup.parts) then
+          config = { format = 2, parts = t.setup.parts, vars = t.setup.vars or {} }   -- exactly as built
+        elseif t.setup.loadSlot and t.setup.loadPart then
+          config = { format = 2, parts = { [t.setup.loadSlot] = t.setup.loadPart } }   -- (older saves) defaults + the load
+        elseif type(t.setup.config) == "table" then
+          config = t.setup.config
+        end
+        local ser = rawget(_G, "serialize")
+        if config and ser then config = ser(config) end   -- the same form BeamMP uses for vehicle configs
+      end
+      job.trailer = spawnProp(t.trailer, pos - fwd * back + vec3(0, 0, 0.3), rot, config)
+      pcall(function() be:enterVehicle(0, car) end)   -- stay in your own car
+    end)
+    if not ok or not job.trailer then trailerReport(false, false, 0, err or ("couldn't spawn " .. tostring(t.trailer))); trailerJob = nil; return end
+    if t.test then spawnedTest[#spawnedTest + 1] = job.trailer end
+    if type(t.setup) == "table" then
+      -- the load is part of the trailer: nothing to place, just couple and measure it once it settles
+      activeTrailer, activeLoad, cargoValue = job.trailer, t.setup.loadParts or {}, nil
+      couple(car, job.trailer)
+      job.stage, job.timer = "measure", 3
+      return
+    end
+    job.stage, job.timer = "cargo", 1.5          -- let the trailer settle before loading it
+  elseif job.stage == "cargo" then
+    local n, lastErr = 0, nil
+    local center, h = bbox(job.trailer)
+    local deck
+    if center and h then
+      -- the box includes the tongue at the front: nudge the load towards the rear, drop it from just above the box
+      deck = center - job.fwd * (halfLength(h) * 0.25) + vec3(0, 0, h.z + (t.height or 0.3))
+    else
+      deck = vec3(job.trailer:getPosition()) - job.fwd * 1.5 + vec3(0, 0, 1.4)
+    end
+    job.deck, job.cargo = deck, {}
+    local count = tonumber(t.count) or 5
+    for i = 1, count do
+      local along = (i - (count + 1) / 2) * (t.spacing or 0.7)
+      local ok, res = pcall(spawnProp, t.cargo, deck + job.fwd * along, job.rot)
+      if ok and res then
+        n = n + 1
+        job.cargo[#job.cargo + 1] = res
+        if t.test then spawnedTest[#spawnedTest + 1] = res end
+      else lastErr = res end
+    end
+    pcall(function() be:enterVehicle(0, car) end)
+    couple(car, job.trailer)   -- auto-couple: reversing onto the trailer latches it
+    if n == 0 then trailerReport(false, true, 0, lastErr or ("couldn't spawn " .. tostring(t.cargo))); trailerJob = nil; return end
+    job.stage, job.timer = "verify", 2.5   -- let the load settle, then count what stayed on the deck
+  elseif job.stage == "measure" then
+    measureCargo()
+    job.stage, job.timer = "measured", 0.5
+  elseif job.stage == "measured" then
+    local hasLoad = nil
+    pcall(function()
+      local want = {}
+      for _, n in ipairs(activeLoad or {}) do want[n] = true end
+      local vd = core_vehicle_manager.getVehicleData(job.trailer:getID())
+      local found = {}
+      if vd and type(vd.chosenParts) == "table" then for _, n in pairs(vd.chosenParts) do found[#found + 1] = n end
+      elseif vd and vd.config and type(vd.config.partsTree) == "table" then
+        local flat = {}
+        walkTree(vd.config.partsTree, flat, "/")
+        for _, n in pairs(flat) do found[#found + 1] = n end
+      end
+      if #found > 0 then
+        hasLoad = false
+        for _, n in ipairs(found) do if want[n] then hasLoad = true end end
+      end
+    end)
+    if TriggerServerEvent then
+      TriggerServerEvent("tg_trailer_report", jsonEncode({ ok = true, trailer = true, prebuilt = true, load = cargoValue, hasLoad = hasLoad }))
+    end
+    trailerJob = nil
+  elseif job.stage == "verify" then
+    local onDeck = 0
+    for _, c in ipairs(job.cargo or {}) do
+      local ok, cp = pcall(function() return vec3(c:getPosition()) end)
+      if ok and cp and (cp - job.deck):length() < 3 then onDeck = onDeck + 1 end
+    end
+    trailerReport(true, true, #(job.cargo or {}), nil, onDeck)
+    trailerJob = nil
+  end
+end
+
+local function onHitchUp()
+  local car = getCar()
+  if car then couple(car) end
+end
+
+onTrailerSave = function()
+  local r = {}
+  local ok, err = pcall(function()
+    local car = be:getPlayerVehicle(0)   -- the vehicle you're in right now: your built trailer
+    if not car then error("you're not in a vehicle - switch into the trailer first") end
+    r.model = car:getJBeamFilename()
+    local parts, fmt = readParts(car)
+    if not fmt then error("couldn't read the trailer's parts on this BeamNG version") end
+    r.format, r.loadParts, r.slots, r.parts, r.vars = fmt, {}, {}, {}, {}
+    local conf = core_vehicle_partmgmt.getConfig()
+    for k, val in pairs((type(conf) == "table" and conf.vars) or {}) do
+      if type(k) == "string" and type(val) == "number" then r.vars[k] = val end
+    end
+    for slot, name in pairs(parts) do
+      local slotName = tostring(slot):match("([^/]+)/?$") or tostring(slot)
+      if type(name) == "string" then r.parts[slotName] = name end   -- "" keeps a slot empty (e.g. no straps)
+      if #r.slots < 40 then r.slots[#r.slots + 1] = slotName .. "=" .. tostring(name) end
+      local sl = slotName:lower()
+      if type(name) == "string" and name ~= "" and (sl:find("load") or sl:find("cargo")) then
+        r.loadParts[#r.loadParts + 1] = name
+        if not r.loadSlot then r.loadSlot, r.loadPart = slotName, name end
+      end
+    end
+    table.sort(r.loadParts)
+    table.sort(r.slots)
+  end)
+  if not ok then r = { err = sanitize(err) } end
+  local okJ, payload = pcall(jsonEncode, r)
+  if not okJ then payload = jsonEncode({ err = "couldn't package the trailer: " .. sanitize(payload) }) end
+  if TriggerServerEvent then TriggerServerEvent("tg_trailersave_reply", payload) end
+end
+
+local function onLightsTest() lights.test = lights.clock end
+local function onLightsPin() lights.pinned = not lights.pinned end
+local function onTheme()
+  ui.noTheme = not ui.noTheme
+  addLog("Colour theme " .. (ui.noTheme and "off." or "on."))
+end
+
+local function onTrailerClear()
+  for _, v in ipairs(spawnedTest) do pcall(function() v:delete() end) end
+  spawnedTest = {}
+  activeTrailer, activeLoad, cargoValue = nil, nil, nil
+end
+
+-- In-game window (BeamNG's built-in ImGui) ---------------------------------------
+-- Every button sends the same text as a chat command over a private channel; the
+-- server applies the same permission checks as chat.
+local okffi, ffi = pcall(require, "ffi")
+local im = nil
+local bufs = {}
+
+local function addLog(msg)
+  ui.log[#ui.log + 1] = tostring(msg)
+  if #ui.log > 30 then table.remove(ui.log, 1) end
+end
+
+local function sendCmd(cmd)
+  if TriggerServerEvent then TriggerServerEvent("tg_ui_cmd", cmd) end
+  ui.reqTimer = 2
+end
+local function requestUi() if TriggerServerEvent then TriggerServerEvent("tg_ui_req", "") end end
+
+local function intPtr(key, serverValue, default)
+  local b = bufs[key]
+  if not b then b = { ptr = im.IntPtr(math.floor(serverValue or default or 0)) }; bufs[key] = b end
+  if serverValue ~= nil and b.seen ~= serverValue then b.ptr[0] = math.floor(serverValue); b.seen = serverValue end
+  return b.ptr
+end
+local function textBuf(key)
+  if not bufs[key] then bufs[key] = im.ArrayChar(64, "") end
+  return bufs[key]
+end
+local function textOf(buf) if okffi then return ffi.string(buf) end return "" end
+
+local function txt(s)
+  s = tostring(s)
+  if im.TextUnformatted then im.TextUnformatted(s) else im.Text((s:gsub("%%", "%%%%"))) end
+end
+local function colored(r, g, b, s)
+  if im.TextColored and im.ImVec4 then im.TextColored(im.ImVec4(r, g, b, 1), (tostring(s):gsub("%%", "%%%%"))) else txt(s) end
+end
+local function header(label)
+  local f = im.CollapsingHeader1 or im.CollapsingHeader
+  return f(label)
+end
+local function button(label, cmd)
+  if im.Button(label) then sendCmd(cmd); return true end
+  return false
+end
+local function confirmButton(label, id, cmd)  -- click twice within 3 s
+  local armed = ui.confirm[id] and (ui.t - ui.confirm[id]) < 3
+  if im.Button((armed and ("Really? " .. label) or label) .. "##" .. id) then
+    if armed then ui.confirm[id] = nil; sendCmd(cmd) else ui.confirm[id] = ui.t end
+  end
+end
+local function same() im.SameLine() end
+
+local function buyCar(model, config)
+  ui.busy, ui.reqTimer = ui.t, 0.5
+  local ok, err = pcall(function()
+    local opts = {}
+    if config then opts.config = "vehicles/" .. model .. "/" .. config .. ".pc" end
+    core_vehicles.spawnNewVehicle(model, opts)
+  end)
+  if not ok then warn("buy failed: " .. tostring(err)); addLog("Couldn't spawn that - pick it from the vehicle menu instead.") end
+end
+
+local function returnCar()
+  local car = getCar()
+  if not car then return end
+  ui.busy, ui.reqTimer = ui.t, 0.5
+  local ok = pcall(function() car:delete() end)
+  if not ok then pcall(function() core_vehicles.removeCurrent() end) end
+end
+
+-- Colour theme (Top Gear-inspired: deep blue-green backdrop, electric-blue accents, sky-grey panels).
+-- Buttons = solid electric blue (click me). Editable fields = grey inset with a blue outline (type here).
+local THEME = {
+  WindowBg = { 0.07, 0.13, 0.14, 0.97 }, ChildBg = { 0.09, 0.16, 0.17, 1 }, PopupBg = { 0.09, 0.16, 0.17, 0.98 },
+  TitleBg = { 0.10, 0.18, 0.20, 1 }, TitleBgActive = { 0.14, 0.28, 0.55, 1 }, TitleBgCollapsed = { 0.10, 0.18, 0.20, 1 },
+  Text = { 0.95, 0.96, 0.97, 1 }, TextDisabled = { 0.55, 0.62, 0.64, 1 },
+  Border = { 0.40, 0.56, 0.95, 0.60 }, Separator = { 0.40, 0.56, 0.95, 0.40 },
+  Button = { 0.16, 0.36, 0.86, 1 }, ButtonHovered = { 0.32, 0.52, 1.00, 1 }, ButtonActive = { 0.10, 0.24, 0.62, 1 },
+  FrameBg = { 0.24, 0.30, 0.32, 1 }, FrameBgHovered = { 0.30, 0.37, 0.40, 1 }, FrameBgActive = { 0.34, 0.42, 0.46, 1 },
+  Header = { 0.13, 0.23, 0.25, 1 }, HeaderHovered = { 0.19, 0.32, 0.35, 1 }, HeaderActive = { 0.23, 0.38, 0.42, 1 },
+  Tab = { 0.11, 0.20, 0.22, 1 }, TabHovered = { 0.32, 0.52, 1.00, 1 }, TabActive = { 0.16, 0.36, 0.86, 1 },
+  CheckMark = { 0.56, 0.72, 1.00, 1 }, SliderGrab = { 0.56, 0.72, 1.00, 1 },
+}
+local THEME_VARS = { FrameRounding = 4, FrameBorderSize = 1, WindowRounding = 6, TabRounding = 4, GrabRounding = 4 }
+local ACCENT = { 0.56, 0.72, 1.00 }   -- headings
+
+local function imGet(name)   -- read an ImGui constant/function without tripping over ones this version lacks
+  local ok, v = pcall(function() return im[name] end)
+  return ok and v or nil
+end
+local function pushColors(tbl, rec)   -- rec.c counts pushes as they happen
+  local push = imGet("PushStyleColor2") or imGet("PushStyleColor")
+  if not push then return end
+  for name, c in pairs(tbl) do
+    local idx = imGet("Col_" .. name)
+    if idx ~= nil then
+      local okV, col = pcall(im.ImVec4, c[1], c[2], c[3], c[4])
+      if okV and pcall(push, idx, col) then rec.c = rec.c + 1 end
+    end
+  end
+end
+local function popColors(rec) if rec.c > 0 then pcall(im.PopStyleColor, rec.c); rec.c = 0 end end
+local function pushTheme(rec)
+  pushColors(THEME, rec)
+  local pv = imGet("PushStyleVar1") or imGet("PushStyleVar")
+  if pv then
+    for name, val in pairs(THEME_VARS) do
+      local idx = imGet("StyleVar_" .. name)
+      if idx ~= nil and pcall(pv, idx, val) then rec.v = rec.v + 1 end
+    end
+  end
+end
+local function popTheme(rec)
+  popColors(rec)
+  if rec.v > 0 then pcall(im.PopStyleVar, rec.v); rec.v = 0 end
+end
+local function heading(t) colored(ACCENT[1], ACCENT[2], ACCENT[3], t) end
+
+-- Standings: a light sky-grey table with dark text so it stands out from the dark window
+local function drawStandings(d)
+  local rows = d.standings or {}
+  if #rows == 0 then return end
+  im.Separator()
+  heading("STANDINGS")
+  local drawn = false
+  local rec = { c = 0 }
+  if not ui.noTheme then pcall(pushColors, { TableRowBg = { 0.90, 0.93, 0.95, 1 }, TableRowBgAlt = { 0.80, 0.86, 0.90, 1 },
+                          TableHeaderBg = { 0.56, 0.72, 1.00, 1 }, TableBorderStrong = { 0.16, 0.36, 0.86, 1 },
+                          TableBorderLight = { 0.60, 0.68, 0.74, 1 }, Text = { 0.05, 0.09, 0.11, 1 } }, rec) end
+  pcall(function()
+    local flags = 0
+    for _, f in ipairs({ "TableFlags_RowBg", "TableFlags_Borders" }) do flags = flags + (tonumber(imGet(f)) or 0) end
+    if imGet("BeginTable") and im.BeginTable("##standings", 5, flags) then
+      local ok = pcall(function()
+        for _, c in ipairs({ "#", "Driver", "Points", "Wins", "Cash" }) do im.TableSetupColumn(c) end
+        im.TableHeadersRow()
+        for i, r in ipairs(rows) do
+          im.TableNextRow()
+          im.TableNextColumn(); txt(ordinal(i))
+          im.TableNextColumn(); txt(r.name .. (r.online and "" or " (offline)"))
+          im.TableNextColumn(); txt(string.format("%.1f", r.points or 0))
+          im.TableNextColumn(); txt(tostring(r.wins or 0))
+          im.TableNextColumn(); txt(commas(r.cash))
+        end
+      end)
+      im.EndTable()
+      drawn = ok
+    end
+  end)
+  popColors(rec)
+  if not drawn then   -- builds without tables: bright lines instead
+    for i, r in ipairs(rows) do
+      colored(0.85, 0.92, 1.0, string.format("%s  %s - %.1f pts, %d win%s, %s%s", ordinal(i), r.name, r.points or 0, r.wins or 0,
+        (r.wins == 1) and "" or "s", commas(r.cash), r.online and "" or " (offline)"))
+    end
+  end
+end
+
+local function drawDriverButtons(d, me)
+  local ph = d.phase
+  im.Separator()
+  heading("YOUR CAR")
+  button(((me.repair or 0) > 0 and ("Repair (" .. commas(me.repair) .. ")") or "Repair") .. "##drv_repair", "repair"); same()
+  confirmButton("Tow (" .. commas(d.towFee or 2000) .. ")", "drv_tow", "tow"); same()
+  button("Unstick (free)##drv_unstick", "unstick"); same()
+  local rl
+  if ph == "dealer" or ph == "idle" or ph == "results" then rl = "Respawn (free)"
+  elseif ph == "workshop" then rl = "Respawn (repair price)"
+  else rl = "Respawn (" .. commas(d.respawnFee or 2000) .. ")" end
+  confirmButton(rl, "drv_respawn", "respawn")
+  if state.eventType == "trailer" and (ph == "travel" or ph == "countdown" or ph == "event") then
+    button("Hitch up (couple the trailer)##hitchup", "hitchup"); same()
+    txt("Reverse so your hitch meets the trailer's coupler. No hitch? Fit one in a workshop (parts menu).")
+  end
+  local notes = {}
+  if ph ~= "workshop" then notes[#notes + 1] = "Repair: workshops only" end
+  if not me.canTow then notes[#notes + 1] = "Tow: during legs and events" end
+  if ph ~= "dealer" and ph ~= "workshop" and ph ~= "results" and ph ~= "idle" then
+    notes[#notes + 1] = "Tow/Respawn mid-run = DSQ"
+  end
+  notes[#notes + 1] = "Tow and Respawn need two clicks"
+  if (me.tows or 0) + (me.respawns or 0) > 0 then
+    notes[#notes + 1] = string.format("So far: %d tow%s, %d respawn%s", me.tows or 0, me.tows == 1 and "" or "s",
+      me.respawns or 0, me.respawns == 1 and "" or "s")
+  end
+  colored(0.65, 0.65, 0.65, table.concat(notes, "  |  "))
+end
+
+local function drawLightsButton()
+  button("Position the start lights##lightspin", "lights"); same(); button("Test them##lightstest", "lightstest")
+end
+
+local function drawAdminControls(d)
+  if not d.admin then return end
+  im.Separator()
+  if header("Admin controls##statusadmin") then
+    button("Start", "start"); same(); button("Start (unfinished course)", "start force"); same()
+    button("Next phase", "next"); same(); confirmButton("Stop", "stop", "stop")
+    colored(0.65, 0.65, 0.65, "Next phase: closes the dealership, forces a start, ends a run or event, or closes a workshop.")
+  end
+end
+
+local function drawStatus(d)
+  txt(state.title or "")
+  local me = d.me
+  if not me then
+    txt("You're not in this challenge.")
+    if d.phase == "dealer" then button("Join the challenge", "join") end
+  else
+    txt("Car: " .. tostring(me.car or "none yet"))
+    local mine = {}
+    for _, f in ipairs((d.faults or {}).offers or {}) do if f.taken then mine[#mine + 1] = f.name end end
+    if #mine > 0 then colored(1, 0.8, 0.3, "Faults: " .. table.concat(mine, ", ")) end
+    txt(string.format("Cash: %s    Points: %.1f    Wins: %d    Damage: %d", commas(me.cash), me.points or 0, me.wins or 0, me.damage or 0))
+    if (me.cash or 0) < 0 then
+      colored(1, 0.4, 0.4, string.format("Overdrawn: %s of your %s limit used - prize money pays it off.", commas(-me.cash), commas(me.creditLimit or 1500)))
+    end
+    im.Separator()
+    if d.phase == "dealer" and me.hasCar then
+      colored(0.6, 0.8, 1, "Workshop mode: fit upgrades and paint from the parts menu now (upgrades charged, paint free).")
+    elseif d.phase == "workshop" and (d.workshopSpots or 0) > 0 then
+      if me.inShop then colored(0.4, 1, 0.4, "You're at a workshop - repairs, parts and paint are open.")
+      else colored(1, 0.8, 0.3, "Drive to a workshop (follow the arrows) - repairs, parts and paint open when you get there.") end
+    end
+    if d.phase == "dealer" then
+      if not me.hasCar then txt("Pick a car in the Dealership tab.")
+      elseif me.ready then colored(0.4, 1, 0.4, "Ready - waiting for the others.")
+      else button("I'm happy with my car - Ready!", "ready") end
+    elseif d.phase == "travel" then
+      if not me.arrived then txt("Drive to the start - follow the arrows.")
+      elseif d.allHere then button("GO! Start the countdown", "go")
+      else txt("Waiting for everyone to arrive...") end
+    elseif d.phase == "workshop" then
+      for _, f in ipairs((d.faults or {}).offers or {}) do
+        if f.taken then button("Fix: " .. f.name .. " (" .. commas(f.fix) .. ")##fix_" .. f.id, "fix " .. f.id) end
+      end
+      txt("Spent in this workshop: " .. commas(me.upgrade or 0) .. " (parts charged as fitted; paint, cosmetics and tuning free)")
+    end
+    drawDriverButtons(d, me)
+  end
+  drawAdminControls(d)
+  im.Separator()
+  drawLightsButton()
+  drawStandings(d)
+end
+
+local function drawDealer(d)
+  local me = d.me
+  txt("Budget " .. commas(d.budget) .. (me and ("    You have " .. commas(me.cash)) or ""))
+  if d.phase ~= "dealer" then colored(1, 0.7, 0.3, "The dealership is closed.") end
+  local busy = ui.busy and (ui.t - ui.busy) < 5
+  local canBuy = d.phase == "dealer" and me and not me.hasCar and not busy
+  if busy then colored(1, 0.85, 0.3, "Talking to the dealer...") end
+  if d.phase == "dealer" and me and me.hasCar and not busy then
+    txt("You own the " .. tostring(me.car) .. ".")
+    same()
+    if im.Button("Return it for a full refund") then returnCar() end
+  end
+  local fl = d.faults
+  if fl and me and header("Problem cars - take a fault for extra cash (" .. (fl.count or 0) .. "/" .. (fl.max or 3) .. ")##faults") then
+    if d.phase ~= "dealer" then txt("Offers are only open at the dealership.") end
+    for _, f in ipairs(fl.offers or {}) do
+      if d.phase == "dealer" then
+        if f.taken then button("Hand back##fu_" .. f.id, "fault undo " .. f.id)
+        elseif (fl.count or 0) < (fl.max or 3) then button("Take##ft_" .. f.id, "fault take " .. f.id)
+        else txt("      ") end
+        same()
+      end
+      local line = string.format("%s%s  +%s  (workshop fix %s)", f.taken and "[TAKEN] " or "", f.name, commas(f.payout), commas(f.fix))
+      if f.taken then colored(1, 0.8, 0.3, line) else txt(line) end
+    end
+    im.Separator()
+  end
+  if #(d.dealer or {}) == 0 then txt("Nothing fits the budget.") end
+  for _, m in ipairs(d.dealer or {}) do
+    if header(m.name .. " (" .. #m.trims .. ")##" .. m.model) then
+      for _, t in ipairs(m.trims) do
+        if canBuy then
+          if im.Button("Buy##" .. m.model .. "_" .. tostring(t.config)) then buyCar(m.model, t.config) end
+          same()
+        end
+        if me and t.price > (me.cash or 0) then colored(1, 0.45, 0.45, commas(t.price) .. "  " .. t.name)
+        else txt(commas(t.price) .. "  " .. t.name) end
+      end
+    end
+  end
+end
+
+local function trim(str) return (tostring(str or ""):gsub("^%s+", ""):gsub("%s+$", "")) end
+
+local function drawLibrary(c)
+  if c.active then
+    txt("Loaded course: " .. c.active)
+    if c.dirty then same(); colored(1, 0.8, 0.3, "(unsaved changes)") end
+  else
+    colored(1, 0.8, 0.3, "This course has no name yet - type one and press Save as.")
+  end
+  local lib = c.library or {}
+  local known = false
+  for _, e in ipairs(lib) do if e.name == ui.courseSel then known = true end end
+  if not known then ui.courseSel = nil end
+
+  local function entryLabel(e)
+    return e.name .. "  -  " .. ((e.problems or 0) == 0 and "complete" or (tostring(e.problems) .. " to set")) ..
+      (e.savedAt and ("  (" .. e.savedAt .. ")") or "")
+  end
+  if #lib == 0 then
+    txt("No saved courses yet.")
+  elseif im.BeginCombo then
+    local preview = ui.courseSel or "Pick a saved course..."
+    if im.BeginCombo("##courselib", preview) then
+      local ok, err = pcall(function()
+        local selectable = im.Selectable1 or im.Selectable
+        for _, e in ipairs(lib) do
+          if selectable(entryLabel(e) .. "##lib_" .. e.name, ui.courseSel == e.name) then ui.courseSel = e.name end
+        end
+      end)
+      im.EndCombo()   -- always closed, even if an entry failed
+      if not ok then error(err) end
+    end
+  else
+    for _, e in ipairs(lib) do  -- fallback for builds without dropdowns
+      if im.Button(((ui.courseSel == e.name) and "> " or "") .. entryLabel(e) .. "##libb_" .. e.name) then ui.courseSel = e.name end
+    end
+  end
+  if ui.courseSel then
+    same(); button("Load##libload", "course load " .. ui.courseSel)
+    same(); confirmButton("Delete", "libdel", "course delete " .. ui.courseSel)
+  end
+
+  local nb = textBuf("coursename")
+  im.InputText("##coursename", nb)
+  same()
+  if im.Button("Save as##libsaveas") then
+    local nm = trim(textOf(nb))
+    if nm ~= "" then sendCmd("course save " .. nm) else addLog("Type a name for the course first.") end
+  end
+  if c.active then same(); button("Save##libsave", "course save " .. c.active) end
+  same()
+  if im.Button("New course##libnew") then sendCmd("course new " .. trim(textOf(nb))) end
+  im.Separator()
+end
+
+local function drawAdmin(d)
+  colored(0.65, 0.65, 0.65, "Start / Next / Stop are in the Status tab's Admin controls.")
+  if header("Money & timers##money") then
+    local b = intPtr("budget", d.baseBudget or d.budget)
+    im.InputInt("Budget##b", b); same(); button("Set##budget", "budget " .. b[0])
+    local w = intPtr("ws", d.workshopMinutes)
+    im.InputInt("Workshop minutes##w", w); same(); button("Set##ws", "workshop " .. w[0])
+    local we = intPtr("wsevery", d.workshopEvery)
+    im.InputInt("Workshop every N events##we", we); same(); button("Set##wsevery", "workshopevery " .. we[0])
+    txt("Game prices: " .. (d.gamePrices and "ON" or "OFF")); same()
+    button((d.gamePrices and "Turn off" or "Turn on") .. "##gp", d.gamePrices and "gameprices off" or "gameprices on"); same()
+    button("Import game prices", "importprices")
+    if #(d.standings or {}) > 0 then
+      im.Separator()
+      txt("Players (click one):")
+      for _, s in ipairs(d.standings) do
+        if im.Button(s.name .. "##pl_" .. s.name) then ui.player = s.name end
+        same(); txt(commas(s.cash))
+      end
+      if ui.player then
+        local a = intPtr("amount", nil, 1000)
+        im.InputInt("Amount##amt", a)
+        button("Set " .. ui.player .. "'s cash##sc", "setcash " .. ui.player .. " " .. a[0]); same()
+        button("Give##gv", "give " .. ui.player .. " " .. a[0])
+      end
+    end
+  end
+  if d.faults and header("Problem-car fault test##ftest") then
+    txt("Applies faults to the car you're in right now (no money involved) and reports what worked.")
+    button("Test all faults on my car", "fault test"); same(); button("Remove test faults", "fault testoff")
+    for _, f in ipairs(d.faults.offers or {}) do
+      button("Test: " .. f.name .. "##ft1_" .. f.id, "fault test " .. f.id)
+    end
+  end
+  local c = d.course
+  if c and header("Workshop locations##wsloc") then
+    if (c.workshops or 0) == 0 then txt("No workshop locations: workshops work anywhere on the map.")
+    else txt(string.format("%d workshop location%s: players drive to the nearest one when a workshop opens.",
+      c.workshops, c.workshops == 1 and "" or "s")) end
+    button("Import gas stations", "importgas"); same(); button("Add workshop here", "addworkshop"); same()
+    button("Undo workshop", "undoworkshop"); same(); confirmButton("Clear workshops", "clrws", "clearworkshops")
+    colored(0.65, 0.65, 0.65, "Saved with the course - remember Save in the course library.")
+  end
+  if c and header("Session - pick and order the events##session") then
+    local on = 0
+    for _, e in ipairs(c.events) do if e.enabled then on = on + 1 end end
+    local every = c.workshopEvery or 2
+    txt(string.format("%d event%s switched on. They run top to bottom; %s.", on, on == 1 and "" or "s",
+      every > 0 and ("a workshop after every " .. every .. " events (not after the last)") or "no workshops"))
+    if not c.idle then colored(1, 0.8, 0.3, "Locked while a challenge is running.") end
+    local pos = 0
+    for i, e in ipairs(c.events) do
+      if c.idle then
+        button((e.enabled and "Turn off" or "Turn on") .. "##en" .. i, "enable " .. i .. (e.enabled and " off" or " on")); same()
+        if i > 1 then button("Up##up" .. i, "moveevent " .. i .. " up") else txt("  ") end; same()
+        if i < #c.events then button("Down##dn" .. i, "moveevent " .. i .. " down") else txt("    ") end; same()
+        confirmButton("Remove", "rm" .. i, "delevent " .. i); same()
+      end
+      if e.enabled then pos = pos + 1 end
+      local line = string.format("%s%s  (%s%s)", e.enabled and (pos .. ". ") or "off  ", e.name, e.typeLabel or e.type,
+        e.solo and ", one at a time" or "")
+      if e.enabled then colored(0.5, 1, 0.5, line) else txt(line) end
+    end
+    im.Separator()
+    txt("Add a new event to the course:")
+    for i, t in ipairs(c.types or {}) do
+      button(t.label .. "##add_" .. t.id, "addevent " .. t.id)
+      if i % 4 ~= 0 then same() end
+    end
+    txt("")
+  end
+  if c and header("Course builder##course") then
+    drawLibrary(c)
+    txt("Drive to the spot, then press a button - positions come from your car.")
+    if ui.sel ~= "finale" and not c.events[ui.sel] then ui.sel = 1 end
+    for _, e in ipairs(c.events) do
+      if im.Button(((ui.sel == e.n) and "> " or "") .. e.n .. "##ev" .. e.n) then ui.sel = e.n end
+      same()
+      local detail
+      if e.type == "speedtrap" then detail = "trap:" .. (e.trap and "yes" or "NO")
+      elseif e.type == "parking" then detail = "bays:" .. (e.bays or 0)
+      elseif e.type == "slalom" then detail = "gates:" .. e.cps
+      elseif e.type == "circuit" then detail = string.format("checkpoints:%d  laps:%d", e.cps, e.laps or 3)
+      else detail = "checkpoints:" .. e.cps end
+      local line = string.format("%s%s [%s]  start:%s  %s  route:%d", e.enabled and "" or "(off) ", e.name,
+        e.typeLabel or e.type, e.start and "yes" or "NO", detail, e.via)
+      if e.enabled then txt(line) else colored(0.6, 0.6, 0.6, line) end
+    end
+    if im.Button(((ui.sel == "finale") and "> " or "") .. "F##evf") then ui.sel = "finale" end
+    same()
+    txt(string.format("%s  finish:%s  route:%d", c.finale.name, c.finale.pos and "yes" or "NO", c.finale.via))
+    im.Separator()
+    local target = tostring(ui.sel)
+    if ui.sel == "finale" then
+      button("Set finish here", "setfinale"); same()
+      button("Add route waypoint", "addvia finale"); same(); button("Undo route waypoint", "undovia finale"); same()
+      button("Clear route", "clearvia finale")
+    else
+      local e = c.events[ui.sel]
+      button("Set start here", "setstart " .. target); same()
+      if e.type == "speedtrap" then button("Set speed trap here", "settrap " .. target)
+      elseif e.type == "parking" then
+        button("Add bay here", "addbay " .. target); same(); button("Undo bay", "undobay " .. target); same()
+        button("Clear bays", "clearbays " .. target)
+        txt("Park in each spot facing the way the bay should face. Bays are parked in the order you add them.")
+      else
+        local what = (e.type == "slalom") and "gate" or "checkpoint"
+        button("Add " .. what, "addcp " .. target); same(); button("Undo " .. what, "undocp " .. target); same()
+        button("Clear " .. what .. "s", "clearcp " .. target)
+        if e.type == "slalom" then txt("Gates in order - the last one is the finish.")
+        elseif e.type == "circuit" then
+          txt("Checkpoints round the lap, in order. The start point is the start/finish line - each lap ends by crossing it.")
+          local lp = intPtr("laps" .. target, e.laps or 3)
+          im.InputInt("Laps##laps", lp); same(); button("Set laps##setlaps", "setlaps " .. target .. " " .. lp[0])
+        else txt("Checkpoints in order - the last one is the finish.") end
+      end
+      button("Add route waypoint", "addvia " .. target); same(); button("Undo route waypoint", "undovia " .. target); same()
+      button("Clear route", "clearvia " .. target)
+      local tl = intPtr("time" .. target, e.timeLimit or 600)
+      im.InputInt("Time limit (s)##tl", tl); same(); button("Set time##settime", "settime " .. target .. " " .. tl[0])
+      if e.solo then same(); txt("(per run)") end
+      txt("Event type:")
+      for i, t in ipairs(c.types or {}) do
+        local label = (t.id == e.type and "> " or "") .. t.label .. "##ty_" .. t.id
+        button(label, "settype " .. target .. " " .. t.id)
+        if i % 4 ~= 0 then same() end
+      end
+      txt("")
+      if c.idle then confirmButton("Delete this event", "delev", "delevent " .. target) end
+      if e.type == "trailer" then same(); button("Test trailer spawn##tt", "trailertest"); same(); button("Remove test trailer##tto", "trailertest off") end
+    end
+    local nb = textBuf("rename")
+    im.InputText("##rename", nb); same()
+    if im.Button("Rename") then
+      local nm = textOf(nb)
+      if nm ~= "" then sendCmd("rename " .. target .. " " .. nm) end
+    end
+    im.Separator()
+    if c.problems == 0 then colored(0.4, 1, 0.4, "Course complete.") else txt(c.problems .. " thing(s) still to set.") end
+    if c.active then button("Save course##bottomsave", "course save " .. c.active); same() end
+    if c.active and c.dirty then
+      local saved = false
+      for _, e in ipairs(c.library or {}) do if e.name == c.active then saved = true end end
+      if saved then button("Revert to saved##revert", "course load " .. c.active); same() end
+    end
+    confirmButton("Clear this one", "clr1", "clearcourse " .. target); same()
+    confirmButton("Clear ALL", "clrall", "clearcourse all")
+  end
+end
+
+ordinal = function(n)
+  n = math.floor(n or 0)
+  local suf = ({ "st", "nd", "rd" })[n % 10]
+  if not suf or (n % 100 >= 11 and n % 100 <= 13) then suf = "th" end
+  return n .. suf
+end
+
+local function tableFlags()
+  local f = 0
+  for _, name in ipairs({ "TableFlags_Borders", "TableFlags_RowBg", "TableFlags_SizingFixedFit" }) do
+    f = f + (tonumber(im[name]) or 0)   -- distinct flag bits, so + is the same as OR
+  end
+  return f
+end
+
+local function drawResults(d)
+  local s = d.summary
+  local rows = s.rows or {}
+  local win = rows[1]
+  if win then
+    colored(1, 0.85, 0.2, string.format("WINNER: %s in the %s - %.1f points", win.name, win.car, win.points or 0))
+  end
+  im.Separator()
+
+  -- build every cell as text first, so the table itself only draws
+  local cols = { "#", "Driver", "Car" }
+  for _, name in ipairs(s.events or {}) do cols[#cols + 1] = name end
+  for _, c in ipairs({ "Faults", "Repairs", "Upgrades", "Tows", "Resets", "Drivability", "Points", "Cash left" }) do cols[#cols + 1] = c end
+  local cells = {}
+  for _, r in ipairs(rows) do
+    local row = { ordinal(r.place), r.name, string.format("%s (%s)", r.car, commas(r.carPrice)) }
+    for i = 1, #(s.events or {}) do row[#row + 1] = (r.places or {})[i] or "-" end
+    if (r.faultsTaken or 0) > 0 then
+      row[#row + 1] = string.format("%d taken (+%s), %d fixed (-%s)", r.faultsTaken, commas(r.faultCash), r.faultsFixed or 0, commas(r.faultFixes))
+    else row[#row + 1] = "none" end
+    row[#row + 1] = commas(r.repairs)
+    row[#row + 1] = commas(r.upgrades)
+    local nt, nr = r.tows or 0, r.respawns or 0
+    if nt + nr == 0 then row[#row + 1] = "0"
+    elseif nr == 0 then row[#row + 1] = string.format("%d (%s)", nt, commas(r.towCost))
+    else row[#row + 1] = string.format("%d + %d respawn%s (%s)", nt, nr, nr == 1 and "" or "s", commas(r.towCost)) end
+    row[#row + 1] = (r.resets or 0) > 0 and string.format("%d (%s)", r.resets, commas(r.fines)) or "0"
+    row[#row + 1] = string.format("%.1f", r.drivability or 0)
+    row[#row + 1] = string.format("%.1f", r.points or 0)
+    row[#row + 1] = commas(r.cash)
+    cells[#cells + 1] = row
+  end
+
+  if im.BeginTable and im.BeginTable("##tgsummary", #cols, tableFlags()) then
+    local ok, err = pcall(function()
+      for _, c in ipairs(cols) do im.TableSetupColumn(c) end
+      im.TableHeadersRow()
+      for _, row in ipairs(cells) do
+        im.TableNextRow()
+        for _, cell in ipairs(row) do im.TableNextColumn(); txt(cell) end
+      end
+    end)
+    im.EndTable()   -- always closed, even if a cell failed
+    if not ok then error(err) end
+  else
+    for _, row in ipairs(cells) do  -- fallback for builds without tables
+      txt(row[1] .. "  " .. row[2] .. " - " .. row[3])
+      local ev = {}
+      for i, name in ipairs(s.events or {}) do ev[#ev + 1] = name .. ": " .. row[3 + i] end
+      txt("    " .. table.concat(ev, " | "))
+      local n = #row
+      txt(string.format("    Faults %s | Repairs %s | Upgrades %s | Tows %s | Resets %s | Drivability %s | Points %s | Cash %s",
+        row[n - 7], row[n - 6], row[n - 5], row[n - 4], row[n - 3], row[n - 2], row[n - 1], row[n]))
+    end
+  end
+
+  im.Separator()
+  txt("How the points add up:")
+  for _, r in ipairs(rows) do
+    txt(string.format("  %s: %g from events + %.1f drivability%s = %.1f   (%d win%s)", r.name, r.eventPoints or 0,
+      r.drivability or 0, (r.penalty or 0) > 0 and string.format(" - %g illegal-reset penalty", r.penalty) or "",
+      r.points or 0, r.wins or 0, r.wins == 1 and "" or "s"))
+  end
+end
+
+local function section(name, fn, d)  -- a broken section shows an error instead of breaking the window
+  local ok, err = pcall(fn, d)
+  if not ok and not ui.noTheme then
+    ui.noTheme = true   -- first suspect: the colour theme. Redraw plain next frame and report.
+    warn(name .. " error with the colour theme - theme switched off: " .. tostring(err))
+    addLog("The colour theme didn't work on this BeamNG version and was switched off (/tg theme to retry).")
+    txt("(redrawing without the colour theme...)")
+    return
+  end
+  if not ok then
+    txt("(" .. name .. " couldn't be drawn - see log)")
+    if not ui.failed[name] then ui.failed[name] = true; warn(name .. " UI error: " .. tostring(err)) end
+  end
+end
+
+local function drawWindow(dt)
+  ui.t = ui.t + dt
+  ui.reqTimer = ui.reqTimer - dt
+  if ui.reqTimer <= 0 then ui.reqTimer = 2; requestUi() end
+  if not ui.openPtr then ui.openPtr = im.BoolPtr(true) end
+  ui.openPtr[0] = true
+  local ALWAYS, FIRST = im.Cond_Always or 1, im.Cond_FirstUseEver or 4
+  if ui.layout == "reset" and im.SetNextWindowPos then im.SetNextWindowPos(im.ImVec2(80, 80), ALWAYS) end
+  if ui.layout == "results" and im.SetNextWindowSize then im.SetNextWindowSize(im.ImVec2(1100, 520), ALWAYS)
+  elseif im.SetNextWindowSize then im.SetNextWindowSize(im.ImVec2(560, 600), ui.layout == "reset" and ALWAYS or FIRST) end
+  if ui.layout and im.SetNextWindowCollapsed then im.SetNextWindowCollapsed(false, ALWAYS) end  -- never reopen collapsed
+  if im.SetNextWindowSizeConstraints then im.SetNextWindowSizeConstraints(im.ImVec2(420, 320), im.ImVec2(4000, 4000)) end
+  ui.layout = nil
+  if im.Begin("Top Gear Challenge##tg", ui.openPtr) then
+    local d = ui.data
+    if not d then txt("Loading...")
+    else
+      if im.BeginTabBar("##tgtabs") then
+        if d.summary then
+          local open
+          if ui.selectResults and im.TabItemFlags_SetSelected then
+            open = im.BeginTabItem("Results", nil, im.TabItemFlags_SetSelected)
+          else
+            open = im.BeginTabItem("Results")
+          end
+          if open then ui.selectResults = false; section("Results", drawResults, d); im.EndTabItem() end
+        end
+        if im.BeginTabItem("Status") then section("Status", drawStatus, d); im.EndTabItem() end
+        if im.BeginTabItem("Dealership") then section("Dealership", drawDealer, d); im.EndTabItem() end
+        if d.admin and im.BeginTabItem("Admin") then section("Admin", drawAdmin, d); im.EndTabItem() end
+        im.EndTabBar()
+      end
+      im.Separator()
+      for i = math.max(1, #ui.log - 5), #ui.log do txt(ui.log[i]) end
+    end
+  end
+  im.End()
+  if not ui.openPtr[0] then ui.open = false end
+end
+
+-- F1-style starting lights: five reds come on one per second, then all go out for GO
+local function drawLights(dt)
+  lights.clock = lights.clock + dt
+  local L = (state.phase ~= "idle") and state.lights or nil
+  local left = L and ((tonumber(L.left) or 0) - stateAge) or nil
+  if not L and lights.pinned then   -- /tg lights: keep the box up (all dark) so it can be moved
+    L, left = { total = 5, who = "Drag me" }, 99
+  end
+  if not L and lights.test then   -- /tg lightstest: a 5-second sequence with no race
+    L = { total = 5, who = "Test" }
+    left = 5 - (lights.clock - lights.test)
+    if left <= 0 then lights.test = nil end
+  end
+  local lit = 0
+  if L and L.who == "Drag me" then
+    lit = 0
+  elseif left and left > 0 then
+    local total = math.max(1, tonumber(L.total) or 5)
+    lit = math.min(5, math.max(0, 5 - math.ceil(left * 5 / total) + 1))
+    lights.wasOn, lights.who, lights.goUntil = true, L.who, nil
+  elseif lights.wasOn then
+    lights.wasOn, lights.goUntil = false, lights.clock + 1.5
+  end
+  local go = lights.goUntil ~= nil and lights.clock < lights.goUntil
+  if lit == 0 and not go and not lights.pinned then return end
+  im = im or ui_imgui
+  if not im then return end
+  local width = 800
+  pcall(function() width = im.GetIO().DisplaySize.x end)
+  local flags = 0
+  -- its own window: title bar to drag it, position remembered by the game, never docked into the TG menu
+  for _, f in ipairs({ "WindowFlags_NoResize", "WindowFlags_NoScrollbar", "WindowFlags_NoCollapse",
+                       "WindowFlags_AlwaysAutoResize", "WindowFlags_NoFocusOnAppearing", "WindowFlags_NoDocking" }) do
+    local okF, v = pcall(function() return im[f] end)   -- a flag this version doesn't have is just skipped
+    flags = flags + ((okF and tonumber(v)) or 0)
+  end
+  if im.SetNextWindowPos then im.SetNextWindowPos(im.ImVec2(width / 2 - 185, 70), im.Cond_FirstUseEver or 4) end
+  -- open it exactly like the main window (a real open flag, not nil)
+  if not lights.openPtr then lights.openPtr = im.BoolPtr(true) end
+  lights.openPtr[0] = true
+  if im.Begin("Start lights##tglights", lights.openPtr, flags) then
+    local ok = pcall(function()
+      local title = go and "GO!" or ((L and L.who == "Drag me") and "Drag this box by its title bar - /tg lights to hide"
+                    or (lights.who and (lights.who .. "'s run") or "Lights..."))
+      if go then colored(0.3, 1, 0.3, title) else txt(title) end
+      local dl = im.GetWindowDrawList()
+      local at = im.GetCursorScreenPos()
+      for i = 1, 5 do
+        local r, g, b = 0.12, 0.12, 0.12
+        if go then r, g, b = 0.1, 0.9, 0.2 elseif i <= lit then r, g, b = 0.95, 0.05, 0.05 end
+        im.ImDrawList_AddCircleFilled(dl, im.ImVec2(at.x + 35 + (i - 1) * 70, at.y + 35), 28, im.GetColorU322(im.ImVec4(r, g, b, 1)), 24)
+      end
+      im.Dummy(im.ImVec2(350, 72))
+    end)
+    if not ok then   -- builds without draw lists: text lights
+      for i = 1, 5 do
+        if go then colored(0.3, 1, 0.3, "( GO )") elseif i <= lit then colored(1, 0.1, 0.1, "(####)") else txt("(    )") end
+        if i < 5 then same() end
+      end
+    end
+  end
+  im.End()
+end
+
+local function updateWindow(dt)
+  if not ui.open then return end
+  im = im or ui_imgui
+  if not im then warn("ui_imgui not available - use the /tg chat commands"); ui.open = false; return end
+  local rec = { c = 0, v = 0 }
+  if not ui.noTheme then pcall(pushTheme, rec) end
+  local ok, err = pcall(drawWindow, dt)
+  popTheme(rec)
+  if not ok then
+    if not ui.noTheme then
+      ui.noTheme = true   -- keep the menu open, plain, and report what failed
+      warn("window error with the colour theme - theme switched off: " .. tostring(err))
+      addLog("The colour theme didn't work on this BeamNG version and was switched off (/tg theme to retry).")
+    else
+      warn("window error: " .. tostring(err)); ui.open = false
+    end
+  end
+end
+
+local function onMenu(data)
+  local wasOpen = ui.open
+  if data == "open" or data == "reset" then ui.open = true else ui.open = not ui.open end
+  if data == "results" then ui.open = true; ui.layout = "results"; ui.selectResults = true end
+  if data == "reset" then ui.layout = "reset" elseif ui.open and not wasOpen and not ui.layout then ui.layout = "open" end
+  if ui.open then ui.reqTimer = 0 end
+end
+local function onUi(data)
+  local ok, t = pcall(jsonDecode, data)
+  if ok and type(t) == "table" then ui.data = t; ui.busy = nil end
+end
+function M.toggleMenu() onMenu("") end
+
+local sinceLoad, warnedNoApi = 0, false
+
+local function getAddHandler()
+  if type(AddEventHandler) == "function" then return AddEventHandler end
+  if MPGameNetwork and type(MPGameNetwork.addEventHandler) == "function" then return MPGameNetwork.addEventHandler end
+  return nil
+end
+
+local function tryRegister(dt)
+  if registered then return end
+  local add = getAddHandler()
+  if not add then
+    sinceLoad = sinceLoad + (dt or 0)
+    if sinceLoad > 15 and not warnedNoApi then
+      warnedNoApi = true
+      warn("BeamMP event API not found after 15 s (AddEventHandler=" .. type(AddEventHandler) ..
+        ", MPGameNetwork=" .. type(MPGameNetwork) .. ") - are you connected to a BeamMP server?")
+    end
+    return
+  end
+  local ok, err = pcall(function()
+    add("tg_state",  onState)
+    add("tg_repair", onRepair)
+    add("tg_msg",    onMsg)
+    add("tg_diag",   onDiag)
+    add("tg_import", onImport)
+    add("tg_menu",   onMenu)
+    add("tg_ui",     onUi)
+    add("tg_log",    addLog)
+    add("tg_faults", onFaults)
+    add("tg_tow",    onTow)
+    add("tg_unstick", onUnstick)
+    add("tg_respawn", onRespawn)
+    add("tg_trailer", onTrailer)
+    add("tg_trailer_clear", onTrailerClear)
+    add("tg_lightstest", onLightsTest)
+    add("tg_lightspin", onLightsPin)
+    add("tg_theme", onTheme)
+    add("tg_partsdiag", onPartsDiag)
+    add("tg_findgas", onFindGas)
+    add("tg_revertparts", onRevertParts)
+    add("tg_trailersave", onTrailerSave)
+    add("tg_hitchup", onHitchUp)
+  end)
+  if not ok then warn("registering BeamMP events failed: " .. tostring(err)); return end
+  registered = true
+  log("I", "topgear", "Top Gear Challenge client " .. VERSION .. " ready (BeamMP events registered)")
+end
+
+-- fuel remaining in litres, read from the car's own Lua (for the economy run)
+local fuelValue = nil
+function M.onFuel(v) fuelValue = tonumber(v) end
+local FUEL_VLUA = [[
+local total, found = 0, false
+pcall(function()
+  if energyStorage and energyStorage.getStorages then
+    for _, st in pairs(energyStorage.getStorages()) do
+      if type(st) == "table" and type(st.remainingVolume) == "number" then total = total + st.remainingVolume; found = true end
+    end
+  end
+end)
+if not found and electrics and electrics.values and type(electrics.values.fuelVolume) == "number" then
+  total, found = electrics.values.fuelVolume, true
+end
+if found then obj:queueGameEngineLua("extensions.topgear.onFuel(" .. string.format("%.4f", total) .. ")") end
+]]
+
+-- Workshop billing: snapshot the car's parts; after every rebuild, report exactly what changed.
+-- Cosmetic and mod-managed slots (isFreeSlot) and tuning values are free; the server bills the rest.
+local cfgSnap, rebuildCheckIn = nil, nil
+
+-- A car's parts as { slot-or-path = partName }, from whichever format this BeamNG version uses.
+walkTree = function(node, out, path)
+  if type(node) ~= "table" then return end
+  local name = node.chosenPartName or node.partName
+  local key = node.path or path or "/"
+  if type(name) == "string" then out[key] = name end
+  local kids = node.children or node.slots
+  if type(kids) == "table" then
+    for slot, child in pairs(kids) do walkTree(child, out, key .. tostring(slot) .. "/") end
+  end
+end
+
+readParts = function(car)
+  local conf, vd
+  pcall(function() conf = core_vehicle_partmgmt.getConfig() end)
+  pcall(function() vd = core_vehicle_manager.getVehicleData(car:getID()) end)
+  local out, fmt = {}, nil
+  if type(conf) == "table" and type(conf.parts) == "table" and next(conf.parts) then
+    for k, v in pairs(conf.parts) do out[k] = v end; fmt = "flat parts"
+  elseif type(conf) == "table" and type(conf.partsTree) == "table" then
+    walkTree(conf.partsTree, out, "/"); fmt = "parts tree"
+  elseif vd and type(vd.chosenParts) == "table" and next(vd.chosenParts) then
+    for k, v in pairs(vd.chosenParts) do out[k] = v end; fmt = "chosenParts"
+  elseif vd and type(vd.config) == "table" and type(vd.config.partsTree) == "table" then
+    walkTree(vd.config.partsTree, out, "/"); fmt = "vehicle data parts tree"
+  end
+  return out, fmt, conf, vd
+end
+
+-- part prices (the same "value" career mode's shop uses), from the car's loaded parts, else jbeam
+local function priceMap(vd)
+  local map = {}
+  local active = vd and vd.vdata and vd.vdata.activeParts
+  if type(active) == "table" then
+    for k, part in pairs(active) do
+      local val = type(part) == "table" and part.information and tonumber(part.information.value)
+      if val then
+        map[tostring(k)] = val
+        if part.partName then map[tostring(part.partName)] = val end
+      end
+    end
+  end
+  return map
+end
+local function partValue(vd, prices, name)
+  if type(name) ~= "string" or name == "" then return nil end
+  if prices[name] then return prices[name] end
+  local ok, part = pcall(function() return require("jbeam/io").getPart(vd and vd.ioCtx, name) end)
+  return ok and part and part.information and tonumber(part.information.value) or nil
+end
+
+copyTable = function(t, depth)
+  if type(t) ~= "table" or (depth or 0) > 30 then return t end
+  local r = {}
+  for k, v in pairs(t) do r[k] = copyTable(v, (depth or 0) + 1) end
+  return r
+end
+
+local function takeSnapshot(car)
+  local parts, fmt, conf, vd = readParts(car)
+  if not fmt then return nil end
+  local prices = priceMap(vd)
+  local snap = { carId = car:getID(), parts = parts, vars = {}, values = {}, fmt = fmt, conf = copyTable(conf) }
+  for k, v in pairs((type(conf) == "table" and conf.vars) or {}) do snap.vars[k] = v end
+  for slot, name in pairs(parts) do
+    if not isFreeSlot(slot) then
+      local val = partValue(vd, prices, name)
+      if val == nil then snap.values[slot] = false else snap.values[slot] = val end   -- false = price unknown
+    end
+  end
+  return snap
+end
+
+onPartsDiag = function()
+  local car = getCar()
+  local r = { count = 0, priced = 0, examples = {} }
+  local ok, err = pcall(function()
+    if not car then error("no car") end
+    local snap = takeSnapshot(car)
+    if not snap then error("couldn't read this car's parts (unknown format)") end
+    r.format = snap.fmt
+    for slot, name in pairs(snap.parts) do
+      if name ~= "" then
+        r.count = r.count + 1
+        local v = snap.values[slot]
+        if type(v) == "number" then
+          r.priced = r.priced + 1
+          if #r.examples < 5 and v > 0 then r.examples[#r.examples + 1] = string.format("%s = $%d", name, math.floor(v)) end
+        end
+      end
+    end
+  end)
+  if not ok then r.err = sanitize(err) end
+  if TriggerServerEvent then TriggerServerEvent("tg_partsdiag_reply", jsonEncode(r)) end
+end
+
+-- gas stations on this map: the freeroam facility list, else fuel-pump objects in the scene
+local function findGasStations()
+  local out, method, errs = {}, nil, {}
+  local function add(pos, name) if pos then out[#out + 1] = { x = pos.x, y = pos.y, z = pos.z, name = name } end end
+  local ok, e = pcall(function()
+    local fac = freeroam_facilities
+    if not fac then error("no facilities module") end
+    local list
+    if fac.getFacilitiesByType then list = fac.getFacilitiesByType("gasStation") end
+    if (not list or #list == 0) and fac.getFacilities then
+      local lvl = getCurrentLevelIdentifier and getCurrentLevelIdentifier() or nil
+      local all = fac.getFacilities(lvl)
+      list = all and (all.gasStations or all.gasStation)
+    end
+    for i, g in ipairs(list or {}) do
+      local sum, n = vec3(0, 0, 0), 0
+      for _, pumpName in ipairs(g.pumps or {}) do
+        local o = scenetree.findObject(pumpName)
+        if o then sum = sum + vec3(o:getPosition()); n = n + 1 end
+      end
+      if n > 0 then add(sum * (1 / n), g.name or ("Gas station " .. i))
+      elseif g.pos then add(vec3(g.pos), g.name or ("Gas station " .. i)) end
+    end
+    if #out > 0 then method = "map facilities" end
+  end)
+  if not ok then errs[#errs + 1] = tostring(e) end
+  if #out == 0 then
+    local ok2, e2 = pcall(function()
+      local pumps = {}
+      for _, nm in ipairs(scenetree.findClassObjects("TSStatic") or {}) do
+        local o = scenetree.findObject(nm)
+        if o then
+          local shape = ""
+          pcall(function() shape = tostring(o:getField("shapeName", 0) or "") end)
+          shape, nm = shape:lower(), tostring(nm):lower()
+          if (shape:find("pump") and (shape:find("fuel") or shape:find("gas") or shape:find("petrol")))
+             or nm:find("fuelpump") or nm:find("gaspump") or nm:find("fuel_pump") then
+            pumps[#pumps + 1] = vec3(o:getPosition())
+          end
+        end
+      end
+      local clusters = {}
+      for _, pp in ipairs(pumps) do
+        local placed = false
+        for _, c in ipairs(clusters) do
+          if (c.sum * (1 / c.n) - pp):length() < 40 then c.sum, c.n, placed = c.sum + pp, c.n + 1, true; break end
+        end
+        if not placed then clusters[#clusters + 1] = { sum = pp, n = 1 } end
+      end
+      for i, c in ipairs(clusters) do add(c.sum * (1 / c.n), "Gas station " .. i) end
+      if #out > 0 then method = "fuel pump objects" end
+    end)
+    if not ok2 then errs[#errs + 1] = tostring(e2) end
+  end
+  return out, method, (#errs > 0) and table.concat(errs, "; ") or nil
+end
+
+local function applyConfigTable(conf)
+  local pm = core_vehicle_partmgmt
+  local tries = {}
+  if pm.setConfig then tries[#tries + 1] = function() pm.setConfig(conf, true) end end
+  if type(conf.partsTree) == "table" and pm.setPartsTreeConfig then tries[#tries + 1] = function() pm.setPartsTreeConfig(conf.partsTree, true) end end
+  if type(conf.parts) == "table" and next(conf.parts) and pm.setPartsConfig then tries[#tries + 1] = function() pm.setPartsConfig(conf.parts, true) end end
+  local lastErr = "no way to set a config on this version"
+  for _, f in ipairs(tries) do
+    local ok, e = pcall(f)
+    if ok then return true end
+    lastErr = e
+  end
+  return false, lastErr
+end
+
+onRevertParts = function()
+  local snap = lastGoodSnap
+  local ok, err = false, "nothing to go back to"
+  if getCar() and snap and snap.conf then ok, err = applyConfigTable(snap.conf) end
+  if ok then cfgSnap = snap end   -- the rebuild that follows isn't a new change
+  if TriggerServerEvent then TriggerServerEvent("tg_revert_report", jsonEncode({ ok = ok, err = (not ok) and sanitize(err) or nil })) end
+end
+
+onFindGas = function()
+  local st, method, err = findGasStations()
+  if TriggerServerEvent then
+    TriggerServerEvent("tg_gas_reply", jsonEncode({ stations = st, method = method, err = err and sanitize(err) or nil }))
+  end
+end
+
+local function checkRebuild()
+  local car = getCar()
+  if not car then return end
+  local new = takeSnapshot(car)
+  if not new then return end
+  local old = cfgSnap
+  cfgSnap = new
+  lastGoodSnap = old   -- what to go back to if the server refuses the bill
+  if not old or old.carId ~= new.carId then return end
+  local billable, cosmetic, delta, unknown, seen = 0, 0, 0, 0, {}
+  for _, t in ipairs({ old.parts, new.parts }) do
+    for slot in pairs(t) do
+      if not seen[slot] then
+        seen[slot] = true
+        local a, b = old.parts[slot], new.parts[slot]
+        if a == "" then a = nil end
+        if b == "" then b = nil end
+        if a ~= b then
+          if isFreeSlot(slot) then cosmetic = cosmetic + 1
+          else
+            billable = billable + 1
+            local va = (a == nil) and 0 or old.values[slot]
+            local vb = (b == nil) and 0 or new.values[slot]
+            if type(va) ~= "number" or type(vb) ~= "number" then unknown = unknown + 1
+            else delta = delta + (vb - va) end
+          end
+        end
+      end
+    end
+  end
+  local varsChanged = false
+  for k, v in pairs(new.vars) do if old.vars[k] ~= v then varsChanged = true end end
+  for k, v in pairs(old.vars) do if new.vars[k] ~= v then varsChanged = true end end
+  if (billable + cosmetic > 0 or varsChanged) and TriggerServerEvent then
+    TriggerServerEvent("tg_rebuild", jsonEncode({ billable = billable, cosmetic = cosmetic, vars = varsChanged,
+      valueDelta = delta, unknown = unknown }))
+  end
+end
+
+-- client -> server -------------------------------------------------------------
+local function report()
+  if not TriggerServerEvent or state.phase == "idle" then return end
+  local v = getCar()
+  if not v then return end
+  if state.allowParts then partsValue = nil end  -- parts can change during the workshop
+  if partsValue == nil then partsValue = getPartsValue(v) or false end
+  pcall(function() v:queueLuaCommand(FUEL_VLUA) end)   -- answer arrives before the next report
+  if (not cfgSnap or cfgSnap.carId ~= v:getID()) and not rebuildCheckIn then cfgSnap = takeSnapshot(v) end
+  measureCargo()   -- answer arrives before the next report
+  TriggerServerEvent("tg_report", jsonEncode({ damage = getDamage(v), partsValue = partsValue or nil, fuel = fuelValue,
+    cargo = cargoValue }))
+end
+
+-- hooks ------------------------------------------------------------------------
+function M.onExtensionLoaded()
+  log("I", "topgear", "extension " .. VERSION .. " loaded")
+  pcall(extensions.load, "core_groundMarkers")
+  tryRegister(0)
+end
+
+function M.onUpdate(dtReal)
+  tryRegister(dtReal)
+  stateAge = stateAge + dtReal
+  reportTimer = reportTimer + dtReal
+  if reportTimer >= 2 then reportTimer = 0; report() end
+  reassertPath(dtReal)
+  updateWindow(dtReal)
+  local okL, errL = pcall(drawLights, dtReal)
+  if not okL and not lights.errored then lights.errored = true; warn("starting lights: " .. tostring(errL)) end
+  updateFaults(dtReal)
+  updateMove(dtReal)
+  updateTrailer(dtReal)
+  if rebuildCheckIn then
+    rebuildCheckIn = rebuildCheckIn - dtReal
+    if rebuildCheckIn <= 0 then rebuildCheckIn = nil; pcall(checkRebuild) end
+  end
+  hudTimer = hudTimer - dtReal
+  if hudTimer <= 0 then hudTimer = 1; hud() end
+end
+
+function M.onPreRender() drawTarget() end
+function M.onVehicleSpawned(vid)
+  partsValue = nil; pathCarId = nil
+  local mine = getCar()
+  if mine and mine:getID() == vid and cfgSnap and cfgSnap.carId == vid then rebuildCheckIn = 1.0 end
+  if move and move.stage == "config" then move.spawned = true end
+  local car = getCar()
+  if not faults.active or not car or car:getID() ~= vid then return end
+  if faults.waitSpawn then
+    faults.waitSpawn = nil
+    runPhysicsFaults(false)
+  elseif not faults.applyAt then
+    faults.applyAt = 0.5   -- someone changed the setup (e.g. tuning menu): put the faults back
+  end
+end
+
+function M.onVehicleResetted(vid)
+  local car = getCar()
+  if faults.active and car and car:getID() == vid then runPhysicsFaults(true) end
+end
+function M.onVehicleSwitched() pathCarId = nil end
+
+function M.onExtensionUnloaded()
+  state = { phase = "idle" }
+  applyFilters()
+  trySetPath(nil)
+end
+
+return M
