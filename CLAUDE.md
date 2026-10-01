@@ -94,7 +94,11 @@ parts snapshots/diffs, reverting refused parts.
 9. **Lua 5.3 `%d` needs integers** - `math.floor` before formatting.
 10. **Spawns/edits by the mod itself** must be allowed by the server: `spawnAllow` (trailers),
     `faultEditUntil` (setup faults, tow restores).
-11. **Wrap every BeamNG/BeamMP internal in `pcall`** with a logged fallback (`warn()` on the client;
+11. **Never repair with a bare `obj:requestReset(RESET_PHYSICS)`** - it puts the car back at its *reset point*
+    (where it spawned / was last reset), i.e. it teleports it. To repair where it stands use `repairInPlace` (client):
+    `spawn.safeTeleport(car, pos, quatFromDir(dir))`, BeamNG's own "reset here". A reset followed by our own placement
+    (tow/unstick `startMove`) is fine. The harness models this (`requestReset` -> `v.resetPos`).
+12. **Wrap every BeamNG/BeamMP internal in `pcall`** with a logged fallback (`warn()` on the client;
     players filter "topgear" in the game console). These APIs change between game versions.
 
 ## BeamNG/BeamMP APIs used but NOT verified in game (suspect these first)

@@ -11,6 +11,7 @@ local faults      = { want = {}, restore = {}, test = false, applyAt = nil, repo
 local onPartsDiag, onFindGas, onRevertParts, onTrailerSave   -- defined further down, registered in tryRegister
 local copyTable, readParts, lastGoodSnap, walkTree, ordinal  -- shared helpers/state, defined further down
 local addLog                                                 -- window log, defined with the in-game window
+local startMove                                              -- moving the car (tow/unstick), defined further down
 local lights = { clock = 0, goUntil = nil, wasOn = false, who = nil, test = nil, openPtr = nil, errored = false }
 local flag   = { clock = 0, untilT = nil, title = nil, detail = nil, pinned = false, openPtr = nil, errored = false }
 local sound  = { idx = 1, method = nil, warned = false }   -- which way of playing sounds works on this game
@@ -34,7 +35,7 @@ local RESET_ACTIONS = {
 local VEHSEL_ACTIONS = { "vehicle_selector" }
 local PARTS_ACTIONS  = { "parts_selector" }
 
-local VERSION = "0.8.8"
+local VERSION = "0.8.9"
 local recentErrors = {}
 local function warn(msg)
   log("W", "topgear", tostring(msg))
@@ -254,9 +255,26 @@ local function onState(data)
   if state.phase == "idle" then ui_message("", 0, "tg_hud") else hudTimer = 0 end
 end
 
+-- Repair the car where it stands. A plain physics reset (obj:requestReset) puts the car back at its reset
+-- point - where it spawned or was last reset - so BeamNG's own "reset here" is used: spawn.safeTeleport to the
+-- car's current position (what the game's flip-upright helper does). Fallback: reset, then put it back.
+local function repairInPlace(kind)
+  local car = getCar()
+  if not car then return end
+  local pos = vec3(car:getPosition())
+  local dir = vec3(car:getDirectionVector())
+  local ok, err = pcall(function()
+    if not (spawn and spawn.safeTeleport) then error("no spawn.safeTeleport on this version", 0) end
+    spawn.safeTeleport(car, pos, quatFromDir(dir))
+  end)
+  if not ok then
+    warn(kind .. " in place: " .. tostring(err) .. " - resetting and putting the car back")
+    startMove(kind, { reset = true, pos = { x = pos.x, y = pos.y, z = pos.z + 0.3 }, dir = { x = dir.x, y = dir.y } })
+  end
+end
+
 local function onRepair()
-  local v = getCar()
-  if v then v:queueLuaCommand("obj:requestReset(RESET_PHYSICS)") end
+  repairInPlace("repair")
   partsValue = nil
   ui_message("The mechanics have fixed your car.", 5, "tg_msg", "build")
 end
@@ -898,7 +916,7 @@ local function poseOK(car, dir)
   return true
 end
 
-local function startMove(kind, t)
+startMove = function(kind, t)
   local car = getCar()
   if not car then return end
   move = { kind = kind, t = 0, reset = t.reset, config = t.config, idx = 1 }
@@ -963,8 +981,7 @@ local function onRespawn(data)
     pcall(function() core_vehicles.spawnNewVehicle(t.model, t.config and { config = t.config } or {}) end)
     return
   end
-  local car = getCar()
-  if car then car:queueLuaCommand("obj:requestReset(RESET_PHYSICS)") end
+  repairInPlace("respawn")   -- "respawn on the spot": a fresh car right where it is
 end
 
 local function onTow(data)

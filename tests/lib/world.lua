@@ -257,7 +257,14 @@ function World:loadClient(p)
   end } })
   sb.set("getCurrentLevelIdentifier", function() return "west_coast_usa" end)
   sb.set("scenetree", { findObject = function() return nil end, findClassObjects = function() return {} end })
-  sb.declare("spawn", "freeroam_bigMapMode", "freeroam_facilities", "MPGameNetwork", "serialize", "setExtensionUnloadMode")
+  sb.set("spawn", { safeTeleport = function(veh, pos, rot, _, _, _, _, resetVehicle)
+    local v = veh.veh
+    v.pos = vec3(pos)
+    v.yaw = (math.atan2 or math.atan)(2 * (rot.w * rot.z + rot.x * rot.y), 1 - 2 * (rot.y * rot.y + rot.z * rot.z))
+    v.upsideDown = false
+    if resetVehicle ~= false then v.resetPos = vec3(pos); w:vehicleReset(p, v) end
+  end })
+  sb.declare("freeroam_bigMapMode", "freeroam_facilities", "MPGameNetwork", "serialize", "setExtensionUnloadMode")
 
   sb.set("require", function(name)
     if name == "ffi" then return { string = function(buf) return buf.value end } end
@@ -481,6 +488,7 @@ function World:clientSpawn(p, model, o)
   end
   v.data = vehData(p, v)
   v.fuel = 60
+  v.resetPos = vec3(v.pos)   -- where a plain reset takes it back to
   self:freshPhysics(p, v)
   local res = self:serverEvent("onVehicleSpawn", p.pid, vid, v.data)
   if res ~= nil and res ~= 0 then
@@ -587,7 +595,10 @@ function World:freshPhysics(p, v)
   sb.set("vec3", vec3)
   sb.set("RESET_PHYSICS", 1)
   sb.set("obj", {
-    requestReset = function() w:vehicleReset(p, v) end,
+    requestReset = function()   -- like BeamNG: the car goes back to its reset point, repaired
+      if v.resetPos then v.pos = vec3(v.resetPos) end
+      w:vehicleReset(p, v)
+    end,
     queueGameEngineLua = function(_, code) w.queue[#w.queue + 1] = { to = "ge", pid = p.pid, code = code } end,
     getDirectionVector = function() return vecmath.dirFromQuat(vecmath.quatFromYaw(v.yaw or 0)) end,
     getDirectionVectorUp = function() return vec3(0, 0, 1) end,
