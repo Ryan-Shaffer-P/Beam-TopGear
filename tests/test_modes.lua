@@ -110,3 +110,29 @@ t.test("the running event's mode can't be changed mid-run; the others can", func
   t.ok(w:chatHas(A, "event 2 now runs in time trial mode"), "a later event can be switched")
   w:assertClean()
 end)
+
+t.test("time trial mode: the next driver isn't started until the current one has finished", function()
+  local cfg = F.config({
+    { name = "Sprint", type = "race", solo = true, timeLimit = 300, start = p(500), checkpoints = { p(700), p(900) }, via = {} },
+  })
+  local w = World.new({ files = F.files(cfg) })
+  local A, B = w:join("Alice"), w:join("Bob")
+  w:chat(A, "/tg start")
+  w:buy(A, "covet", "base_M"); w:buy(B, "pessima", "base_M")
+  w:chat(A, "/tg ready"); w:chat(B, "/tg ready")
+  w:driveAll({ { A, p(500), 40 }, { B, p(500), 35 } })
+  w:chat(A, "/tg go")
+  w:waitFor(function() return w:sawMessage(A, "Alice: GO!") end, 20, "Alice's GO")
+
+  w:drive(A, p(700), 20)   -- half way, then she dawdles for a minute
+  w:step(60)
+  t.ok(not w:sawMessage(B, "Bob: "), "no countdown for Bob while Alice is still out")
+  t.eq(w:state(B).target.label, "Wait at the start - Alice is running")
+
+  w:drive(A, p(900), 20)   -- Alice crosses the line
+  t.ok(w:chatHas(A, "Alice crosses the line!"))
+  w:waitFor(function() return w:sawMessage(B, "Bob: GO!") end, 10, "Bob's GO after Alice finished")
+  w:drive(B, p(900), 35)
+  w:waitFor(function() return w:state(A).phase ~= "event" end, 10, "results")
+  w:assertClean()
+end)
