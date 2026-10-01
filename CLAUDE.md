@@ -20,6 +20,7 @@ client/lua/ge/extensions/topgear.lua   client GE extension (~2,000 lines): HUD, 
 client/scripts/topgear/modScript.lua   loads the extension (extensions.load + manual unload mode)
 README.md                              player/admin documentation - keep it in sync with every feature change
 MP3s/                                  sound clips, not wired into the mod yet
+server/                                local BeamMP test server in Docker (see server/README.md)
 ```
 
 Runtime files written by the server next to main.lua: `config.json` (settings + the working course,
@@ -102,8 +103,10 @@ for the `/tg diag` "Client error" line or the matching `[TopGear]` server-consol
 
 ## Testing workflow (do this for every change)
 
-1. Syntax: `luac -p` **and** `luajit -e 'assert(loadfile("file.lua"))'` on both files.
-   Installed: Homebrew `lua` (5.5 - newer than the server's 5.3, so treat it as close, not exact) and `luajit`.
+1. Syntax on both files: server's exact Lua 5.3 via the test image
+   (`docker run --rm --entrypoint luac5.3 -v "$PWD:/repo:ro" topgear-beammp -p /repo/<file>`) **and** LuaJIT
+   (`luajit -e 'assert(loadfile("file.lua"))'`). Homebrew `lua`/`luac` on this Mac are 5.5 - close, not exact.
+   Docker's CLI is in `~/.docker/bin` (not on the default PATH).
 2. Globals check on the client (rule 1).
 3. Simulations: plain Lua scripts that stub `MP`/`Util`, fake BeamNG globals (`be`, vehicles, partmgmt,
    vlua envs), and a fake `ui_imgui` that records text/buttons/circles and lets the test "click" by label.
@@ -115,7 +118,9 @@ for the `/tg diag` "Client error" line or the matching `[TopGear]` server-consol
    pattern before changing gameplay code.
 4. Beware harness artifacts (wrong test coordinates, sequencing): say so explicitly when a failure is the
    test's fault, not the mod's.
-5. Final check is always in-game on Ryan's BeamMP server.
+5. Real server: `docker compose -f server/compose.yaml restart`, then check `logs` for the
+   `[TopGear] ... loaded` line and no `[LUA]` errors. The container mounts the repo's `Resources/`.
+6. Final check is always in-game (Ryan joins via Direct Connect to this Mac, port 30814).
 
 ## Release steps
 

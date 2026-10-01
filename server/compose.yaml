@@ -1,0 +1,33 @@
+# Local BeamMP test server.  From the repo root:
+#   docker compose -f server/compose.yaml up -d --build    start (rebuilds the image if needed)
+#   docker compose -f server/compose.yaml logs -f          watch the console ([TopGear] lines)
+#   docker compose -f server/compose.yaml restart          reload the plugin after editing main.lua
+#   docker compose -f server/compose.yaml down             stop
+services:
+  beammp:
+    build: .
+    image: topgear-beammp
+    container_name: topgear-beammp
+    ports:
+      - "30814:30814/tcp"
+      - "30814:30814/udp"
+    volumes:
+      # the repo's plugin + client zip, live. The plugin writes config.json (git-ignored)
+      # and courses.json (tracked) here, so courses built on this server land in the repo.
+      - ../Resources:/beammp/Resources
+    environment:
+      BEAMMP_NAME: "Top Gear test (local)"
+      BEAMMP_PRIVATE: "true"           # not listed publicly; join with Direct Connect
+      BEAMMP_MAP: "/levels/west_coast_usa/info.json"
+      BEAMMP_MAX_PLAYERS: "8"
+      BEAMMP_MAX_CARS: "8"             # trailer events need 7 per player
+      BEAMMP_PORT: "30814"
+      BEAMMP_LOG_CHAT: "true"
+      BEAMMP_IM_SCARED_OF_UPDATES: "true"
+      # BeamMP won't start with an empty key. A placeholder is enough for a private test
+      # server (the backend logs "REFUSED the auth key" and the server keeps running).
+      # For a real key: https://keymaster.beammp.com, put it in server/.env as BEAMMP_AUTH_KEY=...
+      BEAMMP_AUTH_KEY: "${BEAMMP_AUTH_KEY:-00000000-0000-0000-0000-000000000000}"
+    stdin_open: true   # the BeamMP console reads stdin
+    tty: true
+    restart: unless-stopped
