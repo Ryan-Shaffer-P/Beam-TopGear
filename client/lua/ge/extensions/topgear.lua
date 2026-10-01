@@ -13,6 +13,7 @@ local copyTable, readParts, lastGoodSnap, walkTree, ordinal  -- shared helpers/s
 local addLog                                                 -- window log, defined with the in-game window
 local lights = { clock = 0, goUntil = nil, wasOn = false, who = nil, test = nil, openPtr = nil, errored = false }
 local flag   = { clock = 0, untilT = nil, title = nil, detail = nil, pinned = false, openPtr = nil, errored = false }
+local sound  = { idx = 1, method = nil, warned = false }   -- which way of playing sounds works on this game
 local ui          = { open = false, data = nil, log = {}, reqTimer = 0, t = 0, sel = 1, confirm = {}, player = nil, failed = {} }
 local stateAge    = 0
 local registered  = false
@@ -32,7 +33,7 @@ local RESET_ACTIONS = {
 local VEHSEL_ACTIONS = { "vehicle_selector" }
 local PARTS_ACTIONS  = { "parts_selector" }
 
-local VERSION = "0.8.4"
+local VERSION = "0.8.5"
 local recentErrors = {}
 local function warn(msg)
   log("W", "topgear", tostring(msg))
@@ -252,7 +253,8 @@ end
 -- /tg diag: report what this client sees back to the server
 local function onDiag()
   applyPath(true)
-  local r = { version = VERSION, phase = state.phase, pathMethod = pathMethod, errors = recentErrors, carId = state.carId }
+  local r = { version = VERSION, phase = state.phase, pathMethod = pathMethod, errors = recentErrors, carId = state.carId,
+              sound = sound.method }
   local t = state.target
   if t then r.target = string.format("%s at (%.0f, %.0f, %.0f)", tostring(t.label), t.x, t.y, t.z) end
   pcall(function()
@@ -908,6 +910,40 @@ local function onFlagTest()
   flag.title, flag.detail, flag.untilT = "Test", "Your time shows here", flag.clock + 6
 end
 local function onFlagPin() flag.pinned = not flag.pinned end
+
+-- Sound bites: art/sound/topgear/<clip>.ogg in this mod. Which playback API works isn't verified on every
+-- BeamNG version, so try each in turn and remember the first that runs; /tg soundtest next moves on to the
+-- next one (a method can run without error and still be silent).
+local SOUND_METHODS = {
+  { name = "game audio (Engine.Audio.playOnce)", play = function(path) Engine.Audio.playOnce("AudioGui", path) end },
+  { name = "game audio, relative path", play = function(path) Engine.Audio.playOnce("AudioGui", path:sub(2)) end },
+  { name = "UI audio (executeJS)", play = function(path)
+      be:executeJS(string.format("(new Audio(%q)).play()", "local://local" .. path)) end },
+}
+local function playClip(clip)
+  if type(clip) ~= "string" or not clip:match("^[%w%-]+$") then return nil, "bad clip name", nil end
+  local path = "/art/sound/topgear/" .. clip .. ".ogg"
+  local n, lastErr = #SOUND_METHODS, nil
+  for k = 0, n - 1 do
+    local i = (sound.idx - 1 + k) % n + 1
+    local ok, err = pcall(SOUND_METHODS[i].play, path)
+    if ok then sound.idx, sound.method = i, SOUND_METHODS[i].name; return sound.method, nil, i end
+    lastErr = err
+  end
+  return nil, tostring(lastErr), nil
+end
+-- server -> client: { clip, test = bool, cycle = bool }
+local function onSound(data)
+  local ok, t = pcall(jsonDecode, data)
+  if not ok or type(t) ~= "table" then return end
+  if t.cycle then sound.idx = sound.idx % #SOUND_METHODS + 1 end
+  local method, err, idx = playClip(t.clip)
+  if err and not t.test and not sound.warned then sound.warned = true; warn("sound: " .. err) end
+  if t.test and TriggerServerEvent then
+    TriggerServerEvent("tg_sound_report", jsonEncode({ clip = t.clip, method = method, err = err and sanitize(err) or nil,
+      index = idx, count = #SOUND_METHODS }))
+  end
+end
 local function onTheme()
   ui.noTheme = not ui.noTheme
   addLog("Colour theme " .. (ui.noTheme and "off." or "on."))
@@ -1108,9 +1144,12 @@ local function drawDriverButtons(d, me)
   colored(0.65, 0.65, 0.65, table.concat(notes, "  |  "))
 end
 
-local function drawLightsButton()
+local function drawLightsButton(d)
   button("Position the start lights##lightspin", "lights"); same(); button("Test them##lightstest", "lightstest")
   button("Position the finish flag##flagpin", "flag"); same(); button("Test it##flagtest", "flagtest")
+  if d.soundsOn == false then button("Sounds: OFF - turn on##sounds", "sounds on")
+  else button("Sounds: ON - turn off##sounds", "sounds off") end
+  same(); button("Test sound##soundtest", "soundtest")
 end
 
 local function drawAdminControls(d)
@@ -1169,7 +1208,7 @@ local function drawStatus(d)
   end
   drawAdminControls(d)
   im.Separator()
-  drawLightsButton()
+  drawLightsButton(d)
   drawStandings(d)
 end
 
@@ -1295,6 +1334,13 @@ local function drawAdmin(d)
         button("Set " .. ui.player .. "'s cash##sc", "setcash " .. ui.player .. " " .. a[0]); same()
         button("Give##gv", "give " .. ui.player .. " " .. a[0])
       end
+    end
+  end
+  if #(d.soundClips or {}) > 0 and header("Soundboard##soundboard") then
+    txt("Plays the clip for everyone (players who turned sounds off don't hear it).")
+    for i, clip in ipairs(d.soundClips) do
+      button(clip .. "##sb_" .. clip, "play " .. clip)
+      if i % 3 ~= 0 and i < #d.soundClips then same() end
     end
   end
   if d.faults and header("Problem-car fault test##ftest") then
@@ -1745,6 +1791,7 @@ local function tryRegister(dt)
     add("tg_finish", onFinish)
     add("tg_flagtest", onFlagTest)
     add("tg_flagpin", onFlagPin)
+    add("tg_sound", onSound)
     add("tg_theme", onTheme)
     add("tg_partsdiag", onPartsDiag)
     add("tg_findgas", onFindGas)

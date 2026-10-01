@@ -18,8 +18,9 @@ Resources/Server/TopGear/courses.json  saved course library (kept in the repo; c
 Resources/Client/topgear.zip           client mod, BUILT from client/ (never edit the zip by hand)
 client/lua/ge/extensions/topgear.lua   client GE extension (~2,000 lines): HUD, ImGui window, input locks, car work
 client/scripts/topgear/modScript.lua   loads the extension (extensions.load + manual unload mode)
+client/art/sound/topgear/*.ogg         sound bites, GENERATED from MP3s/ by tools/convert-sounds.sh (Docker ffmpeg)
 README.md                              player/admin documentation - keep it in sync with every feature change
-MP3s/                                  sound clips, not wired into the mod yet
+MP3s/                                  source sound clips (see client/art/sound/topgear)
 server/                                local BeamMP test server in Docker (see server/README.md)
 ```
 
@@ -100,7 +101,8 @@ parts snapshots/diffs, reverting refused parts.
 `obj:getNodePosition` (trailer load %), `quatFromDir` convention + `setPositionRotation` (tow/unstick,
 self-verifying), `energyStorage.getStorages` (fuel), `freeroam_facilities` (gas stations),
 `getSpawnWorldOOBB` / `be:getObjectOOBB*` (trailer placement), `beamstate.activateAutoCoupling`,
-ImGui draw lists / tables / style pushes (lights, theme). When Ryan reports a bug in one of these, ask
+ImGui draw lists / tables / style pushes (lights, theme), sound playback (`Engine.Audio.playOnce` with a
+mod file path, `be:executeJS` HTML audio - three methods tried in order, `/tg soundtest next` cycles). When Ryan reports a bug in one of these, ask
 for the `/tg diag` "Client error" line or the matching `[TopGear]` server-console line.
 
 ## Testing workflow (do this for every change)
@@ -118,7 +120,7 @@ for the `/tg diag` "Client error" line or the matching `[TopGear]` server-consol
    handler error, server console error, client warn() or UI imbalance. Vehicle Lua (`queueLuaCommand`) runs
    in a per-car sandbox with fake engine/brakes/fuel/reset (`World:freshPhysics`); `queueGameEngineLua`
    replies run in the client. Trailers with a load part get simulated bed/load nodes, so CARGO_VLUA really measures the load share.
-   Tests: `test_smoke.lua` (load, dealership, theme), `test_flag.lua` (finish flag), `test_traffic.lua` (admin traffic mode), `test_modes.lua` (race/time trial mode), `test_speedtrap.lua` (one run), `test_trailer.lua` (cones + prebuilt load, hitching via
+   Tests: `test_smoke.lua` (load, dealership, theme), `test_flag.lua` (finish flag), `test_traffic.lua` (admin traffic mode), `test_modes.lua` (race/time trial mode), `test_speedtrap.lua` (one run), `test_sounds.lua` (sound bites; the fake Engine.Audio checks the .ogg exists), `test_trailer.lua` (cones + prebuilt load, hitching via
    `w:hitch`/`w:dropCargo`/`w:setLoad`, 70/30 scoring) and `test_session.lua` (full 5-event session, the
    successor of `sim13` - expected cash/points are hand-calculated in its comments; if a rule change
    moves them, recompute by hand rather than pasting the new output). Still to rebuild: workshop
@@ -134,7 +136,7 @@ for the `/tg diag` "Client error" line or the matching `[TopGear]` server-consol
 1. Bump `SERVER_VERSION` (main.lua) and `VERSION` (topgear.lua) - `/tg diag` prints both; Ryan uses them to
    confirm the right files are installed.
 2. Rebuild the client zip:
-   `cd client && rm -f ../Resources/Client/topgear.zip && zip -qr ../Resources/Client/topgear.zip lua scripts -x '*luac.out' '*.DS_Store'`
+   `cd client && rm -f ../Resources/Client/topgear.zip && zip -qr ../Resources/Client/topgear.zip lua scripts art -x '*luac.out' '*.DS_Store'`
 3. Update README.md for any behaviour change.
 4. Commit on a branch. Push / open a PR / merge to `main` only when Ryan asks.
 5. Tell Ryan which files changed, whether a server restart/reconnect is needed, and how to test.
@@ -142,8 +144,8 @@ for the `/tg diag` "Client error" line or the matching `[TopGear]` server-consol
 ## Quick command reference
 
 Players: `/tg menu | status | dealer | ready | go | repair | fix <id> | tow | respawn | unstick | hitchup |
-faults | fault take/undo <id> | quote | standings | diag | partsdiag | lights | lightstest | flag | flagtest | theme`.
-Admins: `start [force] | next | stop | traffic on|off | budget | setcash | give | workshop <min> | workshopevery <n> |
+faults | fault take/undo <id> | quote | standings | diag | partsdiag | lights | lightstest | flag | flagtest | sounds on|off|list | soundtest [clip|next] | theme`.
+Admins: `start [force] | next | stop | traffic on|off | play <clip> | budget | setcash | give | workshop <min> | workshopevery <n> |
 importprices | gameprices | course list/save/load/new/delete | addevent/delevent/enable/moveevent |
 setstart/addcp/undocp/clearcp/settrap/addbay/undobay/clearbays/addvia/undovia/clearvia/setfinale |
 settype/setmode/setlaps/settime/rename | addworkshop/undoworkshop/clearworkshops/importgas |

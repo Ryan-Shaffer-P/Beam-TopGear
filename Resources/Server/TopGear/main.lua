@@ -7,7 +7,7 @@
   In game, type /tg help.
 ]]
 
-local SERVER_VERSION = "0.8.4"
+local SERVER_VERSION = "0.8.5"
 local PLUGIN_DIR  = "Resources/Server/TopGear/"
 local CONFIG_PATH = PLUGIN_DIR .. "config.json"
 local COURSES_PATH = PLUGIN_DIR .. "courses.json"   -- saved course library
@@ -56,6 +56,31 @@ local DEFAULT_CONFIG = {
       { id = "bumpers",   name = "Missing bumpers",               payout = 1500 },
       { id = "engine",    name = "Tired engine (about -20% power)",   payout = 6000, factor = 0.8 },
       { id = "brakes",    name = "Worn brakes (about -40% braking)",  payout = 3600, factor = 0.6 },
+    },
+  },
+
+  -- Sound bites (client mod: art/sound/topgear/<clip>.ogg). For each moment: who hears it and which
+  -- clips (one picked at random). to = all | self (the player it's about) | others (everyone but them)
+  -- | near (players within nearRadius of them, them included). Players can mute with /tg sounds off.
+  sounds = {
+    enabled = true,
+    nearRadius = 100,      -- metres, for to = "near"
+    crashDamage = 1500,    -- damage gained between two reports that counts as a crash
+    clips = { "baby-jesus", "clarkson-poop-shot-out", "clarksooon", "grunt-yes", "happy-yes", "james-may-says-cheese",
+              "jeremy-clarkson-oh-for-gods-sake", "jeremy-clarkson-yeeeeeesss", "oh-cock-james-may", "oh-for-gods-sake",
+              "oh-no-anyway", "poweeerr-jeremy-clarkson", "speed-and-power", "this-is-mp3", "top-gear-theme-intro", "yes-no-yes" },
+    events = {
+      start      = { to = "all",    clips = { "top-gear-theme-intro" } },                          -- challenge starts
+      go         = { to = "all",    clips = { "speed-and-power", "poweeerr-jeremy-clarkson" } },   -- GO (each run in time trial mode)
+      finish     = { to = "self",   clips = { "happy-yes", "grunt-yes" } },                        -- you complete a run
+      win        = { to = "self",   clips = { "jeremy-clarkson-yeeeeeesss" } },                    -- you win an event
+      winOthers  = { to = "others", clips = { "yes-no-yes" } },                                    -- ...and everyone else hears
+      out        = { to = "self",   clips = { "oh-no-anyway" } },                                  -- DNF / DNS, tow, respawn DSQ
+      resetFine  = { to = "all",    clips = { "oh-for-gods-sake", "jeremy-clarkson-oh-for-gods-sake" } },
+      crash      = { to = "near",   clips = { "oh-cock-james-may", "clarkson-poop-shot-out" } },
+      trapRecord = { to = "all",    clips = { "poweeerr-jeremy-clarkson" } },                      -- fastest through the trap so far
+      workshop   = { to = "all",    clips = { "james-may-says-cheese" } },                         -- workshop opens
+      champion   = { to = "all",    clips = { "clarksooon", "jeremy-clarkson-yeeeeeesss" } },      -- final results
     },
   },
 
@@ -342,6 +367,39 @@ local function racing(p) return p.pid ~= nil and p.carVid ~= nil end
 -- admins in traffic mode (/tg traffic on): everything they spawn is non-scoring traffic, in any phase
 local trafficMode = {}   -- player name -> true
 local function inTrafficMode(name) return trafficMode[name] == true and isAdmin(name) end
+
+-- sound bites --------------------------------------------------------------------
+local soundsOff = {}   -- player name -> true: muted with /tg sounds off (kept while the server runs)
+local function knownClip(clip)
+  for _, c in ipairs((cfg.sounds or {}).clips or {}) do if c == clip then return true end end
+  return false
+end
+local function sendSound(pid, clip, test)
+  MP.TriggerClientEvent(pid, "tg_sound", Util.JsonEncode({ clip = clip, test = test or nil }))
+end
+-- play the sound for a moment (cfg.sounds.events[key]) to its audience; p = the player it's about
+local function playSound(key, p)
+  local sc = cfg.sounds
+  local ev = sc and sc.enabled and (sc.events or {})[key]
+  if type(ev) ~= "table" or type(ev.clips) ~= "table" or #ev.clips == 0 then return end
+  local clip = ev.clips[math.random(#ev.clips)]
+  local to, pids = ev.to or "all", {}
+  if to == "self" then
+    if p and p.pid then pids[1] = p.pid end
+  elseif to == "near" then
+    local r = tonumber(sc.nearRadius) or 100
+    for _, q in pairs(game.players) do
+      if q.pid and (q == p or (q.pos and p and p.pos and dist(q.pos, p.pos) <= r)) then pids[#pids + 1] = q.pid end
+    end
+  else   -- all / others: everyone connected, players and spectators
+    for pid in pairs(MP.GetPlayers() or {}) do
+      if to ~= "others" or not (p and p.pid == pid) then pids[#pids + 1] = pid end
+    end
+  end
+  for _, pid in ipairs(pids) do
+    if not soundsOff[MP.GetPlayerName(pid)] then sendSound(pid, clip) end
+  end
+end
 local function spend(p, kind, amount)
   p.spent = p.spent or {}
   p.spent[kind] = (p.spent[kind] or 0) + amount
@@ -787,6 +845,7 @@ local function startGame(pid, force)
     "Whatever you don't spend, you keep for repairs and upgrades. /tg dealer for the list, /tg ready when done.",
     money(cfg.economy.startingCash)))
   bigAll("Go and buy a car!")
+  playSound("start")
   pushAll()
   for _, p in pairs(game.players) do if p.pid then MP.TriggerClientEvent(p.pid, "tg_menu", "open") end end
 end
@@ -928,12 +987,13 @@ local function endRun(p, status)
     if e and e.type == "speedtrap" then detail = (trapRuns(e) == 1 and "Speed " or "Best ") .. fmtSpeed(r.best or 0)
     elseif r.time then detail = "Time " .. fmtTime(r.time) end
     showFinish(p, e and e.name, detail)
+    playSound("finish", p)
   end
 end
 
 beginCountdown = function()
   local e = curEvent()
-  game.closeAt = nil
+  game.closeAt, game.trapRecord = nil, nil
   for _, p in pairs(game.players) do
     if racing(p) and p.leg.arrived then
       p.run.status = "staged"
@@ -1016,6 +1076,7 @@ startEvent = function()
   game.phase, game.eventStart, game.closeAt = "event", now(), nil
   for _, p in pairs(game.players) do if p.run.status == "staged" then startRun(p) end end
   bigAll("GO! GO! GO!")
+  playSound("go")
   sayAll("GO!")
   pushAll()
 end
@@ -1168,6 +1229,7 @@ local function tickSpeedtrap(p, e)
     if run.trapMax < (e.minRunSpeed or 20) then run.trapMax = 0; return end  -- slow pass (e.g. driving back) doesn't count
     run.attempts = run.attempts + 1
     run.best = math.max(run.best, run.trapMax)
+    if run.trapMax > (game.trapRecord or 0) then game.trapRecord = run.trapMax; playSound("trapRecord", p) end
     local runs = trapRuns(e)
     if runs == 1 then say(p.pid, "Through the trap at " .. fmtSpeed(run.trapMax) .. ".")
     else say(p.pid, string.format("Run %d: %s (best %s)", run.attempts, fmtSpeed(run.trapMax), fmtSpeed(run.best))) end
@@ -1222,7 +1284,7 @@ local function tickSolo(e)
     local sec = math.ceil(left)
     if sec > 0 and sec ~= s.lastCount then s.lastCount = sec; bigAll(p.name .. ": " .. sec) end
     falseStartCheck(p, e)
-    if left <= 0 then startRun(p); bigAll(p.name .. ": GO!"); pushAll() end
+    if left <= 0 then startRun(p); bigAll(p.name .. ": GO!"); playSound("go"); pushAll() end
   elseif st == "running" then
     if racing(p) and p.pos then tickRun(p, e) end
     if p.run.status == "running" and now() - p.run.startT > (e.timeLimit or cfg.defaults.eventTimeLimit) then
@@ -1352,7 +1414,7 @@ finishEvent = function()
     local prize = cfg.economy.prizes[i] or 0
     local pts = cfg.scoring.placementPoints[i] or 0
     p.cash, p.points = p.cash + prize, p.points + pts
-    if i == 1 then p.wins = p.wins + 1 end
+    if i == 1 then p.wins = p.wins + 1; playSound("win", p); playSound("winOthers", p) end
     p.results[game.stage] = { place = i, perf = p.run.perf, short = p.run.short, prize = prize, points = pts }
     sayAll(string.format("%s  %s - %s  (+%s, +%s pts)", ordinal(i), p.name, p.run.perf, money(prize), tostring(pts)))
   end
@@ -1361,6 +1423,7 @@ finishEvent = function()
     if p.run.status == "dsq" then st = "DSQ (" .. (p.run.dsqReason or "towed") .. ")" end
     p.results[game.stage] = { perf = st, prize = 0, points = 0 }
     sayAll(string.format("--   %s - %s", p.name, st))
+    if p.run.status ~= "dsq" then playSound("out", p) end   -- towed/respawned drivers heard it at the time
   end
   cleanupEventVehicles()
   if e.type == "fragile" then
@@ -1392,6 +1455,7 @@ beginWorkshop = function()
     "The parts menu is unlocked: parts are charged as you fit them (plus %s labour once). Paint, cosmetics and tuning are free.",
     tostring(cfg.workshop.minutes), money(cfg.workshop.laborFee)))
   bigAll("Workshop open")
+  playSound("workshop")
   pushAll()
   for _, p in pairs(game.players) do if p.pid then MP.TriggerClientEvent(p.pid, "tg_menu", "open") end end
 end
@@ -1540,6 +1604,7 @@ showResults = function()
   end
   if list[1] then
     bigAll(list[1].name .. " wins the Top Gear Challenge!")
+    playSound("champion", list[1])
     sayAll(string.format("%s and the %s win! Some say...", list[1].name, list[1].carName or "car"))
   end
   game.summary = buildSummary(list)
@@ -1787,6 +1852,7 @@ function TG_onVehicleReset(pid, vid, data)
   spend(p, "fines", cfg.economy.resetPenalty)
   p.recoveries = (p.recoveries or 0) + 1
   sayAll(string.format("%s pressed the reset button! -%s. That's not very Top Gear.", p.name, money(cfg.economy.resetPenalty)))
+  playSound("resetFine", p)
   pushState(p)
 end
 
@@ -1795,6 +1861,7 @@ end
 performTow = function(p, carExists)
   local ph = game.phase
   local fee = cfg.economy.towFee
+  playSound("out", p)
   p.cash = p.cash - fee
   spend(p, "towCost", fee)
   p.tows = (p.tows or 0) + 1
@@ -1921,6 +1988,13 @@ function TG_onReport(pid, data)
         game.phase == "workshop" and " in the workshop" or "", money(cost)))
       log(string.format("workshop: %s's damage dropped %d -> %d, billed repair %s", p.name, math.floor(before), math.floor(nowDmg), money(cost)))
     end
+    local ph = game.phase
+    if (ph == "travel" or ph == "countdown" or ph == "event" or ph == "finale")
+       and nowDmg - before >= (tonumber((cfg.sounds or {}).crashDamage) or 1500)
+       and not (p.lastCrashSound and now() - p.lastCrashSound < 10) then
+      p.lastCrashSound = now()
+      playSound("crash", p)
+    end
     p.damage = nowDmg
   end
   if tonumber(t.fuel) then p.fuel = tonumber(t.fuel) end
@@ -1992,7 +2066,7 @@ end
 local PLAYER_CMDS, ADMIN_CMDS = {}, {}
 
 PLAYER_CMDS.help = function(pid, name)
-  say(pid, "/tg theme (menu colours on/off) | /tg lights (show/hide to position the box) | lightstest shows the sequence | /tg flag (position the finish flag) | flagtest | Trailer event: /tg hitchup couples your trailer | /tg partsdiag shows what the game reports about your parts")
+  say(pid, "/tg theme (menu colours on/off) | /tg lights (show/hide to position the box) | lightstest shows the sequence | /tg flag (position the finish flag) | flagtest | /tg sounds on|off|list | soundtest [clip|next] | Trailer event: /tg hitchup couples your trailer | /tg partsdiag shows what the game reports about your parts")
   say(pid, "Respawn your car: /tg respawn (free at the dealership, repair price in a workshop, otherwise " ..
     money(cfg.economy.respawnFee or 2000) .. ")")
   say(pid, "Stuck? /tg unstick (free, when stopped) | /tg tow (" .. money(cfg.economy.towFee) .. ", full repair, DSQ from a running event)")
@@ -2001,6 +2075,7 @@ PLAYER_CMDS.help = function(pid, name)
   if isAdmin(name) then
     say(pid, "Admin: /tg start [force] | next (force the next phase) | stop | where | workshop <minutes> | workshopevery <n>")
     say(pid, "Traffic: /tg traffic on|off - while on, what you spawn is non-scoring traffic (any phase) and your vehicle menu is open")
+    say(pid, "Soundboard: /tg play <clip> plays it for everyone (/tg sounds list)")
     say(pid, "Faults: /tg fault test [id] (applies to your car) | fault testoff")
     say(pid, "Money: /tg budget <amount> | setcash <name> <amount> | give <name> <amount> | importprices [models] | gameprices on|off")
     say(pid, "Course: /tg setstart <n> | addcp <n> | undocp <n> | clearcp <n> | settrap <n> | settype <n> <type> | settime <n> <s>")
@@ -2145,6 +2220,7 @@ function TG_onDiag(pid, data)
     tostring(t.pathMethod or "NONE"), yn(t.gmLoaded), yn(t.gmSetPath), yn(t.gmSetFocus), yn(t.bigMap), yn(t.hasTarget)))
   say(pid, string.format("Challenge car %s -> game id %s, you're driving id %s",
     tostring(t.carId or "none"), tostring(t.carFound or "none"), tostring(t.playerVeh or "none")))
+  say(pid, "Sounds play via: " .. tostring(t.sound or "not tried yet (/tg soundtest)") .. (soundsOff[MP.GetPlayerName(pid)] and " - your sounds are OFF" or ""))
   for _, e in ipairs(t.errors or {}) do say(pid, "Client error: " .. tostring(e)) end
 end
 
@@ -2319,6 +2395,7 @@ PLAYER_CMDS.respawn = function(pid)
   local extra = ""
   if (ph == "event" or ph == "countdown") and (p.run.status == "running" or p.run.status == "staged" or p.run.status == "waiting") then
     p.run.status, p.run.dsqReason = "dsq", "respawned"
+    playSound("out", p)
     extra = " - disqualified from " .. curEvent().name
   elseif ph == "finale" then
     p.finaleRebuilt = true
@@ -2376,6 +2453,42 @@ PLAYER_CMDS.lightstest = function(pid)
   say(pid, "Starting lights test - watch the top of the screen.")
 end
 
+PLAYER_CMDS.sounds = function(pid, name, args)
+  local want = (args[3] or ""):lower()
+  if want == "list" then
+    say(pid, "Clips: " .. table.concat((cfg.sounds or {}).clips or {}, ", ")); return
+  end
+  local off
+  if want == "off" then off = true elseif want == "on" then off = false else off = not soundsOff[name] end
+  soundsOff[name] = off or nil
+  say(pid, off and "Sounds OFF for you. /tg sounds on to hear them again." or "Sounds ON. /tg soundtest plays one to check you can hear it.")
+end
+
+PLAYER_CMDS.soundtest = function(pid, _, args)
+  local arg = (args[3] or ""):lower()
+  local clips = (cfg.sounds or {}).clips or {}
+  if #clips == 0 then say(pid, "No sound clips are configured."); return end
+  if arg == "next" then
+    MP.TriggerClientEvent(pid, "tg_sound", Util.JsonEncode({ clip = clips[1], test = true, cycle = true }))
+    return
+  end
+  if arg ~= "" and not knownClip(arg) then say(pid, "No clip '" .. arg .. "'. /tg sounds list shows them."); return end
+  local clip = arg ~= "" and arg or (knownClip("speed-and-power") and "speed-and-power" or clips[1])
+  sendSound(pid, clip, true)   -- a test plays even when your sounds are off
+end
+
+function TG_onSoundReport(pid, data)
+  local ok, t = pcall(Util.JsonDecode, data)
+  if not ok or type(t) ~= "table" then return end
+  log(string.format("sound test by %s: %s", tostring(MP.GetPlayerName(pid)), tostring(data)))
+  if t.method then
+    say(pid, string.format("Played '%s' via %s. Not hearing it? /tg soundtest next tries the next way of playing sounds (%s of %s).",
+      tostring(t.clip), tostring(t.method), tostring(t.index or "?"), tostring(t.count or "?")))
+  else
+    say(pid, "Your game couldn't play the sound: " .. tostring(t.err) .. ". /tg soundtest next tries another way.")
+  end
+end
+
 PLAYER_CMDS.flag = function(pid)
   MP.TriggerClientEvent(pid, "tg_flagpin", "")
   say(pid, "Finish flag box toggled - drag it where you want it (its title bar), then /tg flag again to hide it.")
@@ -2397,6 +2510,14 @@ end
 ADMIN_CMDS.start = function(pid, _, args)
   if game.phase ~= "idle" then say(pid, "Already running - /tg stop first."); return end
   startGame(pid, args[3] == "force")
+end
+
+ADMIN_CMDS.play = function(pid, _, args)
+  local clip = (args[3] or ""):lower()
+  if not knownClip(clip) then say(pid, "Usage: /tg play <clip> - /tg sounds list shows them."); return end
+  for qpid, qname in pairs(MP.GetPlayers() or {}) do
+    if not soundsOff[qname] then sendSound(qpid, clip) end
+  end
 end
 
 ADMIN_CMDS.traffic = function(pid, name, args)
@@ -3092,6 +3213,7 @@ local function buildUi(pid)
     workshopMinutes = cfg.workshop.minutes,
     gamePrices = cfg.dealer.useGamePrices and true or false, allHere = game.allHere and true or false,
     traffic = inTrafficMode(name),
+    soundsOn = not soundsOff[name], soundClips = (cfg.sounds or {}).clips or {},
   }
   if p then
     d.me = {
@@ -3170,6 +3292,7 @@ end
 ---------------------------------------------------------------------------
 -- Init (runs when the plugin loads)
 ---------------------------------------------------------------------------
+pcall(function() math.randomseed(os.time()) end)   -- Lua 5.3 doesn't seed itself: vary the random sound picks
 loadConfig()
 courseDirty = cfg.courseDirty == true
 loadLibrary()
@@ -3193,6 +3316,7 @@ MP.RegisterEvent("tg_revert_report",   "TG_onRevertReport")
 MP.RegisterEvent("tg_trailersave_reply", "TG_onTrailerSave")
 MP.RegisterEvent("tg_gas_reply",       "TG_onGasStations")
 MP.RegisterEvent("tg_partsdiag_reply", "TG_onPartsDiag")
+MP.RegisterEvent("tg_sound_report",    "TG_onSoundReport")
 MP.RegisterEvent("tg_tick",            "TG_onTick")
 MP.CreateEventTimer("tg_tick", TICK_MS)
 if #cfg.admins == 0 then log("WARNING: no admins set in config.json - everyone can run admin commands") end

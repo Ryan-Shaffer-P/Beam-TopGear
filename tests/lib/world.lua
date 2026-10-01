@@ -204,6 +204,19 @@ function World:loadClient(p)
   sb.set("String", function(s) return s end)
   sb.set("debugDrawer", { drawCylinder = function() end, drawTextAdvanced = function() end, drawSphere = function() end })
   sb.set("ui_imgui", im)
+  -- sound: records what played; the clip file must exist in the client mod (a typo'd clip id fails loudly)
+  c.sounds, c.audioBroken = {}, false
+  local function clipFile(path)
+    local rel = path:gsub("^/", "")
+    local f = io.open(CLIENT_DIR .. rel, "rb")
+    if not f then error("sound file not found: " .. path) end
+    f:close()
+    return rel:match("([^/]+)%.ogg$")
+  end
+  sb.set("Engine", { Audio = { playOnce = function(channel, path)
+    if c.audioBroken then error("Engine.Audio unavailable") end
+    c.sounds[#c.sounds + 1] = { clip = clipFile(path), via = "audio", channel = channel }
+  end } })
   sb.set("getCurrentLevelIdentifier", function() return "west_coast_usa" end)
   sb.set("scenetree", { findObject = function() return nil end, findClassObjects = function() return {} end })
   sb.declare("spawn", "freeroam_bigMapMode", "freeroam_facilities", "MPGameNetwork", "serialize", "setExtensionUnloadMode")
@@ -231,6 +244,10 @@ function World:loadClient(p)
     return nil
   end
   function be:enterVehicle(_, obj) if obj and obj.veh then p.current = obj.veh end end
+  function be:executeJS(js)
+    local path = js:match('new Audio%("local://local(.-)"%)')
+    c.sounds[#c.sounds + 1] = { clip = path and clipFile(path), via = "js", js = js }
+  end
   sb.set("be", be)
   sb.set("map", { objects = setmetatable({}, { __index = function(_, gid)
     for _, v in pairs(p.vehicles) do if v.gid == gid then return { damage = v.damage } end end
@@ -624,6 +641,13 @@ function World:waitFor(cond, maxSeconds, what)
   end
 end
 
+-- the clip ids this player's game has played so far (in order)
+function World:heard(p)
+  local out = {}
+  for _, snd in ipairs(p.client.sounds) do out[#out + 1] = snd.clip end
+  return out
+end
+
 -- did the game show this player a centre-screen message containing `text`? (ui_message)
 function World:sawMessage(p, text)
   for _, m in ipairs(p.client.messages) do if m.msg:find(text, 1, true) then return true end end
@@ -690,7 +714,7 @@ function World:problems()
   local out = {}
   for _, e in ipairs(self.errors) do out[#out + 1] = e end
   for _, line in ipairs(self.console) do
-    if line:find("error", 1, true) or line:find("FAILED", 1, true) then out[#out + 1] = "server console: " .. line end
+    if line:find("error:", 1, true) or line:find("FAILED", 1, true) then out[#out + 1] = "server console: " .. line end
   end
   for _, p in pairs(self.players) do
     local c = p.client

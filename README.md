@@ -206,6 +206,37 @@ next leg → … → finale → standings.
 Admin `/tg next` forces the current phase to end (e.g. someone is stuck: players who
 haven't arrived get a DNS). `/tg stop` cancels everything.
 
+### Sound bites
+
+Top Gear clips play at key moments. Who hears each one:
+
+| Moment | Clip(s) (one picked at random) | Who hears it |
+|---|---|---|
+| Challenge starts | top-gear-theme-intro | everyone |
+| GO (every run in time trial mode) | speed-and-power, poweeerr-jeremy-clarkson | everyone |
+| You complete a run | happy-yes, grunt-yes | you |
+| You win an event | jeremy-clarkson-yeeeeeesss | you |
+| ...someone else wins | yes-no-yes | everyone else |
+| DNF / DNS, a tow, a respawn that disqualifies you | oh-no-anyway | you |
+| Someone is fined for an illegal reset | oh-for-gods-sake, jeremy-clarkson-oh-for-gods-sake | everyone |
+| A crash (1,500+ damage at once) | oh-cock-james-may, clarkson-poop-shot-out | players within 100 m |
+| Fastest through the speed trap so far | poweeerr-jeremy-clarkson | everyone |
+| Workshop opens | james-may-says-cheese | everyone |
+| Final results | clarksooon, jeremy-clarkson-yeeeeeesss | everyone |
+
+- **`/tg sounds off`** / **`on`** (or the **Sounds** button on the Status page) mutes them for you.
+- **`/tg soundtest [clip]`** plays one to you (even when muted) and says which way your game played it.
+  **Can't hear it?** `/tg soundtest next` switches to the next way of playing sounds - there are three,
+  because which one works depends on the BeamNG version. `/tg diag` shows the one in use.
+- **Soundboard (admins):** the Admin tab's **Soundboard** has a button per clip, or `/tg play <clip>`;
+  it plays for everyone who hasn't muted sounds. `/tg sounds list` lists the clips.
+- **Change it in `config.json` under `sounds`:** each moment in `events` has `to` (`all`, `self` = the
+  driver it's about, `others` = everyone but them, `near` = within `nearRadius` metres) and `clips`;
+  `crashDamage` sets what counts as a crash, and `"enabled": false` switches all sounds off.
+- **Adding clips:** put the `.mp3` in `MP3s/`, run `tools/convert-sounds.sh` (converts them to `.ogg`
+  in the client mod with matched loudness, using Docker), add the clip's name to `sounds.clips`, and
+  rebuild the client zip. The name is the file name without `.mp3` and any `_XXXXXXX` download tag.
+
 ### Adding traffic (admins)
 
 `/tg traffic on` (or **Traffic mode** under Admin controls on the Status page) is a pause button on
@@ -222,7 +253,7 @@ rules back; the traffic you placed stays on the map.
 - Every traffic vehicle uses one of your vehicle slots: raise `MaxCars` in ServerConfig.toml.
 - `/tg start` clears everyone's vehicles, so add traffic after starting.
 
-Player commands: `/tg menu`, `/tg go`, `/tg unstick`, `/tg tow`, `/tg respawn`, `/tg hitchup`, `/tg flag`, `/tg flagtest`, `/tg status`, `/tg dealer`, `/tg quote`, `/tg repair` (workshop only),
+Player commands: `/tg menu`, `/tg go`, `/tg unstick`, `/tg tow`, `/tg respawn`, `/tg hitchup`, `/tg flag`, `/tg flagtest`, `/tg sounds on|off|list`, `/tg soundtest [clip|next]`, `/tg status`, `/tg dealer`, `/tg quote`, `/tg repair` (workshop only),
 `/tg standings`, `/tg join` (late joiners during the dealership).
 
 ## Rules as implemented
@@ -375,5 +406,5 @@ internals that change between game versions; each is wrapped so failure is logge
 ## Rebuilding the client zip
 
 ```
-cd client && rm -f ../Resources/Client/topgear.zip && zip -r ../Resources/Client/topgear.zip lua scripts -x '*luac.out' '*.DS_Store'
+cd client && rm -f ../Resources/Client/topgear.zip && zip -r ../Resources/Client/topgear.zip lua scripts art -x '*luac.out' '*.DS_Store'
 ```
