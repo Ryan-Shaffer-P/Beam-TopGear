@@ -406,12 +406,81 @@ run("body", function(amount)   -- extra damage on the damage meter (a reset clea
   tgFaults.body = amount
   out.body = amount and "ok" or "removed"
 end)
+local function devicesOfType(t)
+  local list = {}
+  if powertrain and powertrain.getDevices then
+    for _, d in pairs(powertrain.getDevices()) do if type(d) == "table" and d.type == t then list[#list + 1] = d end end
+  end
+  return list
+end
+run("starter", function(f)   -- a weak starter: slow cranking before the engine catches
+  if not eng or type(eng.starterTorque) ~= "number" then out.starter = "unavailable"; return end
+  tgFaults.starterOrig = tgFaults.starterOrig or eng.starterTorque
+  eng.starterTorque = tgFaults.starterOrig * (f or 1)
+  tgFaults.starter = f
+  out.starter = f and "ok" or "removed"
+end)
+run("clutch", function(on)   -- the clutch's own "permanently overheated" state: it slips (manual gearboxes)
+  local clutches = devicesOfType("frictionClutch")
+  if #clutches == 0 then out.clutch = "unavailable"; return end
+  for _, d in ipairs(clutches) do d.clutchPermanentlyDamaged = on and true or false end
+  tgFaults.clutch = on
+  out.clutch = on and "ok" or "removed"
+end)
+run("synchros", function(wear)   -- worn synchros grind on quick shifts (manual gearboxes)
+  local n = 0
+  for _, d in ipairs(devicesOfType("manualGearbox")) do
+    if type(d.synchroWear) == "table" and type(d.gearRatios) == "table" then
+      for i in pairs(d.gearRatios) do
+        if wear then d.synchroWear[i] = math.max(d.synchroWear[i] or 0, wear) else d.synchroWear[i] = 0 end
+      end
+      n = n + 1
+    end
+  end
+  if n == 0 then out.synchros = "unavailable"; return end
+  tgFaults.synchros = wear
+  out.synchros = wear and "ok" or "removed"
+end)
+run("turbo", function(amount)   -- the turbo's own damage (turbo cars; a reset repairs it)
+  local tc = eng and eng.turbocharger
+  if not (tc and tc.isExisting and tc.applyDeformGroupDamage) then out.turbo = "unavailable"; return end
+  local cur, target = afterReset and 0 or (tgFaults.turbo or 0), amount or 0
+  if math.abs(target - cur) > 1e-9 then tc.applyDeformGroupDamage(target - cur) end
+  tgFaults.turbo = amount
+  out.turbo = amount and "ok" or "removed"
+end)
+run("brakefade", function(g)   -- glazed pads: weaker and worse when hot (topped up from the game side)
+  local n = 0
+  if wheels and wheels.wheels then
+    for _, wd in pairs(wheels.wheels) do
+      if type(wd) == "table" and type(wd.padGlazingFactor) == "number" then wd.padGlazingFactor = g or 0; n = n + 1 end
+    end
+  end
+  if n == 0 then out.brakefade = "unavailable"; return end
+  tgFaults.brakefade = g
+  out.brakefade = g and "ok" or "removed"
+end)
+run("abs", function(on)   -- ABS switched off
+  if not (wheels and wheels.setABSBehavior) then out.abs = "unavailable"; return end
+  if on then wheels.setABSBehavior("off") elseif wheels.resetABSBehavior then wheels.resetABSBehavior() end
+  tgFaults.abs = on
+  out.abs = on and "ok" or "removed"
+end)
+run("oilleak", function(f)   -- more engine friction: runs hot, a little less power (the blow-up is timed from the game side)
+  if not eng or type(eng.damageFrictionCoef) ~= "number" then out.oilleak = "unavailable"; return end
+  local cur, target = afterReset and 1 or (tgFaults.oilMult or 1), 1 + (f or 0)
+  eng.damageFrictionCoef = eng.damageFrictionCoef / cur * target
+  tgFaults.oilMult = f and target or nil
+  tgFaults.oilleak = f
+  out.oilleak = f and "ok" or "removed"
+end)
 local parts = {}
 for k, v in pairs(out) do parts[#parts + 1] = '"' .. k .. '":"' .. tostring(v):gsub('[%%c"\\%%]%%[]', ' ') .. '"' end
 obj:queueGameEngineLua("extensions.topgear.onVehicleFaultReport([[{" .. table.concat(parts, ",") .. "}]])")
 ]==]
 
-local PHYSICS = { engine = true, brakes = true, ignition = true, cooling = true, fuelleak = true, body = true }
+local PHYSICS = { engine = true, brakes = true, ignition = true, cooling = true, fuelleak = true, body = true,
+                  starter = true, clutch = true, synchros = true, turbo = true, brakefade = true, abs = true, oilleak = true }
 
 local function sendFaultReport()
   if not faults.report then return end
@@ -629,6 +698,7 @@ local function onFaults(data)
   faults.restore = type(t.restore) == "table" and t.restore or {}
   faults.test = t.test and true or false
   faults.active = next(faults.want) ~= nil or next(faults.restore) ~= nil
+  if faults.test or not (faults.want.oilleak and faults.want.oilleak.doomed) then faults.oilBlown, faults.blowAt = false, nil end
   faults.report = true
   faults.applyAt = 0.5   -- let a fresh purchase finish spawning first
 end
@@ -644,6 +714,20 @@ if energyStorage and energyStorage.getStorages then
   end
 end
 ]]
+-- glazed pads: keep them glazed (the game may let glazing recover as the brakes cool)
+local GLAZE_VLUA = [[
+local g = %f
+if wheels and wheels.wheels then
+  for _, wd in pairs(wheels.wheels) do
+    if type(wd) == "table" and type(wd.padGlazingFactor) == "number" then wd.padGlazingFactor = math.max(wd.padGlazingFactor, g) end
+  end
+end
+]]
+-- a doomed engine lets go: BeamNG's own engine failure (the state oil starvation ends in)
+local BLOW_VLUA = [[
+local e = powertrain and powertrain.getDevice and powertrain.getDevice("mainEngine")
+if e and e.lockUp then e:lockUp() end
+]]
 local LEAK_PHASES = { travel = true, countdown = true, event = true, finale = true }
 local CUTOUT_PHASES = { travel = true, event = true, finale = true }   -- never during a countdown
 
@@ -658,6 +742,35 @@ local function updateTimedFaults(dt)
       faults.leakT = 0
       local car = getCar()
       if car then pcall(function() car:queueLuaCommand(string.format(LEAK_VLUA, litres)) end) end
+    end
+  end
+  local glaze = faults.want.brakefade
+  if glaze and faults.results.brakefade == "ok" then
+    faults.glazeT = (faults.glazeT or 0) + dt
+    if faults.glazeT >= 10 then
+      faults.glazeT = 0
+      local car = getCar()
+      if car then pcall(function() car:queueLuaCommand(string.format(GLAZE_VLUA, tonumber(glaze.factor) or 1)) end) end
+    end
+  end
+  local oil = faults.want.oilleak
+  if oil and oil.doomed and faults.results.oilleak == "ok" and not faults.oilBlown and (faults.test or CUTOUT_PHASES[state.phase]) then
+    local car = getCar()
+    local fast = true   -- only hard driving counts (about 54 km/h and up); if the speed can't be read, all driving does
+    pcall(function() fast = vec3(car:getVelocity()):length() > 15 end)
+    if car and fast then
+      if not faults.blowAt then
+        local lo, hi = tonumber(oil.blowMin) or 60, tonumber(oil.blowMax) or 600
+        if faults.test then lo, hi = 20, 40 end
+        faults.blowAt = lo + math.random() * math.max(0, hi - lo)
+      end
+      faults.blowAt = faults.blowAt - dt
+      if faults.blowAt <= 0 then
+        faults.blowAt, faults.oilBlown = nil, true
+        pcall(function() car:queueLuaCommand(BLOW_VLUA) end)
+        ui_message("BANG! Your engine has let go. That's a tow.", 6, "tg_msg", "warning")
+        if TriggerServerEvent and not faults.test then TriggerServerEvent("tg_engine_blown", "") end
+      end
     end
   end
   local ign = faults.want.ignition
@@ -682,7 +795,8 @@ local function updateTimedFaults(dt)
 end
 
 local function updateFaults(dt)
-  pcall(updateTimedFaults, dt)
+  local okT, errT = pcall(updateTimedFaults, dt)
+  if not okT and not faults.timedErrored then faults.timedErrored = true; warn("timed faults: " .. tostring(errT)) end
   if faults.applyAt then
     faults.applyAt = faults.applyAt - dt
     if faults.applyAt <= 0 then faults.applyAt = nil; applyConfigFaults() end

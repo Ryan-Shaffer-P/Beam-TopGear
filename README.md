@@ -386,6 +386,13 @@ and they're drawn again for the next one). Then:
 | suspension | Worn-out suspension | springs and dampers at their softest; on cars without adjustable suspension the anti-roll bars come off |
 | fuelleak | Fuel leak | 0.5 litres a minute drains from the tank on the road (it matters in the economy run) |
 | body | Accident damage | the car starts with 3,000 damage (repair costs, drivability) and some broken lights and glass; fixing the fault removes the dents |
+| starter | Weak starter | the starter motor has a third of its strength: slow cranking before the engine catches (nasty with the ignition fault) |
+| clutch | Slipping clutch | the clutch's own "permanently overheated" state: drive slips away under hard acceleration (manual gearboxes) |
+| synchros | Worn gearbox synchros | every gear's synchro 80% worn: gears grind and fight you on quick shifts (manual gearboxes) |
+| turbo | Damaged turbo | the turbo's own damage: less boost, less power (turbo cars) |
+| brakefade | Glazed brake pads | fully glazed pads: the brakes squeal, are weaker and fade more as they heat up |
+| abs | ABS failure | ABS switched off: the wheels lock under hard braking |
+| oilleak | Oil leak | the engine runs hot with more friction and a little less power - and there's a **20% chance it's doomed**: a doomed engine lets go (seizes) after 1-10 minutes of hard driving (above ~54 km/h), on a leg, in an event or on the final leg. That's a tow; the leak stays, but that engine can't blow again. Nobody knows whether theirs is doomed - the workshop just says "oil leak" - and fixing it removes the risk. |
 
 **Every car is different.** If a drawn fault can't be applied to your car (no adjustable alignment,
 an electric car with no fuel tank...), it's quietly swapped for another - nothing to hand back - and
@@ -395,8 +402,9 @@ the server remembers it for that car, so it isn't drawn for it again. Admins: `/
 
 Everything is in `config.json` under `faults`: `payout`, `maxPerCar`, `fixMultiplier`,
 `inspectionPenaltyPoints`, and per fault `factor` (severity), `enabled` (false leaves it out of the
-draw) and for ignition `cutoutMin`/`cutoutMax` (seconds between cut-outs). Saved configs from before
-0.8.8 get the ten faults automatically (custom severities and switched-off faults are kept).
+draw), for ignition `cutoutMin`/`cutoutMax` (seconds between cut-outs) and for the oil leak
+`blowChance` (0.2) and `blowMin`/`blowMax` (seconds of hard driving before a doomed engine goes). Saved configs from before
+0.8.8 get all seventeen faults automatically (custom severities and switched-off faults are kept).
 Setup faults (tires, alignment, bumpers, suspension) respawn the car when applied or fixed; the
 others run inside the car and are re-applied after every reset or respawn. Putting bumpers back or
 re-inflating tires via the parts/tuning menus doesn't work - the faults go straight back on.
@@ -411,11 +419,12 @@ error for each. `/tg fault testoff` removes them. Drive it and check each fault 
 Commands: `/tg faults` (what you've taken, and the rules), `/tg fault take [how many]` (dealership),
 `/tg fix <id>` (workshop, once diagnosed). Admins: `/tg fault test [id]`, `/tg fault testoff`, `/tg fault caps`.
 
-**Check the new faults on your game version:** ignition, cooling, fuel leak and accident damage use
-BeamNG functions that couldn't be tried outside the game. `/tg fault test <id>` on your own car
+**Check the new faults on your game version:** everything after the first five uses BeamNG
+functions that couldn't be tried outside the game. `/tg fault test <id>` on your own car
 reports ok / unavailable / error for each - then drive it and check you can feel it. Each **Test**
 button in the Admin tab tries one fault (the previous test fault comes off); test faults act any time,
 so the fuel leak drains and the ignition fault cuts the engine within 15-30 s even with no challenge running.
+A test oil leak is always doomed and lets go after 20-40 s of hard driving, so you can see it happen.
 
 ## Calibrating
 

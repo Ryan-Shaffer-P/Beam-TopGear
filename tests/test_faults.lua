@@ -6,7 +6,8 @@ local F = require("fixtures")
 local p = F.p
 
 -- the draw order is the fault list's order, minus faults already drawn / known not to fit the car
-local ORDER = { "tires", "alignment", "bumpers", "engine", "brakes", "ignition", "cooling", "suspension", "fuelleak", "body" }
+local ORDER = { "tires", "alignment", "bumpers", "engine", "brakes", "ignition", "cooling", "suspension", "fuelleak", "body",
+                "starter", "clutch", "synchros", "turbo", "brakefade", "abs", "oilleak" }
 local function pin(w, ids, exclude)
   local gone, rolls = {}, {}
   for _, x in ipairs(exclude or {}) do gone[x] = true end
@@ -225,7 +226,7 @@ t.test("saved configs with the old 5-fault menu get the 10 faults and the single
     { id = "brakes", name = "Brakes", payout = 3600, factor = 0.6 } } }
   local w = World.new({ files = F.files(F.config({}, { faults = old })) })
   local fl = w:serverConfig().faults
-  t.eq(#fl.list, 10)
+  t.eq(#fl.list, 17)
   t.eq(fl.payout, 2500)
   t.eq(fl.maxPerCar, 4, "the old limit of 3 becomes 4")
   local byId = {}
@@ -311,7 +312,9 @@ t.test("admin fault test: a button per fault, and the timed faults act outside a
   w:chat(A, "/tg menu"); w:step(2.5)
   for _, name in ipairs({ "Worn, underinflated tires", "Knocked-out wheel alignment", "Missing bumpers", "Tired engine (about -20% power)",
       "Worn brakes (about -40% braking)", "Ignition problems (misfires, cuts out)", "Cooling problems (leaking radiator)",
-      "Worn-out suspension (soft and bouncy)", "Fuel leak", "Accident damage (dents, broken lights)" }) do
+      "Worn-out suspension (soft and bouncy)", "Fuel leak", "Accident damage (dents, broken lights)",
+      "Weak starter (slow to start)", "Slipping clutch", "Worn gearbox synchros (gears grind)", "Damaged turbo (low boost)",
+      "Glazed brake pads (squeal, fade when hot)", "ABS failure (wheels lock)", "Oil leak (runs hot - might blow the engine)" }) do
     t.ok(A.client.im.hasButton("Test: " .. name), "Test button for " .. name)
   end
   -- no challenge running: an admin tests on any car
@@ -330,4 +333,108 @@ t.test("admin fault test: a button per fault, and the timed faults act outside a
   w:step(32)
   t.ok(A.current.stalls >= 1, "the test ignition fault cuts out within 30 s")
   w:assertClean()
+end)
+
+-- the seven faults added in the second round -----------------------------------------------------
+t.test("starter, clutch, synchros, ABS on a manual car; turbo on a turbo car; ones a car can't take get swapped", function()
+  local w = World.new({ files = F.files(F.twoRaces()) })
+  local A, B = w:join("Alice"), w:join("Bob")
+  w:chat(A, "/tg start")
+  w:buy(A, "covet", "base_M")        -- manual, no turbo
+  w:buy(B, "pessima", "base_M")      -- automatic, turbo
+  pin(w, { "starter", "clutch", "synchros", "abs" }); w:chat(A, "/tg fault take 4")
+  -- Bob draws a clutch and synchros (no manual gearbox: swapped) and a turbo; the swaps are pinned to brakefade/oilleak
+  pin(w, { "clutch", "synchros", "turbo", "brakefade", "oilleak" })
+  w.chances = { 0.9 }                -- (oil leak: this engine isn't doomed)
+  w:chat(B, "/tg fault take 3")
+  w:step(15)
+  local a, b = A.current, B.current
+  t.ok(math.abs(a.engine.starterTorque - 35) < 1e-9, "weak starter")
+  t.eq(a.devices.clutch.clutchPermanentlyDamaged, true, "slipping clutch")
+  t.eq(a.devices.gearbox.synchroWear[2], 0.8, "worn synchros")
+  t.eq(a.abs, "off", "no ABS")
+  t.ok(math.abs(b.turboDamage - 0.02) < 1e-9, "damaged turbo")
+  t.eq(b.wheels[0].padGlazingFactor, 1, "glazed pads")
+  t.ok(math.abs(b.engine.damageFrictionCoef - 1.5) < 1e-9, "oil leak: engine friction up")
+  w:chat(A, "/tg fault caps")
+  t.ok(w:chatHas(A, "pessima/base_M: works brakefade, oilleak, turbo | can't take clutch, synchros"))
+
+  w:chat(A, "/tg ready"); w:chat(B, "/tg ready")
+  w:step(20)
+  w:resetCar(A); w:resetCar(B); w:step(3)   -- a reset repairs all of that... and the faults go back on
+  t.eq(a.devices.clutch.clutchPermanentlyDamaged, true); t.eq(a.devices.gearbox.synchroWear[2], 0.8); t.eq(a.abs, "off")
+  t.ok(math.abs(b.turboDamage - 0.02) < 1e-9 and math.abs(b.engine.damageFrictionCoef - 1.5) < 1e-9, "turbo + oil, not stacked")
+  t.eq(b.wheels[0].padGlazingFactor, 1)
+  b.wheels[0].padGlazingFactor = 0.3        -- the game lets the glazing recover a little...
+  w:step(11)
+  t.eq(b.wheels[0].padGlazingFactor, 1, "...and the fault tops it back up")
+  w:assertClean()
+end)
+
+local function oilCar(w, A, chance)
+  w:chat(A, "/tg start")
+  w:buy(A, "covet", "base_M")
+  pin(w, { "oilleak" }); w.chances = { chance }
+  w:chat(A, "/tg fault take")
+  w:step(10)
+  w:chat(A, "/tg ready")
+end
+local function hardDriving(w, A, seconds, speed)
+  A.current.vel = { x = speed or 25, y = 0, z = 0 }   -- (the server only reads speed here; the car stays put)
+  w:step(seconds)
+  A.current.vel = { x = 0, y = 0, z = 0 }
+end
+
+t.test("oil leak, doomed (the 20%): the engine lets go after hard driving, once - a tow fixes it for good", function()
+  local w = World.new({ files = F.files(F.twoRaces()) })
+  local A = w:join("Alice")
+  oilCar(w, A, 0.1)                   -- 0.1 < 0.2: doomed
+  local B = w:join("Bob")             -- (joins after the start: a spectator)
+  hardDriving(w, A, 20, 10)           -- gentle driving doesn't count
+  hardDriving(w, A, 300, 10)
+  t.eq(A.current.engine.isBroken, false, "not at 36 km/h")
+  hardDriving(w, A, 610)              -- 60-600 s of hard driving
+  t.eq(A.current.engine.isBroken, true, "the engine has seized")
+  t.ok(w:sawMessage(A, "BANG! Your engine has let go. That's a tow."))
+  t.ok(w:chatHas(B, "Alice's engine has let go! That's a tow."))
+  w:chat(A, "/tg tow"); w:step(5)
+  t.eq(A.current.engine.isBroken, false, "the tow fixes the engine")
+  t.ok(math.abs(A.current.engine.damageFrictionCoef - 1.5) < 1e-9, "the leak is still there")
+  hardDriving(w, A, 700)
+  t.eq(A.current.engine.isBroken, false, "and it can't blow again")
+  w:assertClean()
+end)
+
+t.test("oil leak, not doomed (the 80%): runs hot, never blows", function()
+  local w = World.new({ files = F.files(F.twoRaces()) })
+  local A = w:join("Alice")
+  oilCar(w, A, 0.5)                   -- 0.5 >= 0.2: just a leak
+  hardDriving(w, A, 700)
+  t.eq(A.current.engine.isBroken, false)
+  t.ok(math.abs(A.current.engine.damageFrictionCoef - 1.5) < 1e-9)
+  w:assertClean()
+end)
+
+t.test("oil leak test button: that engine blows within 40 s of hard driving, so admins can see it", function()
+  local w = World.new()
+  local A = w:join("Alice")
+  w:clientSpawn(A, "covet", { config = "vehicles/covet/base_M.pc" }); w:pump()
+  w:chat(A, "/tg fault test oilleak")
+  w:step(3)
+  t.ok(w:chatHas(A, "Fault test - oilleak: ok"))
+  hardDriving(w, A, 42)
+  t.eq(A.current.engine.isBroken, true)
+  w:assertClean()
+end)
+
+t.test("saved configs with the 10 faults get the 7 new ones added", function()
+  local ten = {}
+  for _, id in ipairs({ "tires", "alignment", "bumpers", "engine", "brakes", "ignition", "cooling", "suspension", "fuelleak", "body" }) do
+    ten[#ten + 1] = { id = id, name = id, factor = 0.5 }
+  end
+  local w = World.new({ files = F.files(F.config({}, { faults = { list = ten }, migrations = { faults10 = true, tires30 = true } })) })
+  local fl = w:serverConfig().faults.list
+  t.eq(#fl, 17)
+  t.eq(fl[1].factor, 0.5, "existing faults untouched")
+  t.eq(fl[17].id, "oilleak"); t.eq(fl[17].blowChance, 0.2)
 end)

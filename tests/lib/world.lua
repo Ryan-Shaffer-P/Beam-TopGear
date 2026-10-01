@@ -25,10 +25,10 @@ World.__index = World
 
 -- default model catalogue for core_vehicles.getModel (price import) and spawn configs
 local MODELS = {
-  covet   = { brand = "Ibishu",  name = "Covet",   configs = { base_M = 4200, sport_M = 7800, gtz_M = 14000 }, adjustable = true },
-  pessima = { brand = "Ibishu",  name = "Pessima", configs = { base_M = 3900, gl_A = 5100 }, adjustable = true },
-  pickup  = { brand = "Gavril",  name = "D-Series", configs = { d15_M = 6800, d35_A = 12500 } },
-  miramar = { brand = "Ibishu",  name = "Miramar", configs = { base_M = 3100 }, noFuelTank = true, noThermals = true },
+  covet   = { brand = "Ibishu",  name = "Covet",   configs = { base_M = 4200, sport_M = 7800, gtz_M = 14000 }, adjustable = true, manual = true },
+  pessima = { brand = "Ibishu",  name = "Pessima", configs = { base_M = 3900, gl_A = 5100 }, adjustable = true, turbo = true },
+  pickup  = { brand = "Gavril",  name = "D-Series", configs = { d15_M = 6800, d35_A = 12500 }, manual = true },
+  miramar = { brand = "Ibishu",  name = "Miramar", configs = { base_M = 3100 }, noFuelTank = true, noThermals = true, manual = true },
   tsfb    = { brand = "",        name = "Small flatbed trailer", configs = { base = 900 } },
   cones   = { brand = "",        name = "Cones", configs = { base = 10 } },
 }
@@ -118,7 +118,7 @@ function World:loadServer()
     JsonPrettify = function(s) return s end,
   })
   sb.set("FS", { Exists = function(p) return w.files[p] ~= nil end })
-  w.rolls = {}
+  w.rolls, w.chances = {}, {}
   sb.set("math", setmetatable({ random = function(a, b)
     if a and not b and #w.rolls > 0 then
       local r = table.remove(w.rolls, 1)
@@ -126,6 +126,7 @@ function World:loadServer()
       return r
     end
     if b then return math.random(a, b) elseif a then return math.random(a) end
+    if #w.chances > 0 then return table.remove(w.chances, 1) end
     return math.random()
   end }, { __index = math }))
 
@@ -422,6 +423,7 @@ local function makeObj(w, p, v)
   function obj:getDirectionVector() return vecmath.dirFromQuat(vecmath.quatFromYaw(v.yaw or 0)) end
   function obj:getDirectionVectorUp() return v.upsideDown and vec3(0, 0, -1) or vec3(0, 0, 1) end
   function obj:getRotation() return vecmath.quatFromYaw(v.yaw or 0) end
+  function obj:getVelocity() return vec3(v.vel) end
   function obj:getJBeamFilename() return v.model end
   function obj:queueLuaCommand(code) w:runVehicleLua(p, v, code) end
   function obj:setPositionRotation(x, y, z, qx, qy, qz, qw)
@@ -558,13 +560,26 @@ function World:freshPhysics(p, v)
   buildNodes(v)
   v.damage = 0
   local traits = w.models[v.model] or {}
-  v.engine = { outputTorqueState = 1, slowIgnitionErrorChance = 0.01, fastIgnitionErrorChance = 0.01 }
+  v.engine = { type = "combustionEngine", outputTorqueState = 1, slowIgnitionErrorChance = 0.01, fastIgnitionErrorChance = 0.01,
+               starterTorque = 100, damageFrictionCoef = 1, isBroken = false,
+               lockUp = function(e) e.isBroken, e.outputTorqueState = true, 0 end }
+  v.turboDamage, v.abs, v.devices = 0, "realistic", { mainEngine = v.engine }
+  if traits.turbo then
+    v.engine.turbocharger = { isExisting = true, applyDeformGroupDamage = function(a) v.turboDamage = v.turboDamage + a end }
+  else
+    v.engine.turbocharger = { isExisting = false }
+  end
+  if traits.manual then
+    v.devices.clutch = { type = "frictionClutch", clutchPermanentlyDamaged = false }
+    v.devices.gearbox = { type = "manualGearbox", gearRatios = { [-1] = -3.5, [0] = 0, [1] = 3.5, [2] = 2.1, [3] = 1.4, [4] = 1.0 },
+                          synchroWear = { [-1] = 0, [0] = 0, [1] = 0, [2] = 0, [3] = 0, [4] = 0 } }
+  end
   v.radiatorDamage, v.ignition, v.stalls, v.broken = 0, 3, v.stalls or 0, {}
   if not traits.noThermals then
     v.engine.thermals = { applyDeformGroupDamageRadiator = function(a) v.radiatorDamage = v.radiatorDamage + a end }
   end
   v.wheels = {}
-  for i = 0, 3 do v.wheels[i] = { brakeTorque = BRAKE_TORQUE } end
+  for i = 0, 3 do v.wheels[i] = { brakeTorque = BRAKE_TORQUE, padGlazingFactor = 0 } end
   local sb = sandbox.new({ label = "vlua:" .. p.name .. ":" .. v.model, allowWrite = function() return true end })
   sb.declare("tgFaults")
   sb.set("vec3", vec3)
@@ -576,8 +591,9 @@ function World:freshPhysics(p, v)
     getDirectionVectorUp = function() return vec3(0, 0, 1) end,
     getNodePosition = function(_, cid) return vec3(v.nodePos[cid] or vec3(0, 0, 0)) end,
   })
-  sb.set("powertrain", { getDevice = function(name) if name == "mainEngine" then return v.engine end end })
-  sb.set("wheels", { wheels = v.wheels })
+  sb.set("powertrain", { getDevice = function(name) return v.devices[name] end, getDevices = function() return v.devices end })
+  sb.set("wheels", { wheels = v.wheels,
+    setABSBehavior = function(b) v.abs = b end, resetABSBehavior = function() v.abs = "realistic" end })
   sb.set("energyStorage", { getStorages = function()
     if traits.noFuelTank then return {} end
     return { mainTank = { type = "fuelTank", remainingVolume = v.fuel,
@@ -600,7 +616,11 @@ function World:vehicleReset(p, v)
   v.damage = 0
   v.engine.outputTorqueState = 1
   v.engine.slowIgnitionErrorChance, v.engine.fastIgnitionErrorChance = 0.01, 0.01
-  v.radiatorDamage, v.broken = 0, {}
+  v.engine.damageFrictionCoef, v.engine.isBroken = 1, false
+  v.radiatorDamage, v.broken, v.turboDamage = 0, {}, 0
+  if v.devices.clutch then v.devices.clutch.clutchPermanentlyDamaged = false end
+  if v.devices.gearbox then for i in pairs(v.devices.gearbox.synchroWear) do v.devices.gearbox.synchroWear[i] = 0 end end
+  for _, wd in pairs(v.wheels) do wd.padGlazingFactor = 0 end
   for _, wd in pairs(v.wheels) do wd.brakeTorque = BRAKE_TORQUE end
   self:serverEvent("onVehicleReset", p.pid, v.vid, "{}")
   if p.client then self:clientCall(p, "onVehicleResetted", p.client.M.onVehicleResetted, v.gid) end

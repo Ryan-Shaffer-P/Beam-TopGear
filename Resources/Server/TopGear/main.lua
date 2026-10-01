@@ -72,6 +72,14 @@ local DEFAULT_CONFIG = {
       { id = "suspension", name = "Worn-out suspension (soft and bouncy)" },                   -- softest springs/dampers, or no anti-roll bars
       { id = "fuelleak",   name = "Fuel leak",                                factor = 0.5 },   -- litres per minute
       { id = "body",       name = "Accident damage (dents, broken lights)",  factor = 3000 },  -- damage it starts with
+      { id = "starter",    name = "Weak starter (slow to start)",            factor = 0.35 },  -- starter torque x this
+      { id = "clutch",     name = "Slipping clutch" },                                         -- manual gearboxes
+      { id = "synchros",   name = "Worn gearbox synchros (gears grind)",     factor = 0.8 },   -- synchro wear (1 = gone); manuals
+      { id = "turbo",      name = "Damaged turbo (low boost)",               factor = 0.02 },  -- turbo damage; turbo cars
+      { id = "brakefade",  name = "Glazed brake pads (squeal, fade when hot)", factor = 1 },   -- pad glazing (1 = fully glazed)
+      { id = "abs",        name = "ABS failure (wheels lock)" },
+      { id = "oilleak",    name = "Oil leak (runs hot - might blow the engine)", factor = 0.5, -- engine friction +50%
+        blowChance = 0.2, blowMin = 60, blowMax = 600 },   -- chance the engine is doomed; seconds of hard driving until it goes
     },
   },
 
@@ -313,6 +321,14 @@ local function loadConfig()
         cfg.faults.list = list
       end
     end
+    if not cfg.migrations.faults17 then   -- 0.8.8: seven more faults
+      cfg.migrations.faults17, changed = true, true
+      local have = {}
+      for _, f in ipairs((cfg.faults or {}).list or {}) do have[f.id] = true end
+      for _, f in ipairs(DEFAULT_CONFIG.faults.list) do
+        if not have[f.id] then cfg.faults.list[#cfg.faults.list + 1] = deepcopy(f) end
+      end
+    end
     if not cfg.migrations.faults4 then   -- 0.8.8: up to 4 faults per car (was 3)
       cfg.migrations.faults4, changed = true, true
       if cfg.faults and cfg.faults.maxPerCar == 3 then cfg.faults.maxPerCar = 4 end
@@ -516,6 +532,10 @@ local function drawFaults(p)
   while (p.faultsOwed or 0) > 0 do
     local id = rollFault(p)
     if not id then break end
+    if id == "oilleak" then   -- the secret roll: is this engine going to blow?
+      local f = faultDef(id)
+      p.oilDoomed, p.oilBlown = math.random() < (tonumber(f and f.blowChance) or 0.2), false
+    end
     p.faults[#p.faults + 1] = id
     p.faultsOwed = p.faultsOwed - 1
   end
@@ -531,6 +551,7 @@ end
 local function redrawFaults(p)
   p.faultsOwed = faultsTaken(p)
   p.faults, p.faultRestore, p.faultTried = {}, {}, {}
+  p.oilDoomed, p.oilBlown = nil, nil
   drawFaults(p)
 end
 -- a workshop diagnoses the car: the player finds out what they've got
@@ -553,7 +574,9 @@ local function sendFaults(p, test)
   for _, id in ipairs(p.faults or {}) do
     local f = faultDef(id)
     if f then
-      list[#list + 1] = { id = f.id, factor = f.factor, cutoutMin = f.cutoutMin, cutoutMax = f.cutoutMax }
+      list[#list + 1] = { id = f.id, factor = f.factor, cutoutMin = f.cutoutMin, cutoutMax = f.cutoutMax,
+                          blowMin = f.blowMin, blowMax = f.blowMax,
+                          doomed = (f.id == "oilleak" and p.oilDoomed and not p.oilBlown) or nil }
       setup = setup or SETUP_FAULTS[f.id] or false
     end
   end
@@ -2405,7 +2428,10 @@ PLAYER_CMDS.fault = function(pid, name, args)
     local list = {}
     if sub == "test" then
       for _, f in ipairs(cfg.faults.list) do
-        if id == "" or id == f.id then list[#list + 1] = { id = f.id, factor = f.factor, cutoutMin = f.cutoutMin, cutoutMax = f.cutoutMax } end
+        if id == "" or id == f.id then
+          list[#list + 1] = { id = f.id, factor = f.factor, cutoutMin = f.cutoutMin, cutoutMax = f.cutoutMax,
+                              doomed = (f.id == "oilleak") or nil }   -- a test oil leak always blows (soon), so it can be seen
+        end
       end
     end
     say(pid, sub == "test" and ("Applying " .. #list .. " test fault(s) to your current car...") or "Removing test faults...")
@@ -2496,6 +2522,17 @@ function TG_onFaultReport(pid, data)
   end
   if changed then drawFaults(p); sendFaults(p); pushState(p) end
   if learnt then saveConfig() end
+end
+
+-- client -> server: a doomed engine (oil leak) has just let go
+function TG_onEngineBlown(pid)
+  local p = playerByPid(pid)
+  if not p or not hasFault(p, "oilleak") or p.oilBlown then return end
+  p.oilBlown, p.oilDoomed = true, false   -- that engine has gone; the next one won't
+  sayAll(string.format("%s's engine has let go! That's a tow.", p.name))
+  playSound("crash", p)
+  log(string.format("engine blown (oil leak) for %s", p.name))
+  pushState(p)
 end
 
 PLAYER_CMDS.menu = function(pid, _, args)
@@ -3485,6 +3522,7 @@ MP.RegisterEvent("tg_trailersave_reply", "TG_onTrailerSave")
 MP.RegisterEvent("tg_gas_reply",       "TG_onGasStations")
 MP.RegisterEvent("tg_partsdiag_reply", "TG_onPartsDiag")
 MP.RegisterEvent("tg_sound_report",    "TG_onSoundReport")
+MP.RegisterEvent("tg_engine_blown",    "TG_onEngineBlown")
 MP.RegisterEvent("tg_tick",            "TG_onTick")
 MP.CreateEventTimer("tg_tick", TICK_MS)
 if #cfg.admins == 0 then log("WARNING: no admins set in config.json - everyone can run admin commands") end
