@@ -10,6 +10,7 @@ local faults      = { want = {}, restore = {}, test = false, applyAt = nil, repo
                       results = {}, waitSpawn = nil, physicsDeadline = nil, active = false }
 local onPartsDiag, onFindGas, onRevertParts, onTrailerSave   -- defined further down, registered in tryRegister
 local copyTable, readParts, lastGoodSnap, walkTree, ordinal  -- shared helpers/state, defined further down
+local addLog                                                 -- window log, defined with the in-game window
 local lights = { clock = 0, goUntil = nil, wasOn = false, who = nil, test = nil, openPtr = nil, errored = false }
 local ui          = { open = false, data = nil, log = {}, reqTimer = 0, t = 0, sel = 1, confirm = {}, player = nil, failed = {} }
 local stateAge    = 0
@@ -911,7 +912,7 @@ local okffi, ffi = pcall(require, "ffi")
 local im = nil
 local bufs = {}
 
-local function addLog(msg)
+addLog = function(msg)
   ui.log[#ui.log + 1] = tostring(msg)
   if #ui.log > 30 then table.remove(ui.log, 1) end
 end

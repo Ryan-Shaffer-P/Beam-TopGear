@@ -334,5 +334,5 @@ internals that change between game versions; each is wrapped so failure is logge
 ## Rebuilding the client zip
 
 ```
-cd client && zip -r ../Resources/Client/topgear.zip lua scripts
+cd client && rm -f ../Resources/Client/topgear.zip && zip -r ../Resources/Client/topgear.zip lua scripts -x '*luac.out' '*.DS_Store'
 ```

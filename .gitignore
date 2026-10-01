@@ -1,0 +1,9 @@
+# Lua compiler output
+luac.out
+
+# macOS
+.DS_Store
+
+# Written by the server plugin at runtime
+Resources/Server/TopGear/config.json
+Resources/Server/TopGear/courses.json
