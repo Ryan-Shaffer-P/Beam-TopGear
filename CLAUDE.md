@@ -82,7 +82,10 @@ parts snapshots/diffs, reverting refused parts.
    Accept it and put parts back via the client (`tg_revertparts`). Paint is just accepted.
 4. **BeamMP reports a part change's rebuild as a reset.** Resets are never fined in workshops; repairs are
    billed from a real damage drop (`TG_onReport`), excused by `repairPending` / `towPending` /
-   `respawnPending` / `faultEditUntil` windows.
+   `respawnPending` / `faultEditUntil` windows. **Parts billing is not excused by a time window** (that let
+   players fit parts free right after a fault): the client marks its own config changes (`faults.ownRebuild`,
+   set before a fault / fix / upgrade restore) and doesn't report that rebuild - everything `TG_onRebuild` gets
+   is the player's.
 5. **Any part/tuning change respawns the car and wipes its damage** - always bill or account for that.
 6. **Part data comes in two formats:** flat `parts` or nested `partsTree` (newer BeamNG). Use
    `readParts` / `walkTree`; never assume one.
@@ -131,7 +134,7 @@ for the `/tg diag` "Client error" line or the matching `[TopGear]` server-consol
    handler error, server console error, client warn() or UI imbalance. Vehicle Lua (`queueLuaCommand`) runs
    in a per-car sandbox with fake engine/brakes/fuel/reset (`World:freshPhysics`); `queueGameEngineLua`
    replies run in the client. Trailers with a load part get simulated bed/load nodes, so CARGO_VLUA really measures the load share.
-   Tests: `test_smoke.lua` (load, dealership, theme), `test_flag.lua` (finish flag), `test_traffic.lua` (admin traffic mode), `test_modes.lua` (race/time trial mode), `test_speedtrap.lua` (one run), `test_sounds.lua` (sound bites; the fake Engine.Audio checks the .ogg exists), `test_roadside.lua` (tow/respawn/unstick pricing), `test_parts.lua` (Parts tab; fake catalogue `World.partCatalogue`, `c.partsFormat = "tree"`), `test_faults.lua` (fault revamp; `w.rolls` pins the server's random draws), `test_classes.lua` (car classes; test cars carry BeamNG attributes in `MODELS[].info/trims`), `test_trailer.lua` (cones + prebuilt load, hitching via
+   Tests: `test_smoke.lua` (load, dealership, theme), `test_flag.lua` (finish flag), `test_traffic.lua` (admin traffic mode), `test_modes.lua` (race/time trial mode), `test_speedtrap.lua` (one run), `test_sounds.lua` (sound bites; the fake Engine.Audio checks the .ogg exists), `test_roadside.lua` (tow/respawn/unstick pricing), `test_parts.lua` (Parts tab; fake catalogue `World.partCatalogue`, `c.partsFormat = "tree"`), `test_faults.lua` (fault revamp; `w.rolls` pins the server's random draws), `test_classes.lua` (car classes; test cars carry BeamNG attributes in `MODELS[].info/trims`), `test_scoring.lua` (inspections, debt, faults, awards), `test_economy.lua` (energy: petrol vs electric), `test_trailer.lua` (cones + prebuilt load, hitching via
    `w:hitch`/`w:dropCargo`/`w:setLoad`, 70/30 scoring) and `test_session.lua` (full 5-event session, the
    successor of `sim13` - expected cash/points are hand-calculated in its comments; if a rule change
    moves them, recompute by hand rather than pasting the new output). Still to rebuild: workshop
@@ -156,7 +159,7 @@ for the `/tg diag` "Client error" line or the matching `[TopGear]` server-consol
 
 Players: `/tg menu | status | dealer | ready | go | repair | fix <id> | tow | respawn | unstick | hitchup |
 faults | fault take [n] | quote | standings | diag | partsdiag | lights | lightstest | flag | flagtest | sounds on|off|list | soundtest [clip|next] | theme`.
-Admins: `start [force] | next | stop | traffic on|off | play <clip> | budget | setcash | give | workshop <min> | workshopevery <n> |
+Admins: `start [force] | next | stop | award <driver> <pts> [reason] | traffic on|off | play <clip> | budget | setcash | give | workshop <min> | workshopevery <n> |
 importprices [listed|models] | gameprices | class list/use/new/delete/show/rule/unrule/include/exclude/clear/price/multiplier/values |
 course list/save/load/new/delete | addevent/delevent/enable/moveevent |
 setstart/addcp/undocp/clearcp/settrap/addbay/undobay/clearbays/addvia/undovia/clearvia/setfinale |
@@ -167,18 +170,13 @@ trailersave/trailercones/trailertest | fault test/testoff/caps`. The ImGui windo
 
 Each starts with a plain-language explanation for Ryan, then a proposal he approves before code.
 
-### 1. Understand and rebalance the overall scoring ("the best drive with the best car wins")
-How it works now (server `finishEvent`, `tickFinale`, `showResults`; numbers in `cfg.scoring`/`cfg.economy`):
-- Points decide the winner: placement points `{10, 6, 3, 1}` per event (5th and lower get 0), + finale
-  drivability `10 x (1 - damage / 20000)` (0 if towed/respawned on the final leg, -1 per unfixed fault),
-  - 2 per illegal reset, - 1 per tow / roadside respawn. Ties: event wins, then cash.
-- Money never becomes points: prizes `{6000, 3000, 1500, 500}`, arrival bonuses `{500, 250}`, faults and
-  the unspent budget only matter as spending power (repairs, upgrades) and the final tie-break.
-- "Best car" isn't scored directly: a cheap car and an expensive one earn the same points for the same
-  placings. Car choice only matters through how it performs and survives.
-Start by laying this out for Ryan with worked examples (e.g. the 3-driver tally in `test_session.lua`), then
-discuss levers: points for leftover cash / value for money, a points share by margin rather than place,
-drivability weight, event-type weighting, the 4-place cutoff. Recompute `test_session.lua` by hand after.
+### 1. Scoring rebalance - DONE in 0.9.1
+Ryan's goals: feel like the show, no single dominant strategy. Points = events (10/6/3/1) + drivability /20 = average
+of inspections (`Score.inspect`: on arrival at every workshop before repairs - `Score.workshop`, at close for no-shows -
+and at the finale; 0 if towed/respawned on the final leg or not arrived; `Score.finishDrivability`) - penalties at
+`showResults` (reset -2, tow/respawn -2, unfixed fault -3 as its own line, -1 per started $500 of debt) + producer
+awards (`/tg award`). Cash in the bank only breaks ties (deliberately: no "pocket the fault money" exploit). Ideas not
+taken (yet): points for every finisher (10/6/3/1 kept), a cheap-car bonus, positive cash scoring.
 
 ### 2. Dealership filters - DONE in 0.9.0 (car classes)
 `/tg importprices` (no names) imports every model (`core_vehicles.getModelList`) with each trim's price + BeamNG

@@ -2,7 +2,8 @@
 
 A game mode that runs on top of a stock BeamNG map. Players buy a car with $10,000, drive
 between four events, race for prize money, visit the workshop twice, and finish with a
-drivability inspection. No map files are modified, so every player already has the map.
+drivability inspection at every workshop and at the end. No map files are modified, so every
+player already has the map.
 
 ## Install
 
@@ -69,7 +70,7 @@ Race / Time trial**) or with `/tg setmode <n> race|trial`. The table shows each 
 | Speed trap | time trial | highest speed on one run through the trap (passes under `minRunSpeed`, 20 m/s, don't count) | start + trap |
 | Precision parking | time trial | lowest score: 10 pts/m off centre + 0.5/deg skew (every bay) + 0.1/s + 0.01/damage + 50 per bay not reached | start + bays (in order) |
 | Fragile delivery | race | time + 0.01 s per point of damage picked up | start + checkpoints |
-| Economy run | race | least fuel used (inside the time limit) | start + checkpoints |
+| Economy run | race | least energy used - fuel or battery (inside the time limit) | start + checkpoints |
 | Slalom | time trial | time + 5 s per missed gate | start + gates |
 | Trailer delivery | race | most points out of 100: 70 for the share of the load kept + 30 for speed | start + checkpoints |
 
@@ -99,8 +100,11 @@ Race / Time trial**) or with `/tg setmode <n> race|trial`. The table shows each 
   or the course builder's Time limit box - available for every event).
 - **Fragile delivery:** once the results are in, every car that took part gets a free full
   repair where it stands (upgrades and unfixed faults stay, like a tow).
-- **Economy:** fuel is read from each player's own car. If a car's fuel can't be read, its
-  run falls back to time and says so.
+- **Economy:** the least **energy** used wins - read from each player's own car: what's left in its
+  fuel tanks *and* batteries, so petrol, diesel and electric cars compare fairly (an electric car is
+  naturally efficient). Results show litres for fuel cars and kWh for electric ones, with the
+  megajoules used, e.g. "0.32 L (10.9 MJ)". A car whose game reports neither is timed instead and
+  ranked after the others, with the reason shown.
 - **Circuit race:** the event's start point is the start/finish line; checkpoints are the waypoints
   round the lap, in order. Each lap is every checkpoint and then back across the start line (which
   only counts once you've been at least 40 m away from it that lap); you loop until you've done the laps (`/tg setlaps <n> <laps>`,
@@ -264,7 +268,7 @@ Player commands: `/tg menu`, `/tg go`, `/tg unstick`, `/tg tow`, `/tg respawn`, 
 - **Roadside help costs the repair too.** Tow, respawn and an unstick that repairs the car all fix
   it, so they all charge the **roadside repair** = the workshop repair price x 1.25
   (`economy.roadsideMarkup`) - the workshop is always the cheapest place to get repaired. Tows and
-  respawns add a service fee on top and cost **1 point each** at the final standings
+  respawns add a service fee on top and cost **2 points each** at the final standings
   (`scoring.towPenaltyPoints`). The Status tab buttons show the current price. Examples:
 
   | Damage | Workshop repair | Respawn | Tow |
@@ -278,16 +282,16 @@ Player commands: `/tg menu`, `/tg go`, `/tg unstick`, `/tg tow`, `/tg respawn`, 
   roadside repair is billed once; the unstick itself stays free and costs no points.
 - **`/tg respawn`** (Status tab button, click twice) respawns your car where it is: free at the
   dealership, the normal repair price in a workshop, otherwise the roadside repair + $500
-  (`economy.respawnFee`) and -1 point.
-  Mid-run it's a DSQ from that event; on the final leg it means 0 drivability. If your car has
+  (`economy.respawnFee`) and -2 points.
+  Mid-run it's a DSQ from that event; on the final leg it means 0 at the finale inspection. If your car has
   been lost or deleted, Respawn brings it back (that counts as a tow). Respawns are counted
   with tows on the final screen.
 - **`/tg tow`** (Status tab button, click twice) costs the roadside repair + $1,000 (`economy.towFee`)
-  and -1 point, and is a full repair that keeps
+  and -2 points, and is a full repair that keeps
   upgrades, paid fault fixes and unfixed faults. During an event: DSQ from that event and
   delivered to the next event's start, ready to race. During a travel leg: delivered to that
-  event's start (no arrival bonus). On the final leg: delivered to the finish with 0
-  drivability. Respawning a lost/deleted car counts as a tow and restores its upgrades.
+  event's start (no arrival bonus). On the final leg: delivered to the finish with 0 at the
+  finale inspection. Respawning a lost/deleted car counts as a tow and restores its upgrades.
   Tows and respawns are counted on the final screen.
 - **How events end:** DNS = not at the start when the countdown began (only possible when an
   admin forces a start). DNF = still running when the event's time limit (`timeLimit` per
@@ -339,10 +343,22 @@ Player commands: `/tg menu`, `/tg go`, `/tg unstick`, `/tg tow`, `/tg respawn`, 
     workshop are refused.
   - Every workshop edit, rebuild and reset is logged in the server console (`[TopGear] edit by ...`),
     with the phase it happened in - check there if a charge looks wrong.
-- **Scoring**: placement points (10/6/3/1) per event + up to 10 drivability points at the
-  finale (scaled by damage; cars that don't arrive score 0) − 2 per illegal reset − 1 per tow or
-  roadside respawn.
-  Ties break on event wins, then cash. Every number is in `config.json`.
+- **Scoring** - the most points wins; it's meant to feel like the show, where no one strategy
+  always wins:
+  - **Events:** 10 / 6 / 3 / 1 points for 1st-4th.
+  - **Drivability, up to 20:** the car is **inspected on arrival at every workshop** (before any
+    repair - so it scores how you drove that leg) **and at the finale**; each inspection is
+    20 x (1 - damage / 20,000), and your drivability is **the average of them all**. The finale's
+    is 0 if you were towed or respawned on the final leg or didn't arrive. On a course with
+    workshop locations, anyone who never reaches one is inspected when the workshop closes.
+  - **Penalties at the end:** -2 per illegal reset, **-2 per tow or roadside respawn**, **-3 per
+    fault still unfixed** (its own penalty - a wrecked car can't hide it), and **-1 for every $500
+    (or part of it) you're in debt** - so overspending, debt-funded repairs and tows all cost.
+  - **Producer points:** an admin can award or dock points with a reason, like the show's
+    producers: `/tg award Alice 2 best-looking wreck`, `/tg award Bob -1 got lost`.
+  - **Money in the bank doesn't score** - it only breaks ties (after event wins).
+  The results table shows each driver's inspections (e.g. "16.7 (20/20/10)") and how the points
+  add up. Every number is in `config.json` under `scoring` (and `faults.inspectionPenaltyPoints`).
 
 ## Money and prices
 
@@ -415,7 +431,7 @@ and they're drawn again for the next one). Then:
   and the Status tab lists them with a **Fix** button each. The finale inspection names any left.
 - **They're final.** There's no handing them back; the way out is a workshop fix.
 - **Fixing one costs $3,750** (1.5x the payout) in a workshop: `/tg fix <id>` or the Status tab.
-- **Every fault still there at the finale costs 1 drivability point.**
+- **Every fault still there at the end costs 3 points** (a penalty of its own).
 - They come back after a tow, a respawn or a reset until they're fixed.
 
 | id | Fault | What it does in the game |

@@ -61,7 +61,7 @@ t.test("finish flag at the finale shows the drivability score", function()
   w:step(7)
   w:drive(A, p(1500), 40)
   t.match(flagText(A), "The Test Track")
-  t.match(flagText(A), "Drivability 10%.0/10")
+  t.match(flagText(A), "Drivability 20%.0/20")
   w:assertClean()
 end)
 

@@ -24,7 +24,7 @@ t.test("tow: repair x 1.25 + $1,000; the Status button shows the live price", fu
   w:step(2.5)
   t.ok(A.client.im.hasButton("Tow ($2,563)"), "the button shows the price")
   w:chat(A, "/tg tow")
-  t.ok(w:chatHas(A, "Alice calls the tow truck (-$2,563: repair $1,563 + fee $1,000, -1 pt)"))
+  t.ok(w:chatHas(A, "Alice calls the tow truck (-$2,563: repair $1,563 + fee $1,000, -2 pts)"))
   t.eq(w:state(A).cash, 5500 - 2563)
   w:assertClean()
 end)
@@ -35,10 +35,10 @@ t.test("respawn: repair x 1.25 + $500, so a wrecked car is never cheap to fix at
   onTheRoad(w, A, B)
   dent(w, A, 10000)  -- 250 + 5000 = 5250 -> x 1.25 = 6562.5 -> $6,563, + $500 = $7,063
   w:chat(A, "/tg respawn")
-  t.ok(w:chatHas(A, "Alice respawns their Ibishu Covet on the spot (-$7,063: repair $6,563 + fee $500, -1 pt)."))
+  t.ok(w:chatHas(A, "Alice respawns their Ibishu Covet on the spot (-$7,063: repair $6,563 + fee $500, -2 pts)."))
   t.eq(w:state(A).cash, 5500 - 7063, "into the red")
   w:chat(B, "/tg respawn")   -- Bob's car is undamaged: just the fee
-  t.ok(w:chatHas(B, "Bob respawns their Ibishu Pessima (1988) on the spot (-$500, -1 pt)."))
+  t.ok(w:chatHas(B, "Bob respawns their Ibishu Pessima (1988) on the spot (-$500, -2 pts)."))
   t.eq(w:state(B).cash, 5000 - 500)
   w:assertClean()
 end)
@@ -78,7 +78,7 @@ t.test("unstick is free and keeps the damage, unless the game repairs the car - 
   w:assertClean()
 end)
 
-t.test("each tow and respawn costs a point at the final standings", function()
+t.test("each tow and respawn costs 2 points at the final standings", function()
   local cfg = F.config({
     { name = "Race One", type = "race", timeLimit = 120, start = p(500), checkpoints = { p(700) }, via = {} },
   }, { finale = { name = "The Test Track", pos = p(1500), radius = 25, timeLimit = 1200, via = {} } })
@@ -96,9 +96,9 @@ t.test("each tow and respawn costs a point at the final standings", function()
   w:chat(A, "/tg respawn")
   w:drive(A, p(1500), 40)
   w:waitFor(function() return w:state(A).phase == "results" end, 10, "results")
-  -- 10 (race) + 0 drivability (respawned on the final leg) - 2 x 2 resets - 2 x 1 (tow + respawn) = 4
-  t.ok(w:chatHas(A, "Alice loses 6 pts for 2 illegal reset(s) and 2 tow(s)/respawn(s)."))
-  t.eq(w:state(A).points, 4)
+  -- 10 (race) + 0 drivability (no workshops; respawned on the final leg: 0 at the finale) - 2 x 2 resets - 2 x 2 (tow + respawn) = 2
+  t.ok(w:chatHas(A, "Alice loses 8 pts: 2 illegal resets (-4), 2 tows/respawns (-4)."))
+  t.eq(w:state(A).points, 2)
   w:assertClean()
 end)
 
@@ -109,7 +109,7 @@ t.test("saved configs with the old flat $2,000 fees get the new ones; custom fee
   local w2 = World.new({ files = F.files(F.config({}, { economy = { towFee = 1500, respawnFee = 750 } })) })
   local ec2 = w2:serverConfig().economy
   t.eq(ec2.towFee, 1500); t.eq(ec2.respawnFee, 750)
-  t.eq(w2:serverConfig().scoring.towPenaltyPoints, 1)
+  t.eq(w2:serverConfig().scoring.towPenaltyPoints, 2)
 end)
 
 t.test("a workshop repair (and a workshop respawn) fixes the car where it stands - no teleport", function()

@@ -462,3 +462,41 @@ t.test("rough idle and a worn gearbox (manual or automatic), re-applied after a 
   t.eq(A.current.devices.gearbox.damageFrictionCoef, 3, "after a reset, not stacked")
   w:assertClean()
 end)
+
+t.test("parts fitted right after a fault is applied are billed (no free-upgrade window)", function()
+  local w = World.new({ files = F.files(F.twoRaces()) })
+  local A = w:join("Alice")
+  w:chat(A, "/tg start"); w:buy(A, "covet", "base_M")
+  pin(w, { "tires" }); w:chat(A, "/tg fault take")   -- a setup fault: the car respawns
+  w:step(10)
+  local cash0 = w:state(A).cash
+  local parts = {}
+  for k, v in pairs(A.current.parts) do parts[k] = v end
+  parts["/covet_engine/"] = "covet_engine_turbo"      -- $1,200 more than stock, + $300 labour
+  A.client.sb.env.core_vehicle_partmgmt.setPartsConfig(parts, true); w:pump(); w:step(4)
+  t.eq(A.current.parts["/covet_engine/"], "covet_engine_turbo")
+  t.eq(cash0 - w:state(A).cash, 1500, "charged, even inside the old 15 s window")
+  w:assertClean()
+end)
+
+t.test("the mod's own part changes (a fault taking a part off, a fix putting it back) are never billed or refunded", function()
+  local cfg = F.twoRaces(); cfg.workshopEvery = 1
+  local w = World.new({ files = F.files(cfg) })
+  local A = w:join("Alice")
+  w:chat(A, "/tg start"); w:buy(A, "pickup", "d15_M")   -- no adjustable suspension: the fault removes the anti-roll bar
+  pin(w, { "suspension" }); w:chat(A, "/tg fault take")
+  w:step(10)
+  t.eq(A.current.parts["/pickup_swaybar_F/"], "", "the anti-roll bar is off")
+  t.eq(w:state(A).cash, 10000 - 7500 + 2500, "no refund for the part the fault took off")
+  w:chat(A, "/tg ready")
+  w:drive(A, p(500), 40); w:chat(A, "/tg go")
+  w:waitFor(function() return w:state(A).phase == "event" end, 10, "GO")
+  w:drive(A, p(900), 40)
+  w:waitFor(function() return w:state(A).phase == "workshop" end, 10, "the workshop")
+  local before = w:state(A).cash
+  w:chat(A, "/tg fix suspension")
+  w:step(10)
+  t.eq(A.current.parts["/pickup_swaybar_F/"], "pickup_swaybar_F", "back on")
+  t.eq(w:state(A).cash, before - 3750, "just the fix - no part or labour charge for putting it back")
+  w:assertClean()
+end)

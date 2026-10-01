@@ -7,7 +7,7 @@
   In game, type /tg help.
 ]]
 
-local SERVER_VERSION = "0.9.0"
+local SERVER_VERSION = "0.9.2"
 local PLUGIN_DIR  = "Resources/Server/TopGear/"
 local CONFIG_PATH = PLUGIN_DIR .. "config.json"
 local COURSES_PATH = PLUGIN_DIR .. "courses.json"   -- saved course library
@@ -41,12 +41,17 @@ local DEFAULT_CONFIG = {
     unstickMaxSpeed     = 3,     -- m/s: unstick only works when (nearly) stopped
   },
 
+  -- Points: event placings + drivability (the AVERAGE of an inspection on arrival at every workshop and at the
+  -- finale) - penalties (illegal resets, tows/respawns, unfixed faults, debt) + producer awards (/tg award).
+  -- Money in the bank only breaks ties.
   scoring = {
     placementPoints          = { 10, 6, 3, 1 },
-    drivabilityMaxPoints     = 10,     -- awarded at the finale for an undamaged car
-    damageForZeroDrivability = 20000,  -- damage at which drivability hits 0
+    drivabilityMaxPoints     = 20,     -- one inspection of an undamaged car
+    damageForZeroDrivability = 20000,  -- damage at which an inspection scores 0
     recoveryPenaltyPoints    = 2,      -- per illegal reset
-    towPenaltyPoints         = 1,      -- per tow and per roadside respawn
+    towPenaltyPoints         = 2,      -- per tow and per roadside respawn
+    debtStep                 = 500,    -- at the end: debtPenaltyPoints for every debtStep (or part of it) in the red
+    debtPenaltyPoints        = 1,
   },
 
   -- Problem cars: at the dealership a player takes a NUMBER of faults (not which ones) for `payout` each;
@@ -59,7 +64,7 @@ local DEFAULT_CONFIG = {
     payout = 2500,                -- paid for every fault taken (all faults pay the same)
     maxPerCar = 4,                -- a player takes 0 to this many
     fixMultiplier = 1.5,          -- workshop fix costs this x the payout
-    inspectionPenaltyPoints = 1,  -- drivability points lost per unfixed fault at the finale
+    inspectionPenaltyPoints = 3,  -- points lost per fault still unfixed at the end (its own penalty)
     list = {                      -- factor = severity (see README)
       { id = "tires",      name = "Worn, underinflated tires",               factor = 0.3 },   -- pressure = 30% of normal
       { id = "alignment",  name = "Knocked-out wheel alignment",             factor = 1.4 },   -- front toe to its limit + rear 40%
@@ -344,6 +349,12 @@ local function loadConfig()
     if not cfg.migrations.faults4 then   -- 0.8.8: up to 4 faults per car (was 3)
       cfg.migrations.faults4, changed = true, true
       if cfg.faults and cfg.faults.maxPerCar == 3 then cfg.faults.maxPerCar = 4 end
+    end
+    if not cfg.migrations.scoring2 then   -- 0.9.1: drivability /20 averaged, tows -2, unfixed faults -3
+      cfg.migrations.scoring2, changed = true, true
+      if cfg.scoring.drivabilityMaxPoints == 10 then cfg.scoring.drivabilityMaxPoints = 20 end
+      if cfg.scoring.towPenaltyPoints == 1 then cfg.scoring.towPenaltyPoints = 2 end
+      if cfg.faults and cfg.faults.inspectionPenaltyPoints == 1 then cfg.faults.inspectionPenaltyPoints = 3 end
     end
     if not cfg.migrations.roadside then   -- 0.8.6: repair price x markup + a smaller service fee, instead of a flat $2,000
       cfg.migrations.roadside, changed = true, true
@@ -1004,6 +1015,46 @@ local function repairQuote(p)
   if d < (ec.repairMinDamage or 50) then return 0 end
   return math.floor(ec.repairBaseFee + math.min(d * ec.repairCostPerDamage, ec.repairCap) + 0.5)
 end
+-- Scoring helpers (one table: main.lua is near Lua's 200-local limit) -------------------
+local Score = {}
+-- one drivability inspection: maxPoints x (1 - damage / damageForZeroDrivability); `score` given = fixed (e.g. 0)
+function Score.inspect(p, where, score, note)
+  local sc, dmg = cfg.scoring, math.floor(p.damage or 0)
+  if score == nil then
+    local frac = math.max(0, 1 - dmg / (sc.damageForZeroDrivability or 20000))
+    score = math.floor((sc.drivabilityMaxPoints or 20) * frac * 10 + 0.5) / 10
+  end
+  p.inspections = p.inspections or {}
+  p.inspections[#p.inspections + 1] = { where = where, damage = dmg, score = score, note = note }
+  return score
+end
+-- the drivability score: the average of every inspection
+function Score.average(p)
+  local sum, n = 0, 0
+  for _, i in ipairs(p.inspections or {}) do sum, n = sum + i.score, n + 1 end
+  if n == 0 then return 0 end
+  return math.floor(sum / n * 10 + 0.5) / 10
+end
+-- a workshop inspection, once per workshop: as the car arrives, before any repair
+function Score.workshop(p, late)
+  if p.wsInspectedAt == game.workshopNo then return end
+  p.wsInspectedAt = game.workshopNo
+  local sc = Score.inspect(p, "Workshop " .. tostring(game.workshopNo))
+  say(p.pid, string.format("Workshop inspection%s: damage %d -> %.1f/%s drivability (all your inspections are averaged at the end).",
+    late and " (you didn't make it to a workshop)" or "", math.floor(p.damage or 0), sc, tostring(cfg.scoring.drivabilityMaxPoints or 20)))
+end
+-- at the end: the finale inspection (0 if there wasn't one), the average added to the points (once)
+function Score.finishDrivability(p, note)
+  if p.drivabilityDone then return end
+  p.drivabilityDone = true
+  local hasFinale = false
+  for _, i in ipairs(p.inspections or {}) do if i.where == "Finale" then hasFinale = true end end
+  if not hasFinale then Score.inspect(p, "Finale", 0, note or "didn't arrive") end
+  p.drivability = Score.average(p)
+  p.points = p.points + p.drivability
+end
+local function pts(n) n = tonumber(n) or 0; return string.format("%g pt%s", n, n == 1 and "" or "s") end
+
 -- a repair done at the roadside (tow, respawn, an unstick that repaired the car): the workshop price x markup
 local function roadsideRepair(p)
   return math.floor(repairQuote(p) * (tonumber(cfg.economy.roadsideMarkup) or 1.25) + 0.5)
@@ -1015,9 +1066,9 @@ local function roadsideCost(p, kind)
   local repair = roadsideRepair(p)
   return fee + repair, fee, repair
 end
-local function ptNote()   -- ", -1 pt" (tows and respawns cost points at the final standings)
+local function ptNote()   -- ", -2 pts" (tows and respawns cost points at the final standings)
   local n = tonumber(cfg.scoring.towPenaltyPoints) or 0
-  return n > 0 and string.format(", -%s pt", tostring(n)) or ""
+  return n > 0 and (", -" .. pts(n)) or ""
 end
 local function costNote(fee, repair)
   if repair <= 0 then return money(fee) end
@@ -1265,8 +1316,8 @@ local function startRun(p)
   r.status, r.startT, r.cp, r.missed = "running", now(), 1, 0
   r.lap, r.lapStart, r.bestLap = 1, now(), nil
   r.bay, r.parks, r.needMove, r.stillSince = 1, {}, false, nil
-  r.startDamage, r.startFuel = p.damage or 0, p.fuel
-  r.endDamage, r.endFuel, r.sampleAfter = nil, nil, nil
+  r.startDamage, r.startFuel, r.startEnergy = p.damage or 0, p.fuel, p.energy
+  r.endDamage, r.endFuel, r.endEnergy, r.sampleAfter = nil, nil, nil, nil
 end
 
 -- the finish flag on this player's screen: { event, detail, seconds }
@@ -1639,13 +1690,20 @@ local function finalizeScore(p, e, ctx)
     r.perf = string.format("%s + %d damage (+%.1f s) = %s", fmtTime(t), math.floor(dmg), pen, fmtTime(r.score))
     r.short = fmtTime(r.score)
   elseif e.type == "economy" then
-    local endFuel = r.endFuel or p.fuel
-    if r.startFuel and endFuel then
-      local used = math.max(0, r.startFuel - endFuel)
-      r.score = used + t * 1e-6   -- time only breaks exact ties
-      r.perf, r.short = string.format("%.2f L in %s", used, fmtTime(t)), string.format("%.2f L", used)
+    -- least ENERGY used wins (tanks + batteries, in MJ), so petrol, diesel and electric cars compare fairly;
+    -- shown as litres for fuel cars, kWh for electric ones. Older clients that only report litres: ~34.2 MJ/L.
+    local endE, endFuel = r.endEnergy or p.energy, r.endFuel or p.fuel
+    local litres = (r.startFuel and endFuel) and math.max(0, r.startFuel - endFuel) or nil
+    local mj
+    if r.startEnergy and endE then mj = math.max(0, r.startEnergy - endE) / 1e6
+    elseif litres then mj = litres * 34.2 end
+    if mj then
+      r.score = mj + t * 1e-6   -- time only breaks exact ties
+      local amount = (litres and litres > 0) and string.format("%.2f L", litres) or string.format("%.2f kWh", mj / 3.6)
+      r.perf = string.format("%s (%.1f MJ) in %s", amount, mj, fmtTime(t))
+      r.short = amount
     else
-      r.score, r.perf, r.short = 1e6 + t, fmtTime(t) .. " (fuel reading unavailable)", fmtTime(t)
+      r.score, r.perf, r.short = 1e6 + t, fmtTime(t) .. " (no fuel or energy reading)", fmtTime(t)
     end
   elseif e.type == "slalom" then
     local pen = (r.missed or 0) * (tc.gatePenalty or 5)
@@ -1745,13 +1803,16 @@ end
 
 beginWorkshop = function()
   game.phase, game.workshopEnd, game.warned = "workshop", now() + cfg.workshop.minutes * 60, false
+  game.workshopNo = (game.workshopNo or 0) + 1
   for _, p in pairs(game.players) do p.wsLabour, p.wsSpent, p.wsCharged = false, 0, p.partsValue end
   if #workshopSpots() > 0 then
     sayAll(string.format("WORKSHOP open for %s minutes: drive to any workshop (the arrows show the nearest). " ..
       "Repairs, fault fixes, parts, paint and tuning work while you're parked there.", tostring(cfg.workshop.minutes)))
   end
   for _, p in pairs(game.players) do p.inShop = false end
-  if #workshopSpots() == 0 then for _, p in pairs(game.players) do revealFaults(p) end end   -- workshops anywhere
+  if #workshopSpots() == 0 then   -- workshops anywhere: everyone's in one now
+    for _, p in pairs(game.players) do Score.workshop(p); revealFaults(p) end
+  end
   sayAll(string.format("WORKSHOP open for %s minutes. /tg quote for a repair price, /tg repair to fix your car. " ..
     "The parts menu is unlocked: parts are charged as you fit them (plus %s labour once). Paint, cosmetics and tuning are free.",
     tostring(cfg.workshop.minutes), money(cfg.workshop.laborFee)))
@@ -1763,6 +1824,7 @@ end
 
 endWorkshop = function()
   sayAll("The workshop is closed.")
+  for _, p in pairs(game.players) do Score.workshop(p, true) end   -- no dodging an inspection by staying away
   for _, p in pairs(game.players) do
     local bill, delta = 0, nil   -- parts and labour are now charged as they happen
     if bill ~= 0 then
@@ -1786,7 +1848,7 @@ local function tickWorkshop()
         local inside = d ~= nil and d <= r
         if inside ~= (p.inShop == true) then
           p.inShop = inside
-          if inside then revealFaults(p) end
+          if inside then Score.workshop(p); revealFaults(p) end
           say(p.pid, inside and ("You're in the workshop" .. (sp and sp.name and (" at " .. sp.name) or "") .. " - repairs, parts and paint are open.")
                            or "You've left the workshop - repairs, parts and paint are closed until you're back.")
           pushState(p)
@@ -1823,19 +1885,17 @@ local function tickFinale()
             p.leg.via = p.leg.via + 1
           else
             p.leg.arrived = true
-            local frac = math.max(0, 1 - (p.damage or 0) / s.damageForZeroDrivability)
-            p.drivability = math.floor(s.drivabilityMaxPoints * frac * 10 + 0.5) / 10
-            if p.finaleRebuilt then p.drivability = 0 end   -- respawned on the final leg
+            local sc = Score.inspect(p, "Finale", p.finaleRebuilt and 0 or nil, p.finaleRebuilt and "respawned on the final leg" or nil)
+            Score.finishDrivability(p)
             local nf = #(p.faults or {})
             local fpen = faultsOn() and nf * (cfg.faults.inspectionPenaltyPoints or 0) or 0
             p.faultsRevealed = true   -- the inspection finds them all
-            if fpen > 0 then p.drivability = math.max(0, p.drivability - fpen) end
-            p.points = p.points + p.drivability
-            showFinish(p, cfg.finale.name, string.format("Drivability %.1f/%s", p.drivability, tostring(s.drivabilityMaxPoints)))
-            sayAll(string.format("%s made it to %s! Inspection: damage %d%s -> drivability %.1f/%s",
-              p.name, cfg.finale.name, math.floor(p.damage or 0),
-              fpen > 0 and string.format(", %d unfixed fault%s (%s)", nf, nf == 1 and "" or "s", table.concat(faultNames(p), ", ")) or "",
-              p.drivability, tostring(s.drivabilityMaxPoints)))
+            local max = tostring(s.drivabilityMaxPoints)
+            showFinish(p, cfg.finale.name, string.format("Drivability %.1f/%s", p.drivability, max))
+            sayAll(string.format("%s made it to %s! Inspection: damage %d -> %.1f/%s. Drivability (average of %d inspections): %.1f/%s%s",
+              p.name, cfg.finale.name, math.floor(p.damage or 0), sc, max, #p.inspections, p.drivability, max,
+              fpen > 0 and string.format(". %d unfixed fault%s (%s): -%s at the results", nf, nf == 1 and "" or "s",
+                table.concat(faultNames(p), ", "), pts(fpen)) or ""))
           end
           pushState(p)
         end
@@ -1868,6 +1928,8 @@ local function buildSummary(list)
       faultsTaken = #(p.faults or {}) + (p.faultsFixed or 0), faultsFixed = p.faultsFixed or 0,
       faultCash = sp.faultCash or 0, faultFixes = sp.faultFixes or 0, faultsLeft = faultNames(p),
       drivability = p.drivability or 0, eventPoints = eventPts, penalty = p.penaltyPoints or 0,
+      inspections = (function() local o = {} for _, i in ipairs(p.inspections or {}) do o[#o + 1] = i.score end return o end)(),
+      awards = p.awardPoints or 0,
       points = p.points, wins = p.wins, cash = p.cash,
     }
   end
@@ -1877,18 +1939,26 @@ end
 showResults = function()
   game.phase = "results"
   local list = {}
+  local sc = cfg.scoring
   for _, p in pairs(game.players) do
-    local resetPen = (p.recoveries or 0) * (cfg.scoring.recoveryPenaltyPoints or 0)
-    local nHelp = (p.tows or 0) + (p.respawns or 0)
-    local helpPen = nHelp * (cfg.scoring.towPenaltyPoints or 0)
-    local pen = resetPen + helpPen
-    p.penaltyPoints = pen
+    Score.finishDrivability(p, p.finaleTowed and "towed" or (p.finaleRebuilt and "respawned on the final leg") or "didn't arrive")
+    local parts = {}
+    local function add(n, text) if n > 0 then parts[#parts + 1] = { n = n, text = text } end end
+    local nReset, nHelp, nFault = p.recoveries or 0, (p.tows or 0) + (p.respawns or 0), #(p.faults or {})
+    add(nReset * (sc.recoveryPenaltyPoints or 0), string.format("%d illegal reset%s", nReset, nReset == 1 and "" or "s"))
+    add(nHelp * (sc.towPenaltyPoints or 0), string.format("%d tow%s/respawn%s", nHelp, nHelp == 1 and "" or "s", nHelp == 1 and "" or "s"))
+    if faultsOn() then
+      add(nFault * (cfg.faults.inspectionPenaltyPoints or 0), string.format("%d unfixed fault%s", nFault, nFault == 1 and "" or "s"))
+    end
+    if p.cash < 0 then
+      add(math.ceil(-p.cash / (sc.debtStep or 500)) * (sc.debtPenaltyPoints or 1), money(-p.cash) .. " in debt")
+    end
+    local pen, why = 0, {}
+    for _, x in ipairs(parts) do pen = pen + x.n; why[#why + 1] = string.format("%s (-%g)", x.text, x.n) end
+    p.penaltyPoints, p.penaltyParts = pen, parts
     if pen > 0 then
       p.points = p.points - pen
-      local why = {}
-      if resetPen > 0 then why[#why + 1] = string.format("%d illegal reset(s)", p.recoveries) end
-      if helpPen > 0 then why[#why + 1] = string.format("%d tow(s)/respawn(s)", nHelp) end
-      sayAll(string.format("%s loses %s pts for %s.", p.name, tostring(pen), table.concat(why, " and ")))
+      sayAll(string.format("%s loses %s: %s.", p.name, pts(pen), table.concat(why, ", ")))
     end
     list[#list + 1] = p
   end
@@ -2203,8 +2273,8 @@ performTow = function(p, carExists)
   elseif ph == "finale" then
     pos = v3(cfg.finale.pos)
     if pos then pos.z = pos.z + 0.5 end
-    p.leg.arrived, p.finaleTowed, p.drivability = true, true, 0
-    msg = "towed to " .. cfg.finale.name .. " - that's 0 drivability at the inspection"
+    p.leg.arrived, p.finaleTowed = true, true
+    msg = "towed to " .. cfg.finale.name .. " - that's 0 at the finale inspection"
   else
     msg = "repaired where it stands"
   end
@@ -2237,7 +2307,7 @@ function TG_onRebuild(pid, data)
   log(string.format("rebuild by %s in phase %s: %s", p.name, game.phase, tostring(data)))
   if game.phase == "idle" or game.phase == "results" then return end
   if game.phase == "dealer" and p.swapAt and now() - p.swapAt < 8 then return end   -- a trim swap, already priced
-  if p.faultEditUntil and now() < p.faultEditUntil then return end                   -- the mod's own fault/tow change
+  -- (the mod's own fault / tow changes aren't reported by the client, so everything here is the player's own)
   if not inWorkshop(p) then
     if (tonumber(t.billable) or 0) + (tonumber(t.cosmetic) or 0) > 0 or t.vars then
       say(p.pid, "Parts and tuning can only be changed at the dealership or in a workshop - putting it back.")
@@ -2323,10 +2393,11 @@ function TG_onReport(pid, data)
     p.damage = nowDmg
   end
   if tonumber(t.fuel) then p.fuel = tonumber(t.fuel) end
+  if tonumber(t.energy) then p.energy = tonumber(t.energy) end   -- joules in tanks + batteries
   if tonumber(t.cargo) then p.cargoFrac = tonumber(t.cargo) end
   local r = p.run
   if r and r.sampleAfter and now() >= r.sampleAfter and r.endDamage == nil then
-    r.endDamage, r.endFuel = p.damage, p.fuel   -- finish reading for fragile / economy scoring
+    r.endDamage, r.endFuel, r.endEnergy = p.damage, p.fuel, p.energy   -- finish reading for fragile / economy scoring
   end
   if tonumber(t.partsValue) then
     p.partsValue = tonumber(t.partsValue)
@@ -2400,6 +2471,7 @@ PLAYER_CMDS.help = function(pid, name)
   say(pid, "/tg menu (window; /tg menu reset if it's squashed) | status | dealer | join | ready | go | quote | repair | standings | diag")
   if isAdmin(name) then
     say(pid, "Admin: /tg start [force] | next (force the next phase) | stop | where | workshop <minutes> | workshopevery <n>")
+    say(pid, "Producers: /tg award <driver> <+/-points> [reason]")
     say(pid, "Traffic: /tg traffic on|off - while on, what you spawn is non-scoring traffic (any phase) and your vehicle menu is open")
     say(pid, "Soundboard: /tg play <clip> plays it for everyone (/tg sounds list)")
     say(pid, "Faults: /tg fault test [id] (applies to your car) | fault testoff | fault caps (which cars take which faults)")
@@ -2907,6 +2979,26 @@ ADMIN_CMDS.traffic = function(pid, name, args)
   log(string.format("traffic mode %s for %s", on and "on" or "off", name))
   local p = playerByPid(pid)
   if p then pushState(p) end
+end
+
+-- producer points: /tg award <driver> <+/-points> [reason]
+ADMIN_CMDS.award = function(pid, _, args)
+  if game.phase == "idle" then say(pid, "No challenge running."); return end
+  local k
+  for i = 4, #args do if tonumber(args[i]) then k = i; break end end
+  local who = k and table.concat(args, " ", 3, k - 1) or ""
+  local p = game.players[who]
+  if not (k and p) then say(pid, "Usage: /tg award <driver> <points, e.g. 2 or -1.5> [reason]"); return end
+  local n = tonumber(args[k])
+  local reason = table.concat(args, " ", k + 1)
+  p.points = p.points + n
+  p.awardPoints = (p.awardPoints or 0) + n
+  p.awards = p.awards or {}
+  p.awards[#p.awards + 1] = { points = n, reason = reason }
+  sayAll(string.format("The producers %s %s %s%s.", n >= 0 and "award" or "dock", p.name, pts(math.abs(n)),
+    reason ~= "" and (": " .. reason) or ""))
+  if game.phase == "results" then game.summary = buildSummary(sortedPlayers()) end
+  pushState(p)
 end
 
 ADMIN_CMDS.stop = function()
