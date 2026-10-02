@@ -621,3 +621,76 @@ t.test("saved configs: the three overlapping problems switched off and the oil l
     if f.id == "idle" then t.eq(f.enabled, nil, "an admin's choice is kept") end
   end
 end)
+
+-- 0.9.12: a replaced part takes its problems with it - and a part that had problems is scrap (no trade-in)
+local function toWorkshop(w, A)
+  w:chat(A, "/tg ready")
+  w:drive(A, p(500), 40); w:chat(A, "/tg go")
+  w:waitFor(function() return w:state(A).phase == "event" end, 10, "GO")
+  w:drive(A, p(900), 40)
+  w:waitFor(function() return w:state(A).phase == "workshop" end, 10, "the workshop")
+  w:step(2.5)
+end
+local function fit(w, A, key, part) A.client.im.click("Fit##fit_" .. key .. "_" .. part); w:step(5) end
+
+t.test("a new engine sorts the engine's problems; the old one is scrap, so the new one costs its full price", function()
+  local cfg = F.twoRaces(); cfg.workshopEvery = 1
+  local w = World.new({ files = F.files(cfg) })
+  local A = w:join("Alice")
+  w:chat(A, "/tg start"); w:chat(A, "/tg condition beater")
+  w.rolls = { "last", 6, 5 }; w.chances = { 0.9 }   -- oil leak (last when it's in the draw), ignition, worn brakes
+  w:buy(A, "covet", "base_M"); w:step(10)
+  toWorkshop(w, A)
+  local e = A.current.engine
+  t.ok(math.abs(e.damageFrictionCoef - 1.5) < 1e-9 and math.abs(e.slowIgnitionErrorChance - 0.10) < 1e-9, "oil leak + misfires")
+  local before = w:state(A).cash
+  fit(w, A, "/covet_engine/", "covet_engine_turbo")   -- stock $2,000 -> turbo $3,200
+  t.ok(w:chatHas(A, "The new part sorted: Ignition problems (misfires, cuts out), Oil leak (runs hot - might blow the engine). The old one was scrap - no trade-in."))
+  t.eq(before - w:state(A).cash, 3200 + 300, "the turbo engine's full $3,200 (not the $1,200 difference) + labour")
+  w:step(10)
+  e = A.current.engine
+  t.ok(math.abs(e.damageFrictionCoef - 1) < 1e-9, "no oil leak")
+  t.ok(math.abs(e.slowIgnitionErrorChance) < 1e-9, "no misfires")
+  t.eq(A.current.wheels[0].brakeTorque, 900, "the brakes weren't part of it: still worn")
+  t.eq(A.current.partOdometer.covet_engine_turbo, 0, "the new engine starts at 0 km...")
+  t.eq(A.current.odometer, 200000 * 1000, "...the rest of the car keeps a Beater's mileage")
+  w:chat(A, "/tg diag"); w:step(1)
+  t.ok(w:chatHas(A, "Car wear (mileage): 200,000 km, paint 0.88 - ok, 1 new part(s) at 0 km"))
+  w:resetCar(A); w:step(3)
+  t.ok(math.abs(A.current.engine.damageFrictionCoef - 1) < 1e-9, "the sorted problems don't come back after a reset")
+  t.eq(A.current.wheels[0].brakeTorque, 900)
+  w:assertClean()
+end)
+
+t.test("an upgrade to a part with no problems is billed as before (the difference), and the new part is still new", function()
+  local cfg = F.twoRaces(); cfg.workshopEvery = 1
+  local w = World.new({ files = F.files(cfg) })
+  local A = w:join("Alice")
+  w:chat(A, "/tg start"); w:chat(A, "/tg condition used")
+  w.rolls = { 5 }; w:buy(A, "covet", "base_M"); w:step(10)   -- worn brakes (not an engine problem)
+  toWorkshop(w, A)
+  local before = w:state(A).cash
+  fit(w, A, "/covet_engine/", "covet_engine_turbo")
+  t.eq(before - w:state(A).cash, 1200 + 300, "the $1,200 difference + labour: a healthy engine is a trade-in")
+  t.noLine(A.chat, "The new part sorted")
+  t.eq(A.current.wheels[0].brakeTorque, 900, "the brakes problem stays")
+  t.eq(A.current.partOdometer.covet_engine_turbo, 0, "a part bought new starts at 0 km")
+  w:assertClean()
+end)
+
+t.test("new coilovers sort worn-out suspension (the same rule for every part system)", function()
+  local cfg = F.twoRaces(); cfg.workshopEvery = 1
+  local w = World.new({ files = F.files(cfg) })
+  local A = w:join("Alice")
+  w:chat(A, "/tg start"); w:chat(A, "/tg condition used")
+  w.rolls = { 8 }; w:buy(A, "covet", "base_M"); w:step(10)   -- worn-out suspension
+  t.eq(A.current.vars["$spring_F"], 20000, "softest springs")
+  toWorkshop(w, A)
+  local before = w:state(A).cash
+  fit(w, A, "/covet_coilover_F/", "covet_coilover_F_sport")   -- $400 -> $1,800
+  w:step(10)
+  t.ok(w:chatHas(A, "The new part sorted: Worn-out suspension (soft and bouncy)."))
+  t.eq(before - w:state(A).cash, 1800 + 300, "full price for the coilovers: the worn ones are scrap")
+  t.eq(A.current.vars["$spring_F"], 40000, "springs back to normal")
+  w:assertClean()
+end)

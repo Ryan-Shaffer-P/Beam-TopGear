@@ -681,8 +681,10 @@ function World:freshPhysics(p, v)
   -- BeamNG's part conditions (career's used cars): mileage + paint wear. Like the game, setting them puts the
   -- engine/gearbox/clutch integrity values back to new, and a reset restores the conditions from their snapshot.
   v.odometer, v.paintVisual, v.partConditionCalls = 0, 1, 0
-  sb.set("partCondition", { initConditions = function(_, odo, _, visual)
+  sb.set("partCondition", { initConditions = function(perPart, odo, _, visual)
     v.odometer, v.paintVisual = odo or 0, visual or 1
+    v.partOdometer = {}   -- part name -> odometer, for the parts given their own condition (new parts: 0)
+    for partId, c in pairs(perPart or {}) do v.partOdometer[v.parts[partId] or partId] = c.odometer end
     v.engine.damageFrictionCoef, v.engine.damageIdleAVReadErrorRangeCoef = 1, 1
     v.engine.slowIgnitionErrorChance, v.engine.fastIgnitionErrorChance = 0, 0
     if v.devices.gearbox then v.devices.gearbox.damageFrictionCoef = 1 end
@@ -706,7 +708,7 @@ function World:freshPhysics(p, v)
   sb.set("beamstate", { activateAutoCoupling = function() v.autoCouple = true end, toggleCouplers = function() v.autoCouple = true end,
     addDamage = function(d) v.damage = v.damage + d end,
     breakBreakGroup = function(g) v.broken[g] = true end })
-  sb.set("v", { data = { nodes = v.nodes, beams = {
+  sb.set("v", { data = { nodes = v.nodes, activeParts = v.parts, beams = {
     { cid = 0, breakGroup = "headlight_L" }, { cid = 1, breakGroup = { "glass_windshield", "body" } }, { cid = 2, breakGroup = "hood_hinge" } } } })
   v.vlua = sb
 end

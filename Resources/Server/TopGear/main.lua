@@ -583,7 +583,35 @@ function CONDITION.mileage(p)   -- { m = odometer in metres, v = paint visual va
   local n = CONDITION.level(p)
   local km = tonumber(((cfg.faults or {}).mileageKm or {})[n + 1]) or 0
   if n <= 0 or km <= 0 then return nil end
-  return { m = math.floor(km * 1000), v = tonumber(((cfg.faults or {}).paintWear or {})[n + 1]) or 1 }
+  local fresh = {}   -- parts bought new since: they start at 0 km
+  for _, part in pairs(p.freshParts or {}) do fresh[#fresh + 1] = part end
+  table.sort(fresh)
+  return { m = math.floor(km * 1000), v = tonumber(((cfg.faults or {}).paintWear or {})[n + 1]) or 1,
+           fresh = #fresh > 0 and fresh or nil }
+end
+-- Replacing a part replaces its problems (0.9.12): which problems live in which part, by the slot's own name.
+-- A replaced part that had problems is scrap - no trade-in: the new part is billed at its full value.
+CONDITION.SYSTEMS = {
+  { name = "engine",     words = { "engine" }, not_ = { "mount", "cover", "bay" },
+    faults = { "engine", "oilleak", "ignition", "starter", "idle" } },
+  { name = "radiator",   words = { "radiator" },                 faults = { "cooling" } },
+  { name = "turbo",      words = { "turbo" },                    faults = { "turbo" } },
+  { name = "gearbox",    words = { "transmission", "gearbox" },  faults = { "synchros", "gearbox" } },
+  { name = "clutch",     words = { "clutch" },                   faults = { "clutch" } },
+  { name = "brakes",     words = { "brake" },                    faults = { "brakes", "brakefade" } },
+  { name = "tires",      words = { "tire", "tyre", "wheel" }, not_ = { "steering" }, faults = { "tires" } },
+  { name = "suspension", words = { "coilover", "spring", "damper", "shock", "strut", "swaybar", "suspension" },
+    faults = { "suspension" } },
+}
+function CONDITION.systemOf(slot)   -- "/covet_engine/" -> the engine system (or nil)
+  local own = (tostring(slot or ""):gsub("/+$", ""):match("([^/]+)$") or ""):lower()
+  for _, sys in ipairs(CONDITION.SYSTEMS) do
+    local hit = false
+    for _, w in ipairs(sys.words) do if own:find(w, 1, true) then hit = true end end
+    for _, w in ipairs(sys.not_ or {}) do if own:find(w, 1, true) then hit = false end end
+    if hit then return sys end
+  end
+  return nil
 end
 function CONDITION.parse(text)   -- "3", "beater", "needs work" -> 3
   text = tostring(text or ""):lower():gsub("^%s+", ""):gsub("%s+$", "")
@@ -1028,6 +1056,7 @@ local function setCar(p, vid, model, config, car)
   p.carName, p.carNewPrice = car.name, car.price
   p.carPrice = CONDITION.price(p.boughtCondition, car.price)
   p.conditionSaving = car.price - p.carPrice
+  p.freshParts = {}   -- (parts fitted from now on are new: 0 km)
 end
 local function refundCar(p)
   p.faultsOwed = #(p.faults or {}) + (p.faultsOwed or 0)   -- faults stay paid for; drawn again for the next car
@@ -1036,7 +1065,7 @@ local function refundCar(p)
   if (p.dealerParts or 0) ~= 0 then spend(p, "upgrades", -p.dealerParts) end
   p.dealerParts = 0
   p.carVid, p.carModel, p.carConfig, p.carName, p.carPrice = nil, nil, nil, nil, 0
-  p.boughtCondition, p.carNewPrice, p.conditionSaving = nil, nil, nil   -- (the condition can be changed again)
+  p.boughtCondition, p.carNewPrice, p.conditionSaving, p.freshParts = nil, nil, nil, nil   -- (the condition can be changed again)
   p.ready = false
 end
 
@@ -2755,6 +2784,21 @@ function TG_onRebuild(pid, data)
   if billable <= 0 then return end   -- paint, cosmetics, tuning, the mod's own changes: free
   local w = cfg.workshop
   local delta = (tonumber(t.valueDelta) or 0) + (tonumber(t.unknown) or 0) * (w.flatPartPrice or 500)
+  -- a replaced part that had problems is scrap: no trade-in (the new part at its full value); its problems go with it
+  local cleared, scrapped = {}, {}
+  for _, c in ipairs(type(t.changes) == "table" and t.changes or {}) do
+    local sys = c.to and faultsOn() and CONDITION.systemOf(c.slot)
+    if sys then
+      local any = false
+      for _, id in ipairs(sys.faults) do
+        if hasFault(p, id) and not cleared[id] then cleared[id], any = sys.name, true end
+      end
+      if any and tonumber(c.from_value) and tonumber(c.from_value) > 0 then
+        delta = delta + tonumber(c.from_value)   -- (the old part's value isn't credited)
+        scrapped[#scrapped + 1] = sys.name
+      end
+    end
+  end
   local labour = p.wsLabour and 0 or (w.laborFee or 0)
   local partsAmt = math.floor((delta > 0 and delta * (w.partsMarkup or 1) or delta * (w.resaleRate or 0.5)) + 0.5)
   local total = labour + partsAmt
@@ -2769,6 +2813,24 @@ function TG_onRebuild(pid, data)
   end
   chargeLabour(p)
   if delta ~= 0 then chargeParts(p, delta) end
+  -- every part bought here is new (0 km); a replaced part takes its problems with it
+  p.freshParts = p.freshParts or {}
+  for _, c in ipairs(type(t.changes) == "table" and t.changes or {}) do
+    if c.slot then p.freshParts[c.slot] = c.to end
+  end
+  local names = {}
+  for id, sysName in pairs(cleared) do
+    removeFault(p, id)
+    p.faultsReplaced = (p.faultsReplaced or 0) + 1
+    local f = faultDef(id)
+    names[#names + 1] = f and f.name or id
+  end
+  table.sort(names)
+  if #names > 0 then
+    say(p.pid, string.format("The new part%s sorted: %s.%s", #scrapped > 1 and "s" or "", table.concat(names, ", "),
+      #scrapped > 0 and " The old one was scrap - no trade-in." or ""))
+  end
+  if #names > 0 or CONDITION.level(p) > 0 then sendFaults(p) end   -- (the new parts' mileage; removed problems)
   overdraftNote(p)
   pushState(p)
 end

@@ -522,8 +522,29 @@ it affordable ("$10,200 as a Death Trap").
   names any left.
 - **Fixing one costs 5% of the car's new price** (at least $500) in a workshop: `/tg fix <id>` or the
   Status tab. A luxury car is dear to keep running: a Pigeon's fix is $500, an ETK 800's $1,700.
+- **Or replace the part.** Fitting a different part in a workshop (Parts tab) takes that part's problems
+  with it - a new engine sorts the tired engine, oil leak, ignition and weak starter. **A part with
+  problems is scrap**: there's no trade-in, so the new part costs its **full price** (not the usual
+  difference) plus labour. Healthy parts are still traded in as before. Which part holds which problems:
+
+  | Part replaced | Sorts |
+  |---|---|
+  | Engine | tired engine, oil leak (and its doomed-engine risk), ignition, weak starter (rough idle) |
+  | Radiator | cooling |
+  | Turbo | damaged turbo |
+  | Gearbox / transmission | worn synchros (worn gearbox) |
+  | Clutch | slipping clutch |
+  | Brakes / pads | worn brakes, glazed pads |
+  | Tires / wheels | worn tires |
+  | Springs, dampers, coilovers, anti-roll bars | worn-out suspension |
+
+  So fixing is cheapest for one or two problems; a new engine cures them all at once (and may add
+  power). On a Death Trap Hirochi Sunburst 1.6, three engine problems cost $3,900 to fix (3 x $1,300),
+  a 2.0L engine $6,300 to fit.
+- **Every part bought new starts at 0 km** - the rest of the car keeps its mileage (`/tg diag`: "... ok, 1
+  new part(s) at 0 km").
 - **Every problem still there at the end costs 3 points** (a penalty of its own).
-- They come back after a tow, a respawn or a reset until they're fixed.
+- They come back after a tow, a respawn or a reset until they're fixed or replaced.
 - **A worn car also has the mileage to match**, using BeamNG's own part-condition system - the same one
   career mode's used-car dealership uses: the odometer shows the mileage above, with the wear the game
   gives it (a little more engine, gearbox and clutch friction, a less steady idle, slower automatic

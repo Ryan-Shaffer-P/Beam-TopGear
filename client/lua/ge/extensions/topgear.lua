@@ -621,12 +621,22 @@ local out = {}
 local wearFresh = afterReset
 -- mileage wear (the car's condition): BeamNG's own part conditions, as career's used-car dealership sets them.
 -- Once per spawned car - the game keeps them through resets - and before the faults (it resets the same values).
-if mileage and tgFaults.mileage ~= mileage.m then
+-- (parts bought new since - mileage.fresh, by part name - start at 0 km; the rest of the car keeps its mileage)
+local mileageKey = mileage and (tostring(mileage.m) .. "|" .. table.concat(mileage.fresh or {}, ","))
+if mileage and tgFaults.mileage ~= mileageKey then
   local pc = rawget(_G, "partCondition")
   if pc and pc.initConditions then
-    local ok, err = pcall(pc.initConditions, nil, mileage.m, nil, mileage.v)
+    local perPart, fresh, nFresh = nil, {}, 0
+    for _, name in ipairs(mileage.fresh or {}) do fresh[name] = true end
+    if next(fresh) and v and v.data and type(v.data.activeParts) == "table" then
+      perPart = {}
+      for partId, name in pairs(v.data.activeParts) do
+        if fresh[name] then perPart[partId] = { odometer = 0, integrityValue = 1, visualValue = 1 }; nFresh = nFresh + 1 end
+      end
+    end
+    local ok, err = pcall(pc.initConditions, perPart, mileage.m, nil, mileage.v)
     if ok then
-      tgFaults.mileage, out._mileage, wearFresh = mileage.m, "ok", true
+      tgFaults.mileage, out._mileage, wearFresh = mileageKey, nFresh > 0 and ("ok, " .. nFresh .. " new part(s) at 0 km") or "ok", true
       tgFaults.ignOrig = nil   -- (the misfire chances have a new base)
     else
       out._mileage = "error: " .. tostring(err)
@@ -832,7 +842,12 @@ local function runPhysicsFaults(afterReset)
     if PHYSICS[id] then items[#items + 1] = string.format("[%q]=%s", id, tostring(tonumber(f.factor) or 1)) end
   end
   local m = faults.mileage
-  local mileage = (type(m) == "table" and tonumber(m.m)) and string.format("{m=%d,v=%s}", math.floor(m.m), tostring(tonumber(m.v) or 1)) or "nil"
+  local mileage = "nil"
+  if type(m) == "table" and tonumber(m.m) then
+    local fresh = {}
+    for _, name in ipairs(type(m.fresh) == "table" and m.fresh or {}) do fresh[#fresh + 1] = string.format("%q", tostring(name)) end
+    mileage = string.format("{m=%d,v=%s,fresh={%s}}", math.floor(m.m), tostring(tonumber(m.v) or 1), table.concat(fresh, ","))
+  end
   local code = string.format(VLUA, "{" .. table.concat(items, ",") .. "}", afterReset and "true" or "false", mileage)
   car:queueLuaCommand(code)
   faults.physicsDeadline = 5
@@ -845,7 +860,7 @@ function M.onVehicleFaultReport(js)
     for id, st in pairs(t) do
       if id == "_mileage" then
         faults.mileageStatus = tostring(st)
-        if tostring(st) ~= "ok" then warn("mileage wear: " .. tostring(st)) end
+        if not tostring(st):find("^ok") then warn("mileage wear: " .. tostring(st)) end
       else
       faults.results[id] = st
       -- "unavailable" is normal (the server swaps it for another fault); only a real error is worth a warning
@@ -3075,7 +3090,7 @@ local function checkRebuild()
   end
   lastGoodSnap = old   -- what to go back to if the server refuses the bill
   if not old or old.carId ~= new.carId then return end
-  local billable, cosmetic, delta, unknown, seen = 0, 0, 0, 0, {}
+  local billable, cosmetic, delta, unknown, seen, changes = 0, 0, 0, 0, {}, {}
   for _, t in ipairs({ old.parts, new.parts }) do
     for slot in pairs(t) do
       if not seen[slot] then
@@ -3091,6 +3106,9 @@ local function checkRebuild()
             local vb = (b == nil) and 0 or new.values[slot]
             if type(va) ~= "number" or type(vb) ~= "number" then unknown = unknown + 1
             else delta = delta + (vb - va) end
+            if #changes < 40 then   -- which slots changed (a replaced part takes its problems with it)
+              changes[#changes + 1] = { slot = slot, from = a, to = b, from_value = type(va) == "number" and va or nil }
+            end
           end
         end
       end
@@ -3101,7 +3119,7 @@ local function checkRebuild()
   for k, v in pairs(old.vars) do if new.vars[k] ~= v then varsChanged = true end end
   if (billable + cosmetic > 0 or varsChanged) and TriggerServerEvent then
     TriggerServerEvent("tg_rebuild", jsonEncode({ billable = billable, cosmetic = cosmetic, vars = varsChanged,
-      valueDelta = delta, unknown = unknown }))
+      valueDelta = delta, unknown = unknown, changes = changes }))
   end
 end
 
