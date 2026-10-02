@@ -30,6 +30,15 @@ keeps working (`/tg diag` shows why); `/tg theme` (or the Settings tab) turns th
 open. Under the tabs, a **System messages** box (dark blue, outlined) keeps the mod's last 6 messages,
 newest at the bottom and brightest. Tabs:
 
+- **Quick start** (far left; the menu opens on it before and during the dealership): the whole setup in
+  one place. An admin answers three questions - **which course** (dropdown of saved courses; picking one
+  loads it), **the budget**, and **what type of cars** (dropdown: any car, your classes, or a ready-made
+  class, which is made for you) - then presses **Start the challenge**. Below it, each step lights up
+  green only once the one before it is done: **Start** (lit when a finished course is loaded) ->
+  **Car condition** (a dropdown, every player, after Start) -> **Go to the dealer** (after you pick a
+  condition; opens the game's vehicle selector with today's cars). Done steps say "(done)"; players see
+  "Waiting for an admin" until the challenge starts.
+
 - **Status**: your car, cash, points, damage, standings, and the button for whatever comes
   next (Ready, GO, Join, problem fixes in a workshop). The driver buttons are always there:
   **Repair** (workshops only, shows the price), **Tow**, **Unstick** and **Respawn**, with a grey

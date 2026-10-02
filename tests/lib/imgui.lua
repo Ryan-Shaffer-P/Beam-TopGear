@@ -83,7 +83,12 @@ function M.new()
 
   function im.BeginTabBar() st.tabbars = st.tabbars + 1; return true end
   function im.EndTabBar() st.tabbars = st.tabbars - 1 end
-  function im.BeginTabItem(label) record({ kind = "tab", label = visible(label) }); return true end   -- every tab drawn
+  im.selectedTabs = {}   -- tab label -> how many frames it was forced open (TabItemFlags_SetSelected)
+  function im.BeginTabItem(label, _, flags)   -- every tab drawn
+    record({ kind = "tab", label = visible(label) })
+    if flags then im.selectedTabs[visible(label)] = (im.selectedTabs[visible(label)] or 0) + 1 end
+    return true
+  end
   function im.EndTabItem() end
   function im.CollapsingHeader1(label) record({ kind = "header", label = visible(label) }); return true end
 
