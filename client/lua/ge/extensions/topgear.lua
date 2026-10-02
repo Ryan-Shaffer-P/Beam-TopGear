@@ -1862,6 +1862,37 @@ local function drawAdminControls(d)
     else
       button("Traffic mode (add AI traffic / parked cars)##traffic", "traffic on")
     end
+    im.Separator()
+    txt("Player cash & points")
+    if #(d.standings or {}) == 0 then
+      colored(0.65, 0.65, 0.65, "Players appear here once a challenge is running.")
+    else
+      for i, s in ipairs(d.standings) do
+        if i > 1 then same() end
+        if im.Button((ui.player == s.name and "> " or "") .. s.name .. "##pl_" .. s.name) then ui.player = s.name end
+      end
+      local nb = textBuf("admplayer")
+      im.InputText("Or type a name##admplayer", nb)
+      local typed = textOf(nb):gsub("^%s+", ""):gsub("%s+$", "")
+      local who = typed ~= "" and typed or ui.player
+      if not who then
+        colored(0.65, 0.65, 0.65, "Pick a player above or type a name.")
+      else
+        for _, s in ipairs(d.standings) do
+          if s.name == who then txt(string.format("%s: %s, %.1f points", s.name, commas(s.cash), s.points or 0)) end
+        end
+        local a = intPtr("admcash", nil, 1000)
+        im.InputInt("Cash##admcash", a); same()
+        button("Give##admgive", "give " .. who .. " " .. a[0]); same()
+        button("Set##admset", "setcash " .. who .. " " .. a[0])
+        local pt = intPtr("admpts", nil, 1)
+        im.InputInt("Points##admpts", pt)
+        local rb = textBuf("admreason")
+        im.InputText("Reason (optional)##admreason", rb); same()
+        button("Award##admaward", "award " .. who .. " " .. pt[0] .. " " .. textOf(rb))
+        colored(0.65, 0.65, 0.65, "A negative amount takes cash or points away. Award: everyone sees it, and it shows in the results.")
+      end
+    end
   end
 end
 
@@ -2075,20 +2106,7 @@ local function drawAdmin(d)
       colored(0.65, 0.65, 0.65, "Cars: imported from your game."); same()
       confirmButton("Back to the built-in catalogue", "catbuiltin", "importprices builtin")
     end
-    if #(d.standings or {}) > 0 then
-      im.Separator()
-      txt("Players (click one):")
-      for _, s in ipairs(d.standings) do
-        if im.Button(s.name .. "##pl_" .. s.name) then ui.player = s.name end
-        same(); txt(commas(s.cash))
-      end
-      if ui.player then
-        local a = intPtr("amount", nil, 1000)
-        im.InputInt("Amount##amt", a)
-        button("Set " .. ui.player .. "'s cash##sc", "setcash " .. ui.player .. " " .. a[0]); same()
-        button("Give##gv", "give " .. ui.player .. " " .. a[0])
-      end
-    end
+    colored(0.65, 0.65, 0.65, "A player's cash and points: Status tab, Admin controls.")
   end
   local cl = d.classes
   if cl and header("Car classes - which cars the dealership sells##classes") then
@@ -2607,6 +2625,211 @@ local function section(name, fn, d)  -- a broken section shows an error instead 
   end
 end
 
+-- The message log under the tabs: a "System messages" heading and a tinted, bordered box (a child window) with the
+-- last few lines, newest brightest. BeginChild isn't used anywhere else, so if it fails the lines show plain.
+local Tabs = {}   -- window parts drawn outside the tab functions above (one local: the chunk is near Lua's 200)
+Tabs.messages = function()
+  local MSG_LINES = 6
+  local MSG_BOX = { ChildBg = { 0.05, 0.09, 0.22, 1 }, Border = { 0.40, 0.56, 0.95, 0.80 } }
+  im.Separator()
+  heading("System messages")
+  local from = math.max(1, #ui.log - MSG_LINES + 1)
+  local function lines()
+    if #ui.log == 0 then colored(0.55, 0.62, 0.70, "No messages yet."); return end
+    for i = from, #ui.log do
+      if i == #ui.log then colored(0.95, 0.97, 1.00, ui.log[i]) else colored(0.70, 0.76, 0.86, ui.log[i]) end
+    end
+  end
+  local begin = imGet("BeginChild1") or imGet("BeginChild")
+  local okH, lh = pcall(function() return im.GetTextLineHeightWithSpacing() end)
+  lh = (okH and tonumber(lh)) or 17
+  local rec = { c = 0 }
+  pcall(pushColors, MSG_BOX, rec)
+  local okB, err = false, "no BeginChild"
+  if begin then okB, err = pcall(begin, "##tgmessages", im.ImVec2(0, MSG_LINES * lh + 12), 1) end   -- 1 = border (bool or child flags)
+  if okB then
+    local okL, errL = pcall(lines)
+    pcall(im.EndChild)   -- always, whatever BeginChild returned
+    popColors(rec)
+    if not okL and not ui.failed.messages then ui.failed.messages = true; warn("messages UI error: " .. tostring(errL)) end
+  else
+    popColors(rec)
+    if not ui.failed.msgbox then ui.failed.msgbox = true; warn("message box unavailable, plain lines instead: " .. tostring(err)) end
+    lines()
+  end
+end
+
+-- A step button on the Quick start tab: "lit" (green, clickable), "done" (dim, says so) or "wait" (grey, ignores
+-- clicks). Every colour push is popped here, whatever the button does.
+Tabs.step = function(label, id, how)
+  local rec = { c = 0 }
+  local cols
+  if how == "lit" then
+    cols = { Button = { 0.10, 0.62, 0.20, 1 }, ButtonHovered = { 0.25, 0.85, 0.30, 1 }, ButtonActive = { 0.05, 0.40, 0.10, 1 },
+             Text = { 1, 1, 1, 1 } }
+  elseif how == "done" then
+    cols = { Button = { 0.14, 0.26, 0.30, 1 }, ButtonHovered = { 0.14, 0.26, 0.30, 1 }, ButtonActive = { 0.14, 0.26, 0.30, 1 },
+             Text = { 0.60, 0.80, 0.65, 1 } }
+  else
+    cols = { Button = { 0.22, 0.24, 0.26, 1 }, ButtonHovered = { 0.22, 0.24, 0.26, 1 }, ButtonActive = { 0.22, 0.24, 0.26, 1 },
+             Text = { 0.50, 0.52, 0.55, 1 } }
+  end
+  pcall(pushColors, cols, rec)
+  local okB, clicked = pcall(im.Button, (how == "done" and (label .. "  (done)") or label) .. "##" .. id, im.ImVec2(-1, 36))
+  popColors(rec)
+  if not okB then error(clicked) end
+  return clicked and how == "lit"
+end
+
+-- A dropdown; items = { { label, value, selected } }. Returns the picked value, or nil.
+Tabs.combo = function(id, preview, items)
+  local picked
+  if im.BeginCombo then
+    if im.BeginCombo("##" .. id, preview) then
+      local ok, err = pcall(function()
+        local selectable = im.Selectable1 or im.Selectable
+        for i, it in ipairs(items) do
+          if selectable(it[1] .. "##" .. id .. "_" .. i, it[3] == true) then picked = it[2] end
+        end
+      end)
+      im.EndCombo()   -- always closed, even if an entry failed
+      if not ok then error(err) end
+    end
+  else
+    for i, it in ipairs(items) do   -- fallback for builds without dropdowns
+      if im.Button((it[3] and "> " or "") .. it[1] .. "##" .. id .. "b_" .. i) then picked = it[2] end
+    end
+  end
+  return picked
+end
+
+-- Quick start (the first tab): an admin answers three questions (course, budget, cars) and presses Start; then every
+-- player picks a car condition and goes to the dealer. Each step lights up only once the one before it is done.
+Tabs.quick = function(d)
+  local me, fl, admin = d.me, d.faults, d.admin
+  local idle, dealer = d.phase == "idle", d.phase == "dealer"
+  if not ui.quick or (idle and ui.quick.phase ~= "idle") then ui.quick = {} end   -- back to idle: a new challenge
+  local q = ui.quick
+  q.phase = d.phase
+  local c, cl = d.course or {}, d.classes or {}
+  local ready, budget = false, nil
+
+  heading("SET UP THE CHALLENGE")
+  if not admin then
+    colored(0.65, 0.65, 0.65, idle and "Waiting for an admin to set up and start the challenge." or "The challenge is set up.")
+  else
+    txt("1. What course do you want to load?")
+    if idle then
+      local items = {}
+      for _, e in ipairs(c.library or {}) do
+        items[#items + 1] = { e.name .. ((e.problems or 0) > 0 and ("  (" .. e.problems .. " to set)") or ""), e.name, e.name == c.active }
+      end
+      if #items == 0 then
+        colored(1, 0.8, 0.3, "No saved courses yet - build one in the Admin tab's Course builder.")
+      else
+        local pick = Tabs.combo("qcourse", c.active or "Pick a course...", items)
+        if pick then sendCmd("course load " .. pick) end
+      end
+      if c.active and c.dirty then colored(1, 0.8, 0.3, "The loaded course has unsaved changes - picking another drops them.") end
+    else
+      txt("   " .. tostring(c.active or "(unnamed course)"))
+    end
+    ready = c.active ~= nil and (c.problems or 0) == 0
+    if c.active and (c.problems or 0) > 0 then
+      colored(1, 0.8, 0.3, string.format("   %s isn't finished: %d thing%s to set (Admin tab, Course builder).",
+        c.active, c.problems, c.problems == 1 and "" or "s"))
+    end
+
+    txt("2. What is the budget?")
+    if idle then
+      budget = intPtr("qbudget", d.baseBudget or d.budget)
+      im.InputInt("Budget##qbudget", budget)
+    else
+      txt("   " .. commas(d.baseBudget or d.budget))
+    end
+
+    txt("3. What type of cars do you want to drive?")
+    if idle then
+      local items, made = { { "Any car (" .. tostring(cl.none or "no class") .. ")", "none", cl.active == nil } }, {}
+      for _, e in ipairs(cl.list or {}) do
+        made[e.name] = true
+        items[#items + 1] = { string.format("%s - %d cars%s", e.name, e.count or 0,
+          e.min and string.format(", %s to %s", commas(e.min), commas(e.max)) or ""), "use " .. e.name, e.name == cl.active }
+      end
+      for _, pr in ipairs(cl.presets or {}) do   -- ready-made classes not made yet: picking one makes it, then uses it
+        if not made[pr.key] then
+          items[#items + 1] = { string.format("%s (%s cars)", tostring(pr.title or pr.key), tostring(pr.count or "?")), "preset " .. pr.key, false }
+        end
+      end
+      local pick = Tabs.combo("qclass", cl.active or "Any car", items)
+      if pick == "none" then
+        sendCmd("class use none")
+      elseif pick and pick:sub(1, 4) == "use " then
+        sendCmd("class " .. pick)
+      elseif pick then
+        local key = pick:sub(8)
+        sendCmd("class preset " .. key); sendCmd("class use " .. key)
+      end
+    else
+      txt("   " .. tostring(d.dealerClass and d.dealerClass.name or cl.active or "Any car"))
+    end
+  end
+
+  im.Separator()
+  heading("GO")
+  if idle then
+    if Tabs.step("Start the challenge", "qstart", (admin and ready) and "lit" or "wait") then
+      if budget and budget[0] ~= (d.baseBudget or d.budget) then sendCmd("budget " .. budget[0]) end
+      sendCmd("start")
+    end
+    if not admin then colored(0.65, 0.65, 0.65, "An admin presses Start.")
+    elseif not ready then colored(0.65, 0.65, 0.65, "Load a finished course first.") end
+  else
+    Tabs.step("Start the challenge", "qstart", "done")
+  end
+
+  -- car condition: a dropdown, lit once the challenge has started
+  local count = fl and fl.count or 0
+  local function cname(n) return ((fl and fl.levels or {})[n + 1] or {}).name or CONDITION_NAMES[n] or tostring(n) end
+  local canPick = dealer and me and fl and not fl.locked and not me.hasCar
+  local chosen = q.cond or count > 0
+  if canPick then
+    txt("Car condition:")
+    same()
+    local items = {}
+    for n = 0, math.min(fl.max or 4, 4) do
+      local off = ((fl.levels or {})[n + 1] or {}).off or 0
+      items[#items + 1] = { cname(n) .. (n > 0 and string.format("  (%d%% off)", off) or "  (full price)"), n, chosen and n == count }
+    end
+    local rec = { c = 0 }
+    if not chosen then pcall(pushColors, { FrameBg = { 0.10, 0.62, 0.20, 1 }, FrameBgHovered = { 0.25, 0.85, 0.30, 1 } }, rec) end
+    local okC, pick = pcall(Tabs.combo, "qcond", chosen and cname(count) or "Pick a condition...", items)
+    popColors(rec)
+    if not okC then error(pick) end
+    if pick then
+      q.cond = true
+      if pick ~= count then sendCmd("condition " .. pick) end
+    end
+  elseif (dealer and me and me.hasCar) or not (idle or dealer) then
+    Tabs.step("Car condition: " .. cname(count), "qcond", "done")
+  else
+    Tabs.step("Car condition (after Start)", "qcond", "wait")
+  end
+
+  -- the dealer: opens the game's vehicle selector with today's cars
+  if dealer and me and me.hasCar then
+    Tabs.step("Go to the dealer - you bought the " .. tostring(me.car), "qdealer", "done")
+  elseif not (idle or dealer) then
+    Tabs.step("Go to the dealer", "qdealer", "done")
+    colored(0.65, 0.65, 0.65, "The challenge is under way - the Status tab has the rest.")
+  else
+    local lit = canPick and chosen and not (ui.busy and (ui.t - ui.busy) < 5)
+    if Tabs.step("Go to the dealer", "qdealer", lit and "lit" or "wait") then M.openSelector() end
+    if canPick and not chosen then colored(0.65, 0.65, 0.65, "Pick a car condition first.") end
+    if lit then colored(0.65, 0.65, 0.65, "Opens the vehicle selector with today's cars - spawning one buys it.") end
+  end
+end
+
 local function drawWindow(dt)
   ui.t = ui.t + dt
   ui.reqTimer = ui.reqTimer - dt
@@ -2625,6 +2848,14 @@ local function drawWindow(dt)
     if not d then txt("Loading...")
     else
       if im.BeginTabBar("##tgtabs") then
+        local quickOpen
+        if ui.selectQuick and (d.phase == "idle" or d.phase == "dealer") and im.TabItemFlags_SetSelected then
+          quickOpen = im.BeginTabItem("Quick start", nil, im.TabItemFlags_SetSelected)
+        else
+          quickOpen = im.BeginTabItem("Quick start")
+        end
+        ui.selectQuick = false
+        if quickOpen then section("Quick start", Tabs.quick, d); im.EndTabItem() end
         if d.summary then
           local open
           if ui.selectResults and im.TabItemFlags_SetSelected then
@@ -2641,8 +2872,7 @@ local function drawWindow(dt)
         if im.BeginTabItem("Settings") then section("Settings", drawSettings, d); im.EndTabItem() end
         im.EndTabBar()
       end
-      im.Separator()
-      for i = math.max(1, #ui.log - 5), #ui.log do txt(ui.log[i]) end
+      Tabs.messages()
     end
   end
   im.End()
@@ -2788,6 +3018,7 @@ local function onMenu(data)
   if data == "open" or data == "reset" then ui.open = true else ui.open = not ui.open end
   if data == "results" then ui.open = true; ui.layout = "results"; ui.selectResults = true end
   if data == "reset" then ui.layout = "reset" elseif ui.open and not wasOpen and not ui.layout then ui.layout = "open" end
+  if ui.open and not wasOpen and data ~= "results" then ui.selectQuick = true end   -- Quick start first (before/at the dealership)
   if ui.open then ui.reqTimer = 0 end
 end
 local function onUi(data)

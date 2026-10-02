@@ -27,13 +27,25 @@ Type `/tg menu` to open or close it. Colour key: **solid blue = a button you cli
 outline = a field you can type in or change**; blue headings mark sections; the standings are a light table.
 If the colours ever break the window on your BeamNG version, it switches them off by itself and
 keeps working (`/tg diag` shows why); `/tg theme` (or the Settings tab) turns them on/off. It opens by itself when the dealership and workshops
-open. Tabs:
+open. Under the tabs, a **System messages** box (dark blue, outlined) keeps the mod's last 6 messages,
+newest at the bottom and brightest. Tabs:
+
+- **Quick start** (far left; the menu opens on it before and during the dealership): the whole setup in
+  one place. An admin answers three questions - **which course** (dropdown of saved courses; picking one
+  loads it), **the budget**, and **what type of cars** (dropdown: any car, your classes, or a ready-made
+  class, which is made for you) - then presses **Start the challenge**. Below it, each step lights up
+  green only once the one before it is done: **Start** (lit when a finished course is loaded) ->
+  **Car condition** (a dropdown, every player, after Start) -> **Go to the dealer** (after you pick a
+  condition; opens the game's vehicle selector with today's cars). Done steps say "(done)"; players see
+  "Waiting for an admin" until the challenge starts.
 
 - **Status**: your car, cash, points, damage, standings, and the button for whatever comes
   next (Ready, GO, Join, problem fixes in a workshop). The driver buttons are always there:
   **Repair** (workshops only, shows the price), **Tow**, **Unstick** and **Respawn**, with a grey
   line saying what's usable right now. Tow and Respawn need two clicks. Admins also get an
-  **Admin controls** dropdown here with Start, Start (unfinished course), Next phase and Stop.
+  **Admin controls** dropdown here with Start, Start (unfinished course), Next phase and Stop, and
+  **Player cash & points**: click a player (or type a name), then **Give** / **Set** cash or
+  **Award** points with an optional reason (a negative number takes cash or points away).
 - **Dealership**: **Browse the cars in the vehicle selector** opens the game's own vehicle selector
   (the freeroam one: pictures, filters, search, details) showing **only today's cars at today's
   prices** - the price is in each name and in the Value filter, with "as a Beater" (the condition that would afford it) / "over
@@ -403,7 +415,8 @@ Player commands: `/tg menu`, `/tg go`, `/tg unstick`, `/tg tow`, `/tg respawn`, 
   Mid-challenge it applies from the next challenge. `/tg budget` alone shows the current value.
 - `/tg workshop <minutes>`: set the workshop length (saved). If a workshop is open, its
   timer moves by the difference.
-- `/tg setcash <name> <amount>` / `/tg give <name> <amount>`: adjust one player.
+- `/tg setcash <name> <amount>` / `/tg give <name> <amount>`: adjust one player (also in the Status
+  tab's Admin controls). Names can be typed in any case, or just the start of one name.
 - **Cars and prices come built in** (`cars.json`, every stock car): nothing to import. The catalogue
   isn't copied into config.json, so a mod update can refresh it; your own prices (`/tg setprice`),
   classes and budget are saved in config.json and apply on top.

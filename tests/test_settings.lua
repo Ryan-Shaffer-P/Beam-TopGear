@@ -65,3 +65,33 @@ t.test("Settings buttons work: mute only you, theme toggles, tests and diagnosti
   t.ok(w:chatHas(B, "client mod v"), "diagnostics reply in chat")
   w:assertClean()
 end)
+
+t.test("system messages: a heading and a tinted, bordered box under the tabs with the latest lines", function()
+  local w = World.new({ files = F.files(F.twoRaces()) })
+  local A, B = w:join("Alice"), w:join("Bob")
+  w:chat(A, "/tg start")
+  w:step(2.5)
+  for i = 1, 8 do B.client.im.click("Colour theme: " .. (i % 2 == 1 and "ON - turn off" or "OFF - turn on") .. "##theme"); w:step(2.5) end
+  local items, at, child = B.client.im.items(WIN), nil, nil
+  for i, it in ipairs(items) do
+    if it.text == "System messages" then at = i end
+    if it.kind == "child" and it.label == "" then child = it end
+  end
+  t.ok(at, "a System messages heading")
+  t.ok(child and child.border == 1 and child.size.y == 6 * 17 + 12, "a bordered box, 6 lines tall")
+  local after = {}
+  for i = at + 1, #items do if items[i].text then after[#after + 1] = items[i] end end
+  t.eq(#after, 6, "the last 6 messages")
+  t.eq(after[6].text, "Colour theme on.", "newest last")
+  t.ok(after[6].color.x > after[1].color.x, "the newest is brightest")
+  w:assertClean()
+
+  B.client.im.BeginChild1 = nil   -- a game without BeginChild: plain lines, one warning
+  w:step(2.5)
+  t.ok(B.client.im.textOf(WIN):find("System messages\n", 1, true))
+  t.ok(B.client.im.textOf(WIN):find("Colour theme on.", 1, true), "messages still show")
+  local warned = 0
+  for _, l in ipairs(B.client.log) do if l.level == "W" and l.msg:find("message box unavailable", 1, true) then warned = warned + 1 end end
+  t.eq(warned, 1, "warned once")
+  t.eq(#B.client.im.problems, 0, "still balanced")
+end)

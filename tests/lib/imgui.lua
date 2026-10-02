@@ -11,7 +11,7 @@ local M = {}
 local function visible(label) return (tostring(label):gsub("##.*$", "")) end
 
 local function newState()
-  return { colors = 0, vars = 0, windows = 0, tabbars = 0, tables = 0, combos = 0 }
+  return { colors = 0, vars = 0, windows = 0, tabbars = 0, tables = 0, combos = 0, children = 0 }
 end
 
 function M.new()
@@ -83,7 +83,12 @@ function M.new()
 
   function im.BeginTabBar() st.tabbars = st.tabbars + 1; return true end
   function im.EndTabBar() st.tabbars = st.tabbars - 1 end
-  function im.BeginTabItem(label) record({ kind = "tab", label = visible(label) }); return true end   -- every tab drawn
+  im.selectedTabs = {}   -- tab label -> how many frames it was forced open (TabItemFlags_SetSelected)
+  function im.BeginTabItem(label, _, flags)   -- every tab drawn
+    record({ kind = "tab", label = visible(label) })
+    if flags then im.selectedTabs[visible(label)] = (im.selectedTabs[visible(label)] or 0) + 1 end
+    return true
+  end
   function im.EndTabItem() end
   function im.CollapsingHeader1(label) record({ kind = "header", label = visible(label) }); return true end
 
@@ -128,6 +133,14 @@ function M.new()
   function im.TableHeadersRow() end
   function im.TableNextRow() end
   function im.TableNextColumn() end
+
+  function im.BeginChild1(id, size, border)   -- (like BeamNG's binding; returns visible, EndChild is always due)
+    st.children = st.children + 1
+    record({ kind = "child", label = visible(id), size = size, border = border })
+    return true
+  end
+  function im.EndChild() st.children = st.children - 1 end
+  function im.GetTextLineHeightWithSpacing() return 17 end
 
   -- style -----------------------------------------------------------------------
   function im.PushStyleColor2() st.colors = st.colors + 1 end
