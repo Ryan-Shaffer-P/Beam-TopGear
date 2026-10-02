@@ -70,6 +70,9 @@ local DEFAULT_CONFIG = {
     -- Fast cars hold their value: the condition discount is scaled by the car's 0-100 km/h time - the full discount
     -- at perfSlowSeconds or slower, perfMinShare of it at perfFastSeconds or quicker (a worn 340 hp ETK isn't a bargain)
     perfFastSeconds = 4, perfSlowSeconds = 10, perfMinShare = 0.3,
+    -- More worn, worse problems: each problem's strength x this for Used, Needs work, Beater, Death Trap (the values in
+    -- `list` are a Beater's). Floors/caps keep it sane; the weak starter and ignition cut-outs never get harsher than listed.
+    severity = { 0.5, 0.75, 1.0, 1.3 },
     fixPercent = 0.05,            -- a workshop fix costs this share of the car's new price per problem...
     fixMin = 500,                 -- ...but at least this
     inspectionPenaltyPoints = 3,  -- points lost per fault still unfixed at the end (its own penalty)
@@ -640,6 +643,39 @@ function CONDITION.systemOf(slot)   -- "/covet_engine/" -> the engine system (or
   end
   return nil
 end
+-- how each problem's `factor` scales with the condition's severity:
+--   loss = factor is what's left (0.8 = -20%): the loss scales, never below `floor`; noWorse = never harsher than listed
+--   add  = factor is an amount: it scales, at most `cap`;  mult = factor is a multiplier: (factor - 1) scales
+CONDITION.SCALE = {
+  tires = { "loss", floor = 0.15 }, engine = { "loss", floor = 0.5 }, brakes = { "loss", floor = 0.3 },
+  starter = { "loss", noWorse = true },
+  ignition = { "add" }, cooling = { "add" }, fuelleak = { "add" }, body = { "add" }, turbo = { "add" }, oilleak = { "add" },
+  synchros = { "add", cap = 1 }, brakefade = { "add", cap = 1 },
+  idle = { "mult" }, gearbox = { "mult" },
+}
+function CONDITION.severity(p)
+  local n = CONDITION.level(p)
+  if n <= 0 then return 1 end
+  return tonumber(((cfg.faults or {}).severity or {})[n]) or 1
+end
+function CONDITION.scaled(f, s)   -- a problem's factor for a car of severity s
+  local how, fac = CONDITION.SCALE[f.id], tonumber(f.factor)
+  if not how or not fac or s == 1 then return f.factor end
+  if how.noWorse and s > 1 then s = 1 end
+  if how[1] == "loss" then return math.max(how.floor or 0, 1 - (1 - fac) * s) end
+  if how[1] == "mult" then return 1 + (fac - 1) * s end
+  return math.min(how.cap or math.huge, fac * s)
+end
+function CONDITION.problemName(p, id)   -- the name, with its "-20%" made to fit this car's severity
+  local f = faultDef(id)
+  if not f then return id end
+  local how = CONDITION.SCALE[id]
+  if how and how[1] == "loss" and p then
+    local left = CONDITION.scaled(f, CONDITION.severity(p))
+    return (f.name:gsub("%-%d+%%", "-" .. math.floor((1 - left) * 100 + 0.5) .. "%%"))
+  end
+  return f.name
+end
 function CONDITION.parse(text)   -- "3", "beater", "needs work" -> 3
   text = tostring(text or ""):lower():gsub("^%s+", ""):gsub("%s+$", "")
   if tonumber(text) then return math.floor(tonumber(text)) end
@@ -656,7 +692,7 @@ local function removeFault(p, id)
 end
 local function faultNames(p)
   local names = {}
-  for _, id in ipairs(p.faults or {}) do local f = faultDef(id); names[#names + 1] = f and f.name or id end
+  for _, id in ipairs(p.faults or {}) do names[#names + 1] = CONDITION.problemName(p, id) end
   return names
 end
 local SETUP_FAULTS = { tires = true, alignment = true, bumpers = true, suspension = true }   -- these respawn the car
@@ -689,7 +725,8 @@ local function drawFaults(p)
     if not id then break end
     if id == "oilleak" then   -- the secret roll: is this engine going to blow?
       local f = faultDef(id)
-      p.oilDoomed, p.oilBlown = math.random() < (tonumber(f and f.blowChance) or 0.2), false
+      local chance = math.min(1, (tonumber(f and f.blowChance) or 0.2) * CONDITION.severity(p))   -- (a Death Trap's is likelier)
+      p.oilDoomed, p.oilBlown = math.random() < chance, false
     end
     p.faults[#p.faults + 1] = id
     p.faultsOwed = p.faultsOwed - 1
@@ -713,7 +750,7 @@ local function revealFaults(p)
   local lines = {}
   for _, id in ipairs(p.faults) do
     local f = faultDef(id)
-    lines[#lines + 1] = string.format("%s (/tg fix %s)", f and f.name or id, id)
+    lines[#lines + 1] = string.format("%s (/tg fix %s)", f and CONDITION.problemName(p, id) or id, id)
   end
   say(p.pid, "The mechanics have looked your car over and found: " .. table.concat(lines, ", ") .. ".")
   say(p.pid, string.format("Each fix costs %s here; every problem still there at the finale costs %s point%s.",
@@ -723,10 +760,13 @@ end
 local function sendFaults(p, test)
   if not p.pid then return end
   local list, setup = {}, false
+  local sev = CONDITION.severity(p)   -- more worn, worse problems
+  local calmer = sev < 1 and sev or 1   -- (ignition cut-outs: further apart on a less worn car, never closer than listed)
   for _, id in ipairs(p.faults or {}) do
     local f = faultDef(id)
     if f then
-      list[#list + 1] = { id = f.id, factor = f.factor, cutoutMin = f.cutoutMin, cutoutMax = f.cutoutMax, refresh = f.refresh,
+      list[#list + 1] = { id = f.id, factor = CONDITION.scaled(f, sev), refresh = f.refresh,
+                          cutoutMin = f.cutoutMin and f.cutoutMin / calmer, cutoutMax = f.cutoutMax and f.cutoutMax / calmer,
                           blowMin = f.blowMin, blowMax = f.blowMax,
                           doomed = (f.id == "oilleak" and p.oilDoomed and not p.oilBlown) or nil }
       setup = setup or SETUP_FAULTS[f.id] or false
@@ -2851,7 +2891,7 @@ function TG_onRebuild(pid, data)
     removeFault(p, id)
     p.faultsReplaced = (p.faultsReplaced or 0) + 1
     local f = faultDef(id)
-    names[#names + 1] = f and f.name or id
+    names[#names + 1] = f and CONDITION.problemName(p, id) or id
   end
   table.sort(names)
   if #names > 0 then
@@ -3291,7 +3331,7 @@ PLAYER_CMDS.fix = function(pid, _, args)
   p.cash = p.cash - cost
   spend(p, "faultFixes", cost)
   p.faultsFixed = (p.faultsFixed or 0) + 1
-  sayAll(string.format("%s pays %s to have the %s sorted.", p.name, money(cost), f.name:lower()))
+  sayAll(string.format("%s pays %s to have the %s sorted.", p.name, money(cost), CONDITION.problemName(p, id):lower()))
   sendFaults(p)
   pushState(p)
 end
@@ -4596,7 +4636,7 @@ local function buildUi(pid)
     for _, f in ipairs(cfg.faults.list or {}) do all[#all + 1] = { id = f.id, name = f.name } end   -- (admin fault test)
     if p and p.faultsRevealed then
       mine = {}
-      for _, id in ipairs(p.faults or {}) do local f = faultDef(id); mine[#mine + 1] = { id = id, name = f and f.name or id } end
+      for _, id in ipairs(p.faults or {}) do mine[#mine + 1] = { id = id, name = CONDITION.problemName(p, id) } end
     end
     local levels = {}
     for n = 0, 4 do levels[n + 1] = { name = CONDITION[n], km = CONDITION.km(n), off = CONDITION.percentOff(n) } end

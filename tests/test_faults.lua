@@ -14,7 +14,7 @@ local OFF = { clutch = true, idle = true, gearbox = true }
 local function allFaults(cfg)
   local list = {}
   for _, f in ipairs(World.new():serverConfig().faults.list) do f.enabled = nil; list[#list + 1] = f end
-  cfg.faults = { list = list }
+  cfg.faults = { list = list, severity = { 1, 1, 1, 1 } }   -- (the listed strengths at every condition)
   cfg.migrations = { mileageOverlap = true }
   return cfg
 end
@@ -743,4 +743,47 @@ t.test("fast cars hold their value: the condition discount shrinks with the 0-10
     t.ok(w2:chatHas(B, string.format("  $%s  ETK x", ({ [19400] = "19,400", [35300] = "35,300", [49000] = "49,000", [51100] = "51,100" })[want])),
       string.format("0-100 in %s s -> $%d", acc, want))
   end
+end)
+
+-- More worn, worse problems (0.9.12): the listed strengths are a Beater's; Used x0.5, Needs work x0.75, Death Trap x1.3
+t.test("more worn cars have worse problems: each problem's strength scales with the condition", function()
+  local base = F.twoRaces(); base.faults = nil; base.workshopEvery = 1   -- (the real severities, not the tests' flat ones)
+  local function car(cond, ids)
+    local w = World.new({ files = F.files(base) })
+    local A = w:join("Alice")
+    w:chat(A, "/tg start"); w:chat(A, "/tg condition " .. cond)
+    pin(w, ids); w:buy(A, "covet", "base_M"); w:step(10)
+    return w, A
+  end
+  -- worked by hand: engine 0.8 -> loss 20% x s; brakes 0.6 -> loss 40% x s; fuel leak 1 L/min x s
+  local _, U = car("used", { "engine" })
+  t.ok(math.abs(U.current.engine.outputTorqueState - 0.9) < 1e-9, "Used: -10% power")
+  local _, D = car("death trap", { "engine", "brakes", "starter", "ignition" })
+  t.ok(math.abs(D.current.engine.outputTorqueState - 0.74) < 1e-9, "Death Trap: -26% power")
+  t.ok(math.abs(D.current.wheels[0].brakeTorque - 1500 * 0.48) < 1e-6, "Death Trap: -52% braking")
+  t.ok(math.abs(D.current.engine.starterTorque - 60) < 1e-9, "the starter never gets weaker than listed (it must still start)")
+  t.ok(math.abs(D.current.engine.slowIgnitionErrorChance - 0.065) < 1e-9, "misfires +0.05 x 1.3")
+  local w, N = car("needs work", { "brakes", "engine" })
+  t.ok(math.abs(N.current.wheels[0].brakeTorque - 1500 * 0.7) < 1e-6, "Needs work: -30% braking")
+  -- the names follow (a workshop reveals them)
+  w:chat(N, "/tg ready"); w:drive(N, p(500), 40); w:chat(N, "/tg go")
+  w:waitFor(function() return w:state(N).phase == "event" end, 10, "GO")
+  w:drive(N, p(900), 40)
+  w:waitFor(function() return w:state(N).phase == "workshop" end, 10, "the workshop")
+  t.ok(w:chatHas(N, "Tired engine (about -15% power)") and w:chatHas(N, "Worn brakes (about -30% braking)"), "names fit the car")
+  w:assertClean()
+end)
+
+t.test("ignition cut-outs come less often on a less worn car, never more often than listed", function()
+  local base = F.twoRaces(); base.faults = nil
+  local w = World.new({ files = F.files(base) })
+  local A = w:join("Alice")
+  w:chat(A, "/tg start"); w:chat(A, "/tg condition used")
+  pin(w, { "ignition" }); w:buy(A, "covet", "base_M"); w:step(10)
+  w:chat(A, "/tg ready")
+  w:step(355)   -- a Used car's cut-outs: 360-960 s (180-480 / 0.5)
+  t.eq(A.current.stalls, 0, "none in the first 6 minutes")
+  w:step(610)
+  t.ok(A.current.stalls >= 1, "but one by 16 minutes")
+  w:assertClean()
 end)

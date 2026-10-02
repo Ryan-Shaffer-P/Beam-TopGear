@@ -252,6 +252,11 @@ Mileage wear (0.9.12): `CONDITION.mileage(p)` (by `CONDITION.level` = condition 
 `vehicleShopping` call) once per vehicle-Lua state (`tgFaults.mileage`) BEFORE the faults - it resets the engine/gearbox
 damage coefs and ignition chances, so it sets `wearFresh` (oil/idle/gearbox rescale from 1, ignition re-reads its base).
 The game re-applies its own snapshot on reset. Result -> `out._mileage` -> `/tg diag` "Car wear". NOT yet tried in game.
+Severity (0.9.12, Ryan: "more worn cars have worse problems"): `faults.severity` = {0.5, 0.75, 1.0, 1.3} per condition
+(listed factors = a Beater's); `CONDITION.scaled(f, s)` by `CONDITION.SCALE` mode (loss w/ floor, add w/ cap, mult;
+starter `noWorse`), applied in `sendFaults` (admin fault tests unscaled); ignition cut-out intervals / s only when s < 1;
+oil-leak doomed chance x s; names via `CONDITION.problemName` (rewrites "-20%"). Test fixtures pin severity {1,1,1,1}
+(`F.config`, `allFaults`) so mechanics tests use listed values; test_faults' "worse problems" tests use the real ones.
 Overlap with mileage: idle, gearbox, clutch `enabled = false` by default (migration `mileageOverlap`); a fault's
 `minCondition` (oil leak = 3) keeps it out of `rollFault` below that condition (`CONDITION.level` incl. owed draws).
 Taken by number (`/tg fault take [n]`; since 0.9.12 a car CONDITION that discounts the price, see below), drawn at random (`rollFault` /

@@ -12,6 +12,8 @@ function F.config(events, extra)
     events = events,
     finale = { name = "The Test Track", pos = p(5000), radius = 25, timeLimit = 1200, via = {} },
     workshopEvery = 2,
+    -- (tests of how each problem works use its listed strength at every condition; test_faults checks the scaling)
+    faults = { severity = { 1, 1, 1, 1 } },
   }
   for k, v in pairs(extra or {}) do cfg[k] = v end
   return cfg

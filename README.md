@@ -559,6 +559,13 @@ it affordable ("$10,200 as a Death Trap").
   a 2.0L engine $6,300 to fit.
 - **Every part bought new starts at 0 km** - the rest of the car keeps its mileage (`/tg diag`: "... ok, 1
   new part(s) at 0 km").
+- **More worn, worse problems.** Each problem's strength scales with the condition - the table below lists a
+  Beater's; a Used car's are half as bad, Needs work x0.75, a Death Trap's x1.3. A tired engine is -10% power on a
+  Used car, -26% on a Death Trap; worn brakes -20% / -52%; a fuel leak 0.5 / 1.3 litres a minute; and a Death
+  Trap's oil leak is likelier to be the doomed kind. Never past sane limits (tyres at least 15% pressure, at
+  least half the engine, 30% of the brakes), and the weak starter and ignition cut-outs never get harsher than
+  listed - a less worn car just cranks easier and cuts out less often. The names say how bad yours is ("Tired
+  engine (about -26% power)"). `config.json`: `faults.severity` (Used, Needs work, Beater, Death Trap).
 - **Every problem still there at the end costs 3 points** (a penalty of its own).
 - They come back after a tow, a respawn or a reset until they're fixed or replaced.
 - **A worn car also has the mileage to match**, using BeamNG's own part-condition system - the same one
