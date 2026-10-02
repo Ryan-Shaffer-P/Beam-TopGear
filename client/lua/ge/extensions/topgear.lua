@@ -534,6 +534,10 @@ local function onDiag()
   local r = { version = VERSION, phase = state.phase, pathMethod = pathMethod, errors = recentErrors, carId = state.carId,
               sound = sound.method }
   pcall(function() r.selector = selDiag() end)
+  if faults.mileage then
+    r.mileage = string.format("%s km, paint %s - %s", (commas(math.floor(faults.mileage.m / 1000)):gsub("^%$", "")),
+      tostring(faults.mileage.v), faults.mileageStatus or "not applied yet")
+  end
   local t = state.target
   if t then r.target = string.format("%s at (%.0f, %.0f, %.0f)", tostring(t.label), t.x, t.y, t.z) end
   pcall(function()
@@ -610,8 +614,27 @@ local function sanitize(v) return (tostring(v):gsub("[%c\"\\%]%[]", " ")) end
 
 local VLUA = [==[
 tgFaults = tgFaults or {}
-local want, afterReset = %s, %s
+local want, afterReset, mileage = %s, %s, %s
 local out = {}
+-- wearFresh: the engine/gearbox wear values are at their base (after a reset, or the mileage just set them):
+-- the faults that scale them start again from there instead of undoing what they think is applied
+local wearFresh = afterReset
+-- mileage wear (the car's condition): BeamNG's own part conditions, as career's used-car dealership sets them.
+-- Once per spawned car - the game keeps them through resets - and before the faults (it resets the same values).
+if mileage and tgFaults.mileage ~= mileage.m then
+  local pc = rawget(_G, "partCondition")
+  if pc and pc.initConditions then
+    local ok, err = pcall(pc.initConditions, nil, mileage.m, nil, mileage.v)
+    if ok then
+      tgFaults.mileage, out._mileage, wearFresh = mileage.m, "ok", true
+      tgFaults.ignOrig = nil   -- (the misfire chances have a new base)
+    else
+      out._mileage = "error: " .. tostring(err)
+    end
+  else
+    out._mileage = "unavailable"
+  end
+end
 if afterReset and tgFaults.engine then
   local e = powertrain and powertrain.getDevice and powertrain.getDevice("mainEngine")
   if not e or type(e.outputTorqueState) ~= "number" or math.abs(e.outputTorqueState - 1) < 1e-6 then tgFaults.engine = nil end
@@ -756,7 +779,7 @@ run("abs", function(on)   -- ABS switched off
 end)
 run("oilleak", function(f)   -- more engine friction: runs hot, a little less power (the blow-up is timed from the game side)
   if not eng or type(eng.damageFrictionCoef) ~= "number" then out.oilleak = "unavailable"; return end
-  local cur, target = afterReset and 1 or (tgFaults.oilMult or 1), 1 + (f or 0)
+  local cur, target = wearFresh and 1 or (tgFaults.oilMult or 1), 1 + (f or 0)
   eng.damageFrictionCoef = eng.damageFrictionCoef / cur * target
   tgFaults.oilMult = f and target or nil
   tgFaults.oilleak = f
@@ -764,7 +787,7 @@ run("oilleak", function(f)   -- more engine friction: runs hot, a little less po
 end)
 run("idle", function(f)   -- a rough idle: the engine's idle-speed error (what wear raises) - it hunts and can stall
   if not eng or type(eng.damageIdleAVReadErrorRangeCoef) ~= "number" then out.idle = "unavailable"; return end
-  local cur, target = afterReset and 1 or (tgFaults.idleMult or 1), f or 1
+  local cur, target = wearFresh and 1 or (tgFaults.idleMult or 1), f or 1
   eng.damageIdleAVReadErrorRangeCoef = eng.damageIdleAVReadErrorRangeCoef / cur * target
   tgFaults.idleMult = f
   tgFaults.idle = f
@@ -774,7 +797,7 @@ run("gearbox", function(f)   -- a worn gearbox: more friction in whatever gearbo
   local n = 0
   for _, d in pairs((powertrain and powertrain.getDevices and powertrain.getDevices()) or {}) do
     if type(d) == "table" and type(d.type) == "string" and d.type:find("Gearbox") and type(d.damageFrictionCoef) == "number" then
-      local cur = afterReset and 1 or (tgFaults.gearboxMult or 1)
+      local cur = wearFresh and 1 or (tgFaults.gearboxMult or 1)
       d.damageFrictionCoef = d.damageFrictionCoef / cur * (f or 1)
       n = n + 1
     end
@@ -808,7 +831,9 @@ local function runPhysicsFaults(afterReset)
   for id, f in pairs(faults.want) do
     if PHYSICS[id] then items[#items + 1] = string.format("[%q]=%s", id, tostring(tonumber(f.factor) or 1)) end
   end
-  local code = string.format(VLUA, "{" .. table.concat(items, ",") .. "}", afterReset and "true" or "false")
+  local m = faults.mileage
+  local mileage = (type(m) == "table" and tonumber(m.m)) and string.format("{m=%d,v=%s}", math.floor(m.m), tostring(tonumber(m.v) or 1)) or "nil"
+  local code = string.format(VLUA, "{" .. table.concat(items, ",") .. "}", afterReset and "true" or "false", mileage)
   car:queueLuaCommand(code)
   faults.physicsDeadline = 5
 end
@@ -818,9 +843,14 @@ function M.onVehicleFaultReport(js)
   local ok, t = pcall(jsonDecode, js)
   if ok and type(t) == "table" then
     for id, st in pairs(t) do
+      if id == "_mileage" then
+        faults.mileageStatus = tostring(st)
+        if tostring(st) ~= "ok" then warn("mileage wear: " .. tostring(st)) end
+      else
       faults.results[id] = st
       -- "unavailable" is normal (the server swaps it for another fault); only a real error is worth a warning
       if tostring(st):find("^error") then warn("fault " .. id .. ": " .. tostring(st)) end
+      end
     end
   end
   sendFaultReport()
@@ -1011,7 +1041,8 @@ local function onFaults(data)
   for _, f in ipairs(t.faults or {}) do if type(f) == "table" and f.id then faults.want[f.id] = f end end
   faults.restore = type(t.restore) == "table" and t.restore or {}
   faults.test = t.test and true or false
-  faults.active = next(faults.want) ~= nil or next(faults.restore) ~= nil
+  faults.mileage = type(t.mileage) == "table" and t.mileage or nil
+  faults.active = next(faults.want) ~= nil or next(faults.restore) ~= nil or faults.mileage ~= nil
   if faults.test or not (faults.want.oilleak and faults.want.oilleak.doomed) then faults.oilBlown, faults.blowAt = false, nil end
   faults.report = true
   faults.applyAt = 0.5   -- let a fresh purchase finish spawning first

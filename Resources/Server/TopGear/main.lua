@@ -66,6 +66,11 @@ local DEFAULT_CONFIG = {
     maxPerCar = 4,                -- a player takes 0 to this many
     fixMultiplier = 1.5,          -- workshop fix costs this x the payout
     inspectionPenaltyPoints = 3,  -- points lost per fault still unfixed at the end (its own penalty)
+    -- Mileage wear by car condition (New, Used, Needs work, Beater, Death Trap): BeamNG's own part-condition
+    -- system, as career mode's used-car dealership uses it - odometer (engine/gearbox/clutch wear, rough idle)
+    -- and paint wear (1 = like new). Applied when the car spawns; it stays (resets, repairs, problem fixes).
+    mileageKm = { 0, 60000, 150000, 300000, 500000 },
+    paintWear = { 1, 0.94, 0.9, 0.86, 0.82 },
     list = {                      -- factor = severity (see README)
       { id = "tires",      name = "Worn, underinflated tires",               factor = 0.3 },   -- pressure = 30% of normal
       { id = "alignment",  name = "Knocked-out wheel alignment",             factor = 1.4 },   -- front toe to its limit + rear 40%
@@ -527,6 +532,15 @@ local function fixCost() return math.ceil(faultPayout() * (tonumber(cfg.faults.f
 -- (Code and config keep the word "fault"; a single fault is "a problem" to players.)
 local CONDITION = { [0] = "New", "Used", "Needs work", "Beater", "Death Trap" }
 function CONDITION.name(n) n = math.floor(tonumber(n) or 0); return CONDITION[math.max(0, math.min(n, 4))] end
+function CONDITION.level(p)   -- the condition the car was bought in (fixing problems doesn't make it newer)
+  return math.min(#(p.faults or {}) + (p.faultsFixed or 0) + (p.faultsOwed or 0), 4)
+end
+function CONDITION.mileage(p)   -- { m = odometer in metres, v = paint visual value } or nil for a New car
+  local n = CONDITION.level(p)
+  local km = tonumber(((cfg.faults or {}).mileageKm or {})[n + 1]) or 0
+  if n <= 0 or km <= 0 then return nil end
+  return { m = math.floor(km * 1000), v = tonumber(((cfg.faults or {}).paintWear or {})[n + 1]) or 1 }
+end
 function CONDITION.parse(text)   -- "3", "beater", "needs work" -> 3
   text = tostring(text or ""):lower():gsub("^%s+", ""):gsub("%s+$", "")
   if tonumber(text) then return math.floor(tonumber(text)) end
@@ -625,7 +639,8 @@ local function sendFaults(p, test)
   for id in pairs(p.faultRestore or {}) do setup = setup or SETUP_FAULTS[id] or false end
   -- a setup fault change respawns the car: accept that edit without billing it
   if setup then p.faultEditUntil = now() + 15 end
-  MP.TriggerClientEvent(p.pid, "tg_faults", Util.JsonEncode({ faults = list, restore = p.faultRestore or {}, test = test or false }))
+  MP.TriggerClientEvent(p.pid, "tg_faults", Util.JsonEncode({ faults = list, restore = p.faultRestore or {}, test = test or false,
+    mileage = (not test) and CONDITION.mileage(p) or nil }))
 end
 
 -- vehicles -----------------------------------------------------------------
@@ -2366,7 +2381,7 @@ function Save.carBack(p, vid)
   pushState(p)
   MP.TriggerClientEvent(p.pid, "tg_tow", Util.JsonEncode({ kind = "restore", reset = false, pos = r.pos, dir = r.dir,
     config = p.lastVcf }))
-  if #(p.faults or {}) > 0 then sendFaults(p) end
+  if CONDITION.level(p) > 0 then sendFaults(p) end   -- (problems and mileage)
   say(p.pid, string.format("Your %s is back%s.", p.carName or "car",
     (r.cost or 0) > 0 and (" - its repairs cost " .. money(r.cost) .. " (no tow fee, no points lost)") or ""))
 end
@@ -2656,7 +2671,7 @@ performTow = function(p, carExists)
     reset = carExists, pos = pos, dir = dir,
     config = (not carExists) and p.lastVcf or nil,
   }))
-  if #(p.faults or {}) > 0 then sendFaults(p) end   -- unfixed faults come back with the car
+  if CONDITION.level(p) > 0 then sendFaults(p) end   -- unfixed faults (and the mileage) come back with the car
   sayAll(string.format("%s calls the tow truck (-%s%s): %s.", p.name, costNote(fee, repair), ptNote(), msg))
   pushState(p)
 end
@@ -3004,6 +3019,7 @@ function TG_onDiag(pid, data)
     tostring(t.carId or "none"), tostring(t.carFound or "none"), tostring(t.playerVeh or "none")))
   say(pid, "Sounds play via: " .. tostring(t.sound or "not tried yet (/tg soundtest)") .. (soundsOff[MP.GetPlayerName(pid)] and " - your sounds are OFF" or ""))
   if t.selector then say(pid, "Vehicle selector: " .. tostring(t.selector)) end
+  if t.mileage then say(pid, "Car wear (mileage): " .. tostring(t.mileage)) end
   for _, e in ipairs(t.errors or {}) do say(pid, "Client error: " .. tostring(e)) end
 end
 

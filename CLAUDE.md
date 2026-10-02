@@ -123,7 +123,7 @@ via `core_vehicles.getModelsData/getModel/getConfig`; 0.9.11 wraps those during 
 copies cached per list in `selector.cache`) and calls `ui_vehicleSelector_general.clearCache()`; our own code uses
 `gameGetModel`. 0.39 Lua reference: github.com/wlkmanist/BeamNG_lua (lua/ge/extensions/ui/vehicleSelector/)), vlua `v.data.nodes[].partOrigin` +
 `obj:getNodePosition` (trailer load %), `quatFromDir` convention + `setPositionRotation` (tow/unstick,
-self-verifying), `energyStorage.getStorages` (fuel), `freeroam_facilities` (gas stations),
+self-verifying), `energyStorage.getStorages` (fuel), `partCondition.initConditions` (mileage wear, vehicle Lua), `freeroam_facilities` (gas stations),
 `getSpawnWorldOOBB` / `be:getObjectOOBB*` (trailer placement), `beamstate.activateAutoCoupling`,
 ImGui draw lists / tables / style pushes (lights, theme), sound playback (`Engine.Audio.playOnce` with a
 mod file path, `be:executeJS` HTML audio - three methods tried in order, `/tg soundtest next` cycles). When Ryan reports a bug in one of these, ask
@@ -229,6 +229,11 @@ a full list is ~110 KB, a refresh without it ~2-10 KB.
 Death Trap = 0..4), one fault is "a problem". Dealership tab = `drawCondition` slider (`/tg condition <n|name>`, the old
 `/tg fault take` maps onto it); free both ways until a car is bought (`p.carVid` or drawn faults), then only worse. Code,
 config keys and admin tools still say fault.
+Mileage wear (0.9.12): `CONDITION.mileage(p)` (by `CONDITION.level` = condition bought, fixes don't lower it) goes in
+`tg_faults` as `mileage = {m = metres, v = paint}`; VLUA calls `partCondition.initConditions(nil, m, nil, v)` (career's
+`vehicleShopping` call) once per vehicle-Lua state (`tgFaults.mileage`) BEFORE the faults - it resets the engine/gearbox
+damage coefs and ignition chances, so it sets `wearFresh` (oil/idle/gearbox rescale from 1, ignition re-reads its base).
+The game re-applies its own snapshot on reset. Result -> `out._mileage` -> `/tg diag` "Car wear". NOT yet tried in game.
 Taken by number (`/tg fault take [n]`, $2,500 each = `faults.payout`), drawn at random (`rollFault` /
 `drawFaults`; owed faults wait for a car: `p.faultsOwed`) from enabled faults the car can take; hidden
 until a workshop (`revealFaults`), final, fix 1.5x. Ten faults: tires, alignment, bumpers, suspension (setup:

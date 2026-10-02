@@ -511,6 +511,13 @@ afford a better car. The cash moves as the slider moves.
 - **Fixing one costs $3,750** (1.5x the step) in a workshop: `/tg fix <id>` or the Status tab.
 - **Every problem still there at the end costs 3 points** (a penalty of its own).
 - They come back after a tow, a respawn or a reset until they're fixed.
+- **A worn car also has the mileage to match**, using BeamNG's own part-condition system - the same one
+  career mode's used-car dealership uses: Used 60,000 km, Needs work 150,000 km, Beater 300,000 km,
+  Death Trap 500,000 km on the odometer, with the wear the game gives that mileage (a little more engine,
+  gearbox and clutch friction, a less steady idle) and **faded paint** (career's paint-age scale). It stays
+  for the whole challenge - resets, repairs and fixing problems don't make the car newer.
+  `config.json`: `faults.mileageKm` and `faults.paintWear` (one value per condition, New first).
+  `/tg diag` shows it ("Car wear (mileage): 150,000 km, paint 0.9 - ok").
 
 The problems (the code and config.json call them *faults*):
 

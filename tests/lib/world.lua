@@ -677,6 +677,18 @@ function World:freshPhysics(p, v)
     getNodePosition = function(_, cid) return vec3(v.nodePos[cid] or vec3(0, 0, 0)) end,
   })
   sb.set("powertrain", { getDevice = function(name) return v.devices[name] end, getDevices = function() return v.devices end })
+  -- BeamNG's part conditions (career's used cars): mileage + paint wear. Like the game, setting them puts the
+  -- engine/gearbox/clutch integrity values back to new, and a reset restores the conditions from their snapshot.
+  v.odometer, v.paintVisual, v.partConditionCalls = 0, 1, 0
+  sb.set("partCondition", { initConditions = function(_, odo, _, visual)
+    v.odometer, v.paintVisual = odo or 0, visual or 1
+    v.engine.damageFrictionCoef, v.engine.damageIdleAVReadErrorRangeCoef = 1, 1
+    v.engine.slowIgnitionErrorChance, v.engine.fastIgnitionErrorChance = 0, 0
+    if v.devices.gearbox then v.devices.gearbox.damageFrictionCoef = 1 end
+    if v.devices.clutch then v.devices.clutch.clutchPermanentlyDamaged = false end
+    v.partSnapshot = { odo = v.odometer, visual = v.paintVisual }
+    v.partConditionCalls = v.partConditionCalls + 1
+  end })
   sb.set("wheels", { wheels = v.wheels,
     setABSBehavior = function(b) v.abs = b end, resetABSBehavior = function() v.abs = "realistic" end })
   sb.set("energyStorage", { getStorages = function()
@@ -710,6 +722,10 @@ function World:vehicleReset(p, v)
   if v.devices.gearbox then for i in pairs(v.devices.gearbox.synchroWear or {}) do v.devices.gearbox.synchroWear[i] = 0 end end   -- (automatics have none)
   for _, wd in pairs(v.wheels) do wd.padGlazingFactor = 0 end
   for _, wd in pairs(v.wheels) do wd.brakeTorque = BRAKE_TORQUE end
+  if v.partSnapshot then   -- the game re-applies the part conditions' snapshot (mileage + "new" integrity values)
+    v.odometer, v.paintVisual = v.partSnapshot.odo, v.partSnapshot.visual
+    v.engine.slowIgnitionErrorChance, v.engine.fastIgnitionErrorChance = 0, 0
+  end
   self:serverEvent("onVehicleReset", p.pid, v.vid, "{}")
   if p.client then self:clientCall(p, "onVehicleResetted", p.client.M.onVehicleResetted, v.gid) end
 end
