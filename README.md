@@ -252,6 +252,25 @@ Top Gear clips play at key moments. Who hears each one:
   in the client mod with matched loudness, using Docker), add the clip's name to `sounds.clips`, and
   rebuild the client zip. The name is the file name without `.mp3` and any `_XXXXXXX` download tag.
 
+### Server crashes and dropped connections
+
+The running challenge is **saved to `session.json`** (next to config.json) every few seconds and at every
+phase change: everyone's cash, points, results, faults, tows, the car they bought with its upgrades, and
+where it was.
+
+- **Server crash or restart:** the challenge comes back **paused**. As players reconnect the window shows
+  who's back. An admin presses **Resume the challenge** (`/tg resume`) when everyone's here, or
+  **Discard it** (`/tg discard`, two clicks). On resume everyone's car is brought back - upgrades and
+  setup faults included - where it was last seen; the dealership and workshops reopen with the time
+  they had left. **An event that was running (or counting down) is run again** from its start line:
+  the cars are delivered there and nobody gets a second arrival bonus. Anyone not back yet gets their
+  car when they rejoin.
+- **One player drops and rejoins** (same name): their car comes back automatically where they left it,
+  with its upgrades. During an event they were in, they're out of it (DNF), as before.
+- **Either way, the driver pays their car's repair price** for any damage it had - like a workshop
+  repair - but **no tow fee and no points lost**.
+- Finished challenges keep their Results tab after a restart. `/tg stop` clears the save.
+
 ### Adding traffic (admins)
 
 `/tg traffic on` (or **Traffic mode** under Admin controls on the Status page) is a pause button on

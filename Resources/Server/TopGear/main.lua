@@ -7,7 +7,7 @@
   In game, type /tg help.
 ]]
 
-local SERVER_VERSION = "0.9.7"
+local SERVER_VERSION = "0.9.8"
 local PLUGIN_DIR  = "Resources/Server/TopGear/"
 local CONFIG_PATH = PLUGIN_DIR .. "config.json"
 local COURSES_PATH = PLUGIN_DIR .. "courses.json"   -- saved course library
@@ -639,6 +639,7 @@ end
 -- Car classes -----------------------------------------------------------------------
 local chosenClass = nil   -- the class for the next / current challenge (picked each time, not saved)
 local Class = {}          -- the class helpers (kept in one table: Lua allows only 200 locals per chunk)
+local Save = {}           -- the running challenge saved to session.json (crash / restart protection), defined further down
 
 -- chat name -> BeamNG attribute (the filters of the game's own vehicle menu); "list" or "range"
 Class.FIELDS = {
@@ -1130,7 +1131,8 @@ local function phaseTitle()
     return string.format("Event %d/%d: %s%s", game.stage, n, e.name, runner and (" - " .. runner.name .. " running") or "")
   elseif ph == "workshop" then return "Workshop open"
   elseif ph == "finale" then return "Final leg -> " .. cfg.finale.name
-  elseif ph == "results" then return "Challenge complete" end
+  elseif ph == "results" then return "Challenge complete"
+  elseif ph == "paused" then return "Challenge saved - waiting for an admin to /tg resume" end
   return ""
 end
 
@@ -2167,7 +2169,10 @@ function TG_onTick()
     end
   end
   if pendingImport and now() - pendingImport.started > (pendingImport.all and 120 or 15) then finishImport() end
-  if game.phase == "idle" then return end
+  local okS, errS = pcall(Save.tick)
+  if not okS then log("save error: " .. tostring(errS)) end
+  if game.phase == "idle" or game.phase == "paused" then return end
+  Save.tickRestore()
   for _, p in pairs(game.players) do
     if racing(p) then
       local raw = MP.GetPositionRaw(p.pid, p.carVid)
@@ -2178,6 +2183,9 @@ function TG_onTick()
         local vel = v3(raw.vel)
         p.speed = vel and math.sqrt(vel.x * vel.x + vel.y * vel.y + vel.z * vel.z) or 0
         p.yaw = yawFromQuat(raw.rot) or p.yaw
+        p.lastPos = { x = pos.x, y = pos.y, z = pos.z }   -- (saved: where the car comes back after a crash)
+        local dx, dy = pos.x - p.prevPos.x, pos.y - p.prevPos.y
+        if dx * dx + dy * dy > 0.25 then p.lastDir = { x = dx, y = dy, z = 0 } end
       end
     end
   end
@@ -2191,6 +2199,177 @@ function TG_onTick()
 end
 
 ---------------------------------------------------------------------------
+-- Persistent game state: the running challenge is saved to session.json, so a server crash or restart
+-- doesn't lose it. After a restart it comes back paused; an admin resumes it (/tg resume) when people are
+-- back, or discards it. Cars come back as they were (upgrades, setup faults) - after a crash or when a
+-- player rejoins - and the owner pays their car's repair price (no tow fee, no points).
+---------------------------------------------------------------------------
+Save.PATH = PLUGIN_DIR .. "session.json"
+Save.EVERY = 5   -- seconds between saves while a challenge runs (and at every phase change)
+Save.TIMERS = { "closeAt", "workshopEnd", "countdownEnd", "phaseStart", "eventStart" }
+-- per-player runtime state that means nothing after a restart (game ids, positions, short time windows)
+Save.TRANSIENT = { "pid", "carVid", "pos", "prevPos", "speed", "eventVeh", "spawnAllow", "towPending", "repairPending",
+  "respawnPending", "unstickPending", "faultEditUntil", "lastEditAt", "outsideEditAt", "putBackAt", "swapAt", "lastUnstick",
+  "lastCrashSound", "pendingCharge", "restoring", "restoreAt", "restoreTries" }
+
+-- JSON can't hold every Lua table (number keys, holes): arrays stay arrays, other number keys become "#n"
+function Save.pack(v, path)
+  local tv = type(v)
+  if tv == "number" then if v ~= v or v == math.huge or v == -math.huge then return nil end return v end
+  if tv ~= "table" then if tv == "string" or tv == "boolean" then return v end return nil end
+  path = path or {}
+  if path[v] then return nil end   -- (cycles aren't saved)
+  path[v] = true
+  local n, count = #v, 0
+  for _ in pairs(v) do count = count + 1 end
+  local out = {}
+  if n > 0 and n == count then
+    for i = 1, n do out[i] = Save.pack(v[i], path) end
+  else
+    for k, x in pairs(v) do
+      local key = (type(k) == "number" and ("#" .. tostring(k))) or (type(k) == "string" and k) or nil
+      if key then out[key] = Save.pack(x, path) end
+    end
+  end
+  path[v] = nil
+  return out
+end
+function Save.unpack(v)
+  if type(v) ~= "table" then return v end
+  local out = {}
+  for k, x in pairs(v) do
+    local nk = type(k) == "string" and k:match("^#(%-?[%d%.]+)$")
+    out[nk and tonumber(nk) or k] = Save.unpack(x)
+  end
+  return out
+end
+
+function Save.snapshot()
+  local g = {}
+  for k, v in pairs(game) do if k ~= "solo" and k ~= "players" then g[k] = v end end   -- (an event is re-run anyway)
+  g.timers = {}
+  for _, k in ipairs(Save.TIMERS) do
+    if tonumber(game[k]) then g.timers[k] = game[k] - now(); g[k] = nil end
+  end
+  g.players = {}
+  for name, p in pairs(game.players) do
+    local c = {}
+    for k, v in pairs(p) do c[k] = v end
+    for _, k in ipairs(Save.TRANSIENT) do c[k] = nil end
+    g.players[name] = c
+  end
+  g.chosenClass = chosenClass
+  if game.phase == "paused" then g.phase, g.resumePhase = game.resumePhase, nil end
+  return { version = SERVER_VERSION, game = Save.pack(g) }
+end
+
+function Save.write()
+  Save.lastAt, Save.lastPhase, Save.lastStage = now(), game.phase, game.stage
+  local okE, s = pcall(Util.JsonEncode, game.phase == "idle" and { game = { phase = "idle" } } or Save.snapshot())
+  if not okE then log("couldn't save the challenge: " .. tostring(s)); return false end
+  -- write a temporary file, then swap it in, so a crash mid-write can't leave a broken save
+  local tmp = Save.PATH .. ".tmp"
+  if writeFile(tmp, s) then
+    local okR, res = pcall(function() return FS.Rename(tmp, Save.PATH) end)
+    if okR and res ~= false then return true end
+  end
+  return writeFile(Save.PATH, s)
+end
+function Save.clear() Save.write() end   -- (idle: nothing to resume)
+
+-- called every tick: save at phase changes and every few seconds while a challenge runs
+function Save.tick()
+  if game.phase == "idle" then
+    if Save.lastPhase and Save.lastPhase ~= "idle" then Save.write() end
+    return
+  end
+  local periodic = game.phase ~= "paused" and game.phase ~= "results"   -- (nothing changes while paused or after the end)
+  if game.phase ~= Save.lastPhase or game.stage ~= Save.lastStage or not Save.lastAt or (periodic and now() - Save.lastAt >= Save.EVERY) then
+    Save.write()
+  end
+end
+
+-- on plugin load: a challenge in progress comes back paused (results come back as they were)
+function Save.load()
+  local s = readFile(Save.PATH)
+  if not s or s == "" then return end
+  local ok, t = pcall(Util.JsonDecode, s)
+  if not ok or type(t) ~= "table" or type(t.game) ~= "table" then log("session.json is unreadable - not restored"); return end
+  local g = Save.unpack(t.game)
+  if g.phase == "idle" or type(g.players) ~= "table" or not next(g.players) then return end
+  for _, p in pairs(g.players) do
+    p.run = p.run or newRun(); p.leg = p.leg or { via = 1, arrived = false }
+    p.results, p.faults, p.spent = p.results or {}, p.faults or {}, p.spent or {}
+  end
+  if g.chosenClass and Class.def(g.chosenClass) then chosenClass = g.chosenClass end
+  g.chosenClass = nil
+  local timers = g.timers or {}
+  g.timers = nil
+  game = g
+  game.savedTimers = timers
+  if game.phase == "results" then
+    log("restored the last challenge's results")
+  else
+    game.resumePhase, game.phase = game.phase, "paused"
+    log(string.format("restored a challenge in progress (%s, stage %s, %d drivers) - paused until an admin types /tg resume",
+      tostring(game.resumePhase), tostring(game.stage), (function() local n = 0 for _ in pairs(game.players) do n = n + 1 end return n end)()))
+  end
+  Save.lastPhase, Save.lastStage, Save.lastAt = game.phase, game.stage, now()
+end
+
+-- the car comes back: ask the client to spawn it (stock trim), then put the upgrades back and place it.
+-- charge = true: the owner pays the car's repair price (its damage when it was lost).
+function Save.restoreCar(p, charge, pos, dir)
+  if not (p.pid and p.carModel) or p.carVid then return end
+  local cost = charge and repairQuote(p) or 0
+  p.restoring = { pos = pos, dir = dir, cost = cost }
+  p.restoreAt, p.restoreTries = now() + 3, 0   -- (sent from the tick: the client mod may still be loading)
+end
+function Save.tickRestore()
+  for _, p in pairs(game.players) do
+    if p.restoring and p.pid and not p.carVid and p.restoreAt and now() >= p.restoreAt then
+      p.restoreTries = (p.restoreTries or 0) + 1
+      if p.restoreTries > 6 then
+        p.restoreAt = nil
+        say(p.pid, "Couldn't bring your car back automatically - spawn it from the vehicle menu (/tg respawn).")
+      else
+        p.restoreAt = now() + 10
+        MP.TriggerClientEvent(p.pid, "tg_respawn", Util.JsonEncode({ spawn = true, model = p.carModel,
+          config = p.carConfig and ("vehicles/" .. p.carModel .. "/" .. p.carConfig .. ".pc") or nil }))
+      end
+    end
+  end
+end
+-- TG_onVehicleSpawn: the car we asked for has appeared
+function Save.carBack(p, vid)
+  local r = p.restoring or {}
+  p.restoring, p.restoreAt, p.restoreTries = nil, nil, nil
+  p.carVid, p.pos, p.prevPos = vid, nil, nil
+  p.towPending, p.faultEditUntil = now(), now() + 15   -- its rebuild and the upgrade restore aren't the driver's
+  if (r.cost or 0) > 0 then
+    p.cash = p.cash - r.cost
+    spend(p, "repairs", r.cost)
+  end
+  p.damage = 0
+  pushState(p)
+  MP.TriggerClientEvent(p.pid, "tg_tow", Util.JsonEncode({ kind = "restore", reset = false, pos = r.pos, dir = r.dir,
+    config = p.lastVcf }))
+  if #(p.faults or {}) > 0 then sendFaults(p) end
+  say(p.pid, string.format("Your %s is back%s.", p.carName or "car",
+    (r.cost or 0) > 0 and (" - its repairs cost " .. money(r.cost) .. " (no tow fee, no points lost)") or ""))
+end
+-- where a car comes back: where it was last seen, or the event's start line when an event is re-run
+function Save.placeFor(p, rerun)
+  if rerun then
+    local pos, dir = towDestination(p)
+    if pos then return pos, dir end
+  end
+  local lp = p.lastPos
+  if lp and tonumber(lp.x) then return { x = lp.x, y = lp.y, z = lp.z + 0.5 }, p.lastDir end
+  return nil
+end
+
+---------------------------------------------------------------------------
 -- BeamMP events
 ---------------------------------------------------------------------------
 function TG_onPlayerJoin(pid)
@@ -2198,13 +2377,24 @@ function TG_onPlayerJoin(pid)
   local p = game.players[name]
   if p and game.phase ~= "idle" then
     p.pid, p.carVid, p.pos, p.prevPos = pid, nil, nil, nil
-    if game.phase == "dealer" then
+    if game.phase == "paused" then
+      say(pid, "Welcome back - the challenge was saved when the server stopped. Waiting for an admin to /tg resume.")
+      MP.TriggerClientEvent(pid, "tg_menu", "open")   -- (admins see Resume / Discard there)
+    elseif game.phase == "dealer" then
       say(pid, "Welcome back - the dealership is still open.")
-    else
-      say(pid, string.format("Welcome back %s. Respawn your %s - that counts as a tow (roadside repair + %s%s).",
-        name, p.carName or "car", money(cfg.economy.towFee), ptNote()))
+    elseif game.phase == "results" or not p.carModel then
+      say(pid, "Welcome back " .. name .. ".")
+    else   -- the car comes back where it was, with its upgrades; the driver pays its repairs (no tow fee, no points)
+      say(pid, string.format("Welcome back %s - your %s is on its way back.", name, p.carName or "car"))
+      local pos, dir = Save.placeFor(p, false)
+      Save.restoreCar(p, true, pos, dir)
     end
     pushState(p)
+    if game.phase == "paused" then
+      for _, q in pairs(game.players) do
+        if q.pid and isAdmin(MP.GetPlayerName(q.pid)) then say(q.pid, name .. " is back. /tg resume when everyone's here.") end
+      end
+    end
   elseif game.phase == "dealer" then
     say(pid, "A Top Gear Challenge is about to start - type /tg join to take part.")
   elseif game.phase ~= "idle" then
@@ -2234,6 +2424,14 @@ function TG_onVehicleSpawn(pid, vid, data)
     if m == a.cargo and #ev.cargo < a.count then ev.cargo[#ev.cargo + 1] = vid; return 0 end
   end
   if cfg.debugSpawns then log("spawn " .. name .. " vid " .. tostring(vid) .. ": " .. tostring(data):sub(1, 400)) end
+  if p and p.restoring and not p.carVid and parseVehicle(data) == p.carModel then   -- the car we brought back
+    Save.carBack(p, vid)
+    return 0
+  end
+  if game.phase == "paused" then
+    say(pid, "The challenge is paused until an admin types /tg resume - your car comes back then.")
+    return 1
+  end
   local bringingBack = p and p.carModel and not p.carVid and game.phase ~= "dealer" and parseVehicle(data) == p.carModel
   if inTrafficMode(name) and not bringingBack then   -- the admin is placing traffic: never a purchase, never scored
     log(string.format("traffic: %s spawned %s (vid %s)", name, tostring((parseVehicle(data))), tostring(vid)))
@@ -2293,7 +2491,7 @@ function TG_onVehicleSpawn(pid, vid, data)
 end
 
 function TG_onVehicleEdited(pid, vid, data)
-  if game.phase == "idle" or game.phase == "results" then return 0 end
+  if game.phase == "idle" or game.phase == "results" or game.phase == "paused" then return 0 end
   local p = playerByPid(pid)
   if not p or p.carVid ~= vid then return 0 end   -- admin extras etc.
   local model, config = parseVehicle(data)
@@ -3028,6 +3226,11 @@ function TG_onMoveReport(pid, data)
   if not ok or type(t) ~= "table" then return end
   log(string.format("%s %s by %s: %s (%s)", tostring(t.kind), t.ok and "ok" or "FAILED", tostring(MP.GetPlayerName(pid)),
     tostring(t.method), tostring(t.detail)))
+  local p = playerByPid(pid)
+  if p and t.kind == "restore" and p.trailerAfterRestore then   -- a re-run trailer event: a new trailer behind it
+    p.trailerAfterRestore = nil
+    requestTrailer(p)
+  end
   if not t.ok then
     say(pid, string.format("Couldn't move your car for the %s (%s). Tell the admin - /tg diag has details.", tostring(t.kind), tostring(t.detail)))
   elseif t.kind == "unstick" then
@@ -3110,7 +3313,57 @@ PLAYER_CMDS.standings = function(pid)
   end
 end
 
+ADMIN_CMDS.resume = function(pid)
+  if game.phase ~= "paused" then say(pid, "There's no saved challenge waiting to resume."); return end
+  local ph, n = game.resumePhase, game.stage
+  local rerun = ph == "countdown" or ph == "event"
+  for _, k in ipairs(Save.TIMERS) do
+    local left = (game.savedTimers or {})[k]
+    game[k] = left and (now() + left) or nil
+  end
+  game.savedTimers, game.resumePhase = nil, nil
+  if rerun then   -- the interrupted event is run again from its start line
+    game.phase, game.allHere, game.solo, game.closeAt, game.countdownEnd = "travel", false, nil, nil, nil
+    game.towSlots = {}
+    for _, p in pairs(game.players) do p.run = newRun(); p.leg.arrived = true; p.leg.via = #(curEvent().via or {}) + 1 end
+    sayAll(string.format("Challenge resumed: %s is run again from the start - your cars are being brought to the line.", curEvent().name))
+  else
+    game.phase = ph
+    if ph == "workshop" then game.warned = (game.workshopEnd or now()) - now() <= 60 end
+    sayAll("Challenge resumed - your cars are being brought back where they were.")
+  end
+  for _, p in pairs(game.players) do
+    if p.pid and p.carModel then
+      if rerun and curEvent().type == "trailer" then p.trailerAfterRestore = true end
+      for vid, data in pairs(MP.GetPlayerVehicles(p.pid) or {}) do   -- the plugin was reloaded but the car is still out: keep it
+        if parseVehicle(data) == p.carModel then p.carVid = tonumber(vid) or vid; break end
+      end
+      local pos, dir = Save.placeFor(p, rerun)
+      if not p.carVid then
+        Save.restoreCar(p, true, pos, dir)
+      else
+        pushState(p)
+        if rerun then MP.TriggerClientEvent(p.pid, "tg_tow", Util.JsonEncode({ kind = "restore", reset = false, pos = pos, dir = dir })) end
+      end
+    end
+  end
+  local away = {}
+  for name, p in pairs(game.players) do if not p.pid then away[#away + 1] = name end end
+  if #away > 0 then sayAll("Not back yet: " .. table.concat(away, ", ") .. " - their cars return when they rejoin.") end
+  Save.write()
+  pushAll()
+end
+
+ADMIN_CMDS.discard = function(pid)
+  if game.phase ~= "paused" then say(pid, "There's no saved challenge waiting."); return end
+  game = { phase = "idle", stage = 0, players = {} }
+  Save.write()
+  pushIdle(-1)
+  sayAll("The saved challenge was discarded.")
+end
+
 ADMIN_CMDS.start = function(pid, _, args)
+  if game.phase == "paused" then say(pid, "A saved challenge is waiting: /tg resume to carry on, or /tg discard to drop it."); return end
   if game.phase ~= "idle" then say(pid, "Already running - /tg stop first."); return end
   startGame(pid, args[3] == "force")
 end
@@ -4121,6 +4374,15 @@ local function buildUi(pid)
     }
   end
   d.dealer = dealerOffers(p)   -- (sendUi leaves it out when the client already has this exact list)
+  if game.phase == "paused" then   -- a challenge restored after a restart, waiting for /tg resume
+    local back, away = {}, {}
+    for pname, q in pairs(game.players) do if q.pid then back[#back + 1] = pname else away[#away + 1] = pname end end
+    table.sort(back); table.sort(away)
+    local e = (game.events or {})[game.stage]
+    d.paused = { at = (game.resumePhase == "travel" and e) and ("on the way to " .. e.name)
+                   or ((game.resumePhase == "event" or game.resumePhase == "countdown") and e) and (e.name .. " (it will be run again)")
+                   or game.resumePhase, back = back, away = away }
+  end
   if activeClass() then d.dealerClass = { name = chosenClass, summary = classSummary(activeClass()) }
   elseif Class.selling() then d.dealerClass = { name = "every car and truck", summary = "No class picked: everything imported is for sale (props and trailers aside)." } end
   d.summary = game.summary
@@ -4267,6 +4529,10 @@ if next(cfg.dealer.gamePrices or {}) then   -- drop non-cars and estimate missin
 end
 courseDirty = cfg.courseDirty == true
 loadLibrary()
+do
+  local okL, errL = pcall(Save.load)
+  if not okL then log("couldn't restore the saved challenge: " .. tostring(errL)) end
+end
 MP.RegisterEvent("onChatMessage",      "TG_onChat")
 MP.RegisterEvent("onPlayerJoin",       "TG_onPlayerJoin")
 MP.RegisterEvent("onPlayerDisconnect", "TG_onPlayerDisconnect")

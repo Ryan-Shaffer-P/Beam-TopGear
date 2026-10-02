@@ -13,3 +13,5 @@ server/.env
 # Written by the BeamMP server at runtime
 Resources/Client/mods.json
 .claude/worktrees/
+Resources/Server/TopGear/session.json
+Resources/Server/TopGear/session.json.tmp

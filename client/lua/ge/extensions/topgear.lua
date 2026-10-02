@@ -35,7 +35,7 @@ local RESET_ACTIONS = {
 local VEHSEL_ACTIONS = { "vehicle_selector" }
 local PARTS_ACTIONS  = { "parts_selector" }
 
-local VERSION = "0.9.7"
+local VERSION = "0.9.8"
 local recentErrors = {}
 local function warn(msg)
   log("W", "topgear", tostring(msg))
@@ -1018,7 +1018,7 @@ end
 
 local function onTow(data)
   local ok, t = pcall(jsonDecode, data)
-  if ok and type(t) == "table" then startMove("tow", t) end
+  if ok and type(t) == "table" then startMove(t.kind == "restore" and "restore" or "tow", t) end   -- (restore: after a crash/rejoin)
 end
 local function onUnstick() startMove("unstick", {}) end
 
@@ -1539,6 +1539,23 @@ local function drawSettings(d)
   colored(0.65, 0.65, 0.65, "The results appear in chat - handy when reporting a problem.")
 end
 
+local function drawPaused(d)   -- a challenge saved before a server restart, waiting to be resumed
+  local pz = d.paused
+  if not pz then return end
+  im.Separator()
+  heading("CHALLENGE SAVED")
+  txt("The server restarted mid-challenge. Everything was saved: " .. tostring(pz.at or "") .. ".")
+  txt("Back: " .. (#(pz.back or {}) > 0 and table.concat(pz.back, ", ") or "nobody yet"))
+  if #(pz.away or {}) > 0 then colored(1, 0.8, 0.3, "Not back yet: " .. table.concat(pz.away, ", ")) end
+  if d.admin then
+    bigButton("Resume the challenge", "resume")
+    confirmButton("Discard it", "discard", "discard")
+    colored(0.65, 0.65, 0.65, "Resume brings everyone's car back (upgrades kept; each driver pays their car's repairs).")
+  else
+    txt("Waiting for an admin to resume it - your car comes back then.")
+  end
+end
+
 local function drawAdminControls(d)
   if not d.admin then return end
   im.Separator()
@@ -1601,6 +1618,7 @@ local function drawStatus(d)
     end
     drawDriverButtons(d, me)
   end
+  drawPaused(d)
   drawAdminControls(d)
   drawStandings(d)
 end
