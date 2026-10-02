@@ -1846,6 +1846,37 @@ local function drawAdminControls(d)
     else
       button("Traffic mode (add AI traffic / parked cars)##traffic", "traffic on")
     end
+    im.Separator()
+    txt("Player cash & points")
+    if #(d.standings or {}) == 0 then
+      colored(0.65, 0.65, 0.65, "Players appear here once a challenge is running.")
+    else
+      for i, s in ipairs(d.standings) do
+        if i > 1 then same() end
+        if im.Button((ui.player == s.name and "> " or "") .. s.name .. "##pl_" .. s.name) then ui.player = s.name end
+      end
+      local nb = textBuf("admplayer")
+      im.InputText("Or type a name##admplayer", nb)
+      local typed = textOf(nb):gsub("^%s+", ""):gsub("%s+$", "")
+      local who = typed ~= "" and typed or ui.player
+      if not who then
+        colored(0.65, 0.65, 0.65, "Pick a player above or type a name.")
+      else
+        for _, s in ipairs(d.standings) do
+          if s.name == who then txt(string.format("%s: %s, %.1f points", s.name, commas(s.cash), s.points or 0)) end
+        end
+        local a = intPtr("admcash", nil, 1000)
+        im.InputInt("Cash##admcash", a); same()
+        button("Give##admgive", "give " .. who .. " " .. a[0]); same()
+        button("Set##admset", "setcash " .. who .. " " .. a[0])
+        local pt = intPtr("admpts", nil, 1)
+        im.InputInt("Points##admpts", pt)
+        local rb = textBuf("admreason")
+        im.InputText("Reason (optional)##admreason", rb); same()
+        button("Award##admaward", "award " .. who .. " " .. pt[0] .. " " .. textOf(rb))
+        colored(0.65, 0.65, 0.65, "A negative amount takes cash or points away. Award: everyone sees it, and it shows in the results.")
+      end
+    end
   end
 end
 
@@ -2059,20 +2090,7 @@ local function drawAdmin(d)
       colored(0.65, 0.65, 0.65, "Cars: imported from your game."); same()
       confirmButton("Back to the built-in catalogue", "catbuiltin", "importprices builtin")
     end
-    if #(d.standings or {}) > 0 then
-      im.Separator()
-      txt("Players (click one):")
-      for _, s in ipairs(d.standings) do
-        if im.Button(s.name .. "##pl_" .. s.name) then ui.player = s.name end
-        same(); txt(commas(s.cash))
-      end
-      if ui.player then
-        local a = intPtr("amount", nil, 1000)
-        im.InputInt("Amount##amt", a)
-        button("Set " .. ui.player .. "'s cash##sc", "setcash " .. ui.player .. " " .. a[0]); same()
-        button("Give##gv", "give " .. ui.player .. " " .. a[0])
-      end
-    end
+    colored(0.65, 0.65, 0.65, "A player's cash and points: Status tab, Admin controls.")
   end
   local cl = d.classes
   if cl and header("Car classes - which cars the dealership sells##classes") then

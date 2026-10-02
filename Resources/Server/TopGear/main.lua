@@ -3496,13 +3496,26 @@ ADMIN_CMDS.traffic = function(pid, name, args)
   if p then pushState(p) end
 end
 
+-- a player typed by an admin: the exact name, else ignoring case, else the only name that starts with it
+Score.findPlayer = function(text)
+  if game.players[text] then return game.players[text] end
+  local low, hit, n = tostring(text):lower(), nil, 0
+  if low == "" then return nil end
+  for name, p in pairs(game.players) do if name:lower() == low then return p end end
+  for name, p in pairs(game.players) do
+    if name:lower():sub(1, #low) == low then hit, n = p, n + 1 end
+  end
+  if n == 1 then return hit end
+  return nil
+end
+
 -- producer points: /tg award <driver> <+/-points> [reason]
 ADMIN_CMDS.award = function(pid, _, args)
   if game.phase == "idle" then say(pid, "No challenge running."); return end
   local k
   for i = 4, #args do if tonumber(args[i]) then k = i; break end end
   local who = k and table.concat(args, " ", 3, k - 1) or ""
-  local p = game.players[who]
+  local p = Score.findPlayer(who)
   if not (k and p) then say(pid, "Usage: /tg award <driver> <points, e.g. 2 or -1.5> [reason]"); return end
   local n = tonumber(args[k])
   local reason = table.concat(args, " ", k + 1)
@@ -3539,8 +3552,9 @@ end
 ADMIN_CMDS.give = function(pid, _, args)
   local amount = tonumber(args[#args])
   local target = table.concat(args, " ", 3, #args - 1)
-  local p = game.players[target]
-  if not (p and amount) then say(pid, "Usage: /tg give <player name> <amount>"); return end
+  local p = Score.findPlayer(target)
+  if #args < 4 or not (p and amount) then say(pid, "Usage: /tg give <player name> <amount>"); return end
+  amount = math.floor(amount)
   p.cash = p.cash + amount
   sayAll(string.format("The producers give %s %s.", p.name, money(amount)))
   pushState(p)
@@ -3941,7 +3955,7 @@ end
 ADMIN_CMDS.setcash = function(pid, _, args)
   local amount = tonumber(args[#args])
   local target = table.concat(args, " ", 3, #args - 1)
-  local p = game.players[target]
+  local p = Score.findPlayer(target)
   if #args < 4 or not (p and amount) then say(pid, "Usage: /tg setcash <player name> <amount>"); return end
   p.cash = math.floor(amount)
   sayAll(string.format("The producers set %s's cash to %s.", p.name, money(p.cash)))
