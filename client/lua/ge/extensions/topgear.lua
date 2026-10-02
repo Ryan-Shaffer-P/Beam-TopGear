@@ -35,7 +35,7 @@ local RESET_ACTIONS = {
 local VEHSEL_ACTIONS = { "vehicle_selector" }
 local PARTS_ACTIONS  = { "parts_selector" }
 
-local VERSION = "0.9.6"
+local VERSION = "0.9.7"
 local recentErrors = {}
 local function warn(msg)
   log("W", "topgear", tostring(msg))
@@ -1314,7 +1314,9 @@ local function sendCmd(cmd)
   if TriggerServerEvent then TriggerServerEvent("tg_ui_cmd", cmd) end
   ui.reqTimer = 2
 end
-local function requestUi() if TriggerServerEvent then TriggerServerEvent("tg_ui_req", "") end end
+local function requestUi()   -- says which car list we have, so an unchanged one isn't re-sent
+  if TriggerServerEvent then TriggerServerEvent("tg_ui_req", tostring(ui.data and ui.data.dealerVer or "")) end
+end
 
 local function intPtr(key, serverValue, default)
   local b = bufs[key]
@@ -1727,6 +1729,13 @@ local function drawAdmin(d)
     txt("Game prices: " .. (d.gamePrices and "ON" or "OFF")); same()
     button((d.gamePrices and "Turn off" or "Turn on") .. "##gp", d.gamePrices and "gameprices off" or "gameprices on"); same()
     button("Import game prices", "importprices")
+    local cat = (d.classes or {}).catalogue
+    if cat == "builtin" then
+      colored(0.65, 0.65, 0.65, "Cars: the built-in catalogue (every stock BeamNG car). Import only for mod cars or a newer BeamNG.")
+    elseif cat == "import" or (d.classes or {}).imported then
+      colored(0.65, 0.65, 0.65, "Cars: imported from your game."); same()
+      confirmButton("Back to the built-in catalogue", "catbuiltin", "importprices builtin")
+    end
     if #(d.standings or {}) > 0 then
       im.Separator()
       txt("Players (click one):")
@@ -2443,7 +2452,10 @@ local function onMenu(data)
 end
 local function onUi(data)
   local ok, t = pcall(jsonDecode, data)
-  if ok and type(t) == "table" then ui.data = t; ui.busy = nil end
+  if ok and type(t) == "table" then
+    if t.dealerSame then t.dealer = ui.data and ui.data.dealer or {} end   -- unchanged car list: not re-sent
+    ui.data = t; ui.busy = nil
+  end
 end
 function M.toggleMenu() onMenu("") end
 

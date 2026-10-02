@@ -7,10 +7,11 @@
   In game, type /tg help.
 ]]
 
-local SERVER_VERSION = "0.9.6"
+local SERVER_VERSION = "0.9.7"
 local PLUGIN_DIR  = "Resources/Server/TopGear/"
 local CONFIG_PATH = PLUGIN_DIR .. "config.json"
 local COURSES_PATH = PLUGIN_DIR .. "courses.json"   -- saved course library
+local CARS_PATH = PLUGIN_DIR .. "cars.json"         -- the built-in car catalogue (used until a server imports its own)
 local TICK_MS     = 250   -- position polling interval
 local PUSH_EVERY  = 8     -- ticks between HUD refreshes (8 x 250 ms = 2 s)
 
@@ -131,6 +132,8 @@ local DEFAULT_CONFIG = {
     gamePrices = {},        -- filled by /tg importprices: { model = { configKey = { name, price, attrs } } }
     modelNames = {},        -- filled by /tg importprices: { model = "Ibishu Covet" }
     -- importedAll = true after a full /tg importprices: with no class picked, every imported car and truck is sold
+    -- catalogue = "builtin": the cars come from cars.json (shipped with the mod; not saved here); "import": this
+    -- server's own /tg importprices (saved in gamePrices). /tg importprices builtin goes back to cars.json.
     prices = {},            -- dealership-wide prices, set with /tg setprice: { ["model/config"] = price } - for trims the
                             -- game has no value for (mostly mods), or to change one; used everywhere, a class can override
     -- Car classes (/tg class ...): a class sells only the imported trims matching its rules (BeamNG's own vehicle
@@ -305,7 +308,11 @@ local function migrateEvents(events)
 end
 
 local function saveConfig()
-  local s = Util.JsonEncode(cfg)
+  local keep = cfg.dealer and cfg.dealer.catalogue == "builtin" and cfg.dealer.gamePrices   -- not copied into config.json
+  if keep then cfg.dealer.gamePrices = {} end
+  local okE, s = pcall(Util.JsonEncode, cfg)
+  if keep then cfg.dealer.gamePrices = keep end
+  if not okE then log("saving config.json failed: " .. tostring(s)); return false end
   if Util.JsonPrettify then s = Util.JsonPrettify(s) end
   return writeFile(CONFIG_PATH, s)
 end
@@ -799,8 +806,25 @@ function Class.estimatePrices()
   end
   return n, changed
 end
+-- the built-in catalogue (cars.json), used while the server has no import of its own
+function Class.loadBuiltin()
+  local s = readFile(CARS_PATH)
+  if not s then return false, "cars.json is missing" end
+  local ok, t = pcall(Util.JsonDecode, s)
+  if not ok or type(t) ~= "table" or type(t.gamePrices) ~= "table" then return false, "cars.json is not valid" end
+  cfg.dealer.gamePrices = t.gamePrices
+  cfg.dealer.modelNames = cfg.dealer.modelNames or {}
+  for k, v in pairs(t.modelNames or {}) do if cfg.dealer.modelNames[k] == nil then cfg.dealer.modelNames[k] = v end end
+  local first = cfg.dealer.catalogue ~= "builtin"
+  if first then   -- first time: sell from it (an admin's /tg gameprices off is kept after)
+    cfg.dealer.catalogue, cfg.dealer.useGamePrices = "builtin", true
+  end
+  cfg.dealer.importedAll = true
+  return true, tonumber(t.trims) or 0, first
+end
 -- after an import, and on loading a config imported by an older version
 function Class.tidyImport()
+  Class.presetCounts = nil
   local dropped = Class.dropNonCars()
   local n, changed = Class.estimatePrices()
   return dropped, n, changed or dropped > 0
@@ -2189,6 +2213,7 @@ function TG_onPlayerJoin(pid)
 end
 
 function TG_onPlayerDisconnect(pid)
+  Class.sentDealer[pid] = nil
   local p = playerByPid(pid)
   if not p then return end
   if game.phase == "dealer" and p.carVid then refundCar(p) end
@@ -3180,6 +3205,8 @@ finishImport = function()
   if #imp.failed > 8 then say(imp.pid, string.format("  ...and %d more", #imp.failed - 8)) end
   if imp.imported > 0 then
     cfg.dealer.useGamePrices = true
+    cfg.dealer.catalogue = "import"   -- from now on config.json keeps this server's own cars
+    if imp.all then cfg.dealer.gamePrices = imp.fresh end   -- every car in this game, nothing left over
     if imp.all then cfg.dealer.importedAll = true end
     local _, estimated = Class.tidyImport()
     saveConfig()
@@ -3226,7 +3253,8 @@ function TG_onImportReply(pid, data)
       end
     end
     cfg.dealer.gamePrices = cfg.dealer.gamePrices or {}
-    cfg.dealer.gamePrices[t.model] = next(prices) and prices or nil
+    local dest = imp.all and imp.fresh or cfg.dealer.gamePrices   -- a full import replaces the whole list at the end
+    dest[t.model] = next(prices) and prices or nil
     imp.imported = imp.imported + n
     cfg.dealer.modelNames = cfg.dealer.modelNames or {}
     if t.modelName then cfg.dealer.modelNames[t.model] = t.modelName end
@@ -3245,6 +3273,16 @@ end
 
 ADMIN_CMDS.importprices = function(pid, _, args)
   if pendingImport then say(pid, "An import is already running."); return end
+  if args[3] and args[3]:lower() == "builtin" then   -- forget this server's import, back to cars.json
+    local was, wasNames = cfg.dealer.gamePrices, cfg.dealer.modelNames
+    cfg.dealer.catalogue = nil
+    local ok, n = Class.loadBuiltin()
+    if not ok then cfg.dealer.gamePrices, cfg.dealer.modelNames = was, wasNames; say(pid, "Couldn't: " .. tostring(n) .. "."); return end
+    Class.tidyImport()
+    saveConfig()
+    say(pid, string.format("Back to the built-in car catalogue (%s). Your classes and /tg setprice prices are kept.", plural(n, "trim")))
+    return
+  end
   local models = {}
   if #args >= 3 and args[3]:lower() ~= "listed" then
     for i = 3, #args do models[#models + 1] = args[i]:lower() end
@@ -3252,7 +3290,7 @@ ADMIN_CMDS.importprices = function(pid, _, args)
     for _, c in ipairs(listedModels()) do models[#models + 1] = c.model end
   end
   if #models == 0 then   -- no names: every car in the game (mods too), with the attributes car classes filter on
-    pendingImport = { pid = pid, all = true, waiting = {}, left = 0, started = now(), imported = 0, skipped = 0, failed = {} }
+    pendingImport = { pid = pid, all = true, fresh = {}, waiting = {}, left = 0, started = now(), imported = 0, skipped = 0, failed = {} }
     say(pid, "Reading every car in your game (prices and details for car classes) - this can take a little while...")
     MP.TriggerClientEvent(pid, "tg_import", Util.JsonEncode({ all = true }))
     return
@@ -3476,6 +3514,7 @@ ADMIN_CMDS.setprice = function(pid, _, args)
   elseif tonumber(amount) and tonumber(amount) >= 0 then cfg.dealer.prices[key] = math.floor(tonumber(amount))
   else say(pid, "Give an amount, or off."); return end
   saveConfig()
+  Class.presetCounts = nil
   local nowPrice = trimPrice(model, config, e)
   local how = ""
   if not cfg.dealer.prices[key] then how = tonumber(e.price) and " (its game price)" or (tonumber(e.est) and " (estimated from similar cars)" or "") end
@@ -4081,7 +4120,7 @@ local function buildUi(pid)
       creditLimit = cfg.workshop.creditLimit or 1500,
     }
   end
-  d.dealer = dealerOffers(p)
+  d.dealer = dealerOffers(p)   -- (sendUi leaves it out when the client already has this exact list)
   if activeClass() then d.dealerClass = { name = chosenClass, summary = classSummary(activeClass()) }
   elseif Class.selling() then d.dealerClass = { name = "every car and truck", summary = "No class picked: everything imported is for sale (props and trailers aside)." } end
   d.summary = game.summary
@@ -4140,12 +4179,18 @@ local function buildUi(pid)
     end
     table.sort(unpriced, function(a, b) return a.name < b.name end)
     while #unpriced > 60 do table.remove(unpriced) end
+    -- ready-made class sizes: counting ~1,000 trims 18 times is slow on the server, so they're cached
+    -- (cleared by imports and price changes; refreshed every 30 s anyway)
+    if not Class.presetCounts or now() - Class.presetCounts.at > 30 then
+      Class.presetCounts = { at = now() }
+      for _, pr in ipairs(Class.PRESETS) do Class.presetCounts[pr.key] = #classTrims({ rules = pr.rules }) end
+    end
     local presets = {}
     for _, pr in ipairs(Class.PRESETS) do
-      local n = #classTrims({ rules = pr.rules })
-      presets[#presets + 1] = { key = pr.key, title = pr.title, count = n, made = (cfg.dealer.classes or {})[pr.key] ~= nil }
+      presets[#presets + 1] = { key = pr.key, title = pr.title, count = Class.presetCounts[pr.key],
+                                made = (cfg.dealer.classes or {})[pr.key] ~= nil }
     end
-    d.classes = { active = chosenClass, none = Class.noneText(), presets = presets, list = clist, view = Class.view[name], fields = fields, idle = game.phase == "idle",
+    d.classes = { catalogue = cfg.dealer.catalogue, active = chosenClass, none = Class.noneText(), presets = presets, list = clist, view = Class.view[name], fields = fields, idle = game.phase == "idle",
                   imported = next(cfg.dealer.gamePrices or {}) ~= nil, unpriced = unpriced, unpricedCount = nUnpriced }
     local ev = {}
     for i, e in ipairs(cfg.events) do
@@ -4168,9 +4213,25 @@ local function buildUi(pid)
   return d
 end
 
-local function sendUi(pid) MP.TriggerClientEvent(pid, "tg_ui", Util.JsonEncode(buildUi(pid))) end
+-- The car list can be ~1,000 trims (~100 KB): it's only sent when it changed since the version the client says it
+-- has (the client echoes `dealerVer` in its refresh requests; pushes without one always carry the list).
+Class.sentDealer = {}   -- pid -> { str, ver }
+local function sendUi(pid, haveVer)
+  local d = buildUi(pid)
+  local okD, str = pcall(Util.JsonEncode, d.dealer or {})
+  if okD then
+    local sent = Class.sentDealer[pid]
+    if not sent or sent.str ~= str then
+      sent = { str = str, ver = ((sent and sent.ver) or 0) + 1 }
+      Class.sentDealer[pid] = sent
+    end
+    d.dealerVer = sent.ver
+    if haveVer and tonumber(haveVer) == sent.ver then d.dealer, d.dealerSame = nil, true end
+  end
+  MP.TriggerClientEvent(pid, "tg_ui", Util.JsonEncode(d))
+end
 
-function TG_onUiRequest(pid) sendUi(pid) end
+function TG_onUiRequest(pid, data) sendUi(pid, data) end
 
 -- window buttons send the same text as the chat commands; permissions are checked the same way
 function TG_onUiCommand(pid, data)
@@ -4185,6 +4246,13 @@ end
 ---------------------------------------------------------------------------
 pcall(function() math.randomseed(os.time()) end)   -- Lua 5.3 doesn't seed itself: vary the random sound picks
 loadConfig()
+if cfg.dealer.catalogue == "builtin" or not next(cfg.dealer.gamePrices or {}) then   -- no import of its own
+  local okB, n, first = Class.loadBuiltin()
+  if okB then
+    log(string.format("cars: the built-in catalogue (%d trims) - /tg importprices reads your own game's", n))
+    if first then saveConfig() end
+  else log("cars: " .. tostring(n) .. " - the dealer list is used until /tg importprices") end
+end
 if cfg.dealer.importedAll == nil and next(cfg.dealer.gamePrices or {}) then   -- a full import by 0.9.0-0.9.3: models off the list
   for model in pairs(cfg.dealer.gamePrices) do if not modelListed(model) then cfg.dealer.importedAll = true end end
   if cfg.dealer.importedAll then saveConfig() end
@@ -4192,7 +4260,7 @@ end
 if next(cfg.dealer.gamePrices or {}) then   -- drop non-cars and estimate missing prices (also for older imports)
   local okT, dropped, estimated, changed = pcall(Class.tidyImport)
   if not okT then log("pricing estimates failed: " .. tostring(dropped))
-  elseif changed then
+  elseif changed and cfg.dealer.catalogue ~= "builtin" then   -- (the built-in catalogue isn't saved: nothing to write)
     saveConfig()
     log(string.format("imported cars: dropped %d props/trailers, %d prices estimated", dropped, estimated))
   end

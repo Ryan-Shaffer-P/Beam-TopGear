@@ -15,6 +15,12 @@ player already has the map.
 4. Start the server once. It writes `Resources/Server/TopGear/config.json`. Put your name in
    `"admins"` (while it's empty, everyone is an admin).
 
+**No car import needed.** The mod ships with `cars.json`, a catalogue of every stock BeamNG car and truck
+(986 trims of 40 models) with its game price and details, so the dealership, car classes and price
+estimates work straight away. Only run `/tg importprices` for mod cars or after a BeamNG update adds cars.
+Note that game prices are new-car prices (the cheapest car is $10,000; the middle one about $57,000) -
+raise the budget (`/tg budget`) or use a class multiplier for cheap-car challenges.
+
 ## The in-game window
 
 Type `/tg menu` to open or close it. Colour key: **solid blue = a button you click**; **grey box with a blue
@@ -373,9 +379,14 @@ Player commands: `/tg menu`, `/tg go`, `/tg unstick`, `/tg tow`, `/tg respawn`, 
 - `/tg workshop <minutes>`: set the workshop length (saved). If a workshop is open, its
   timer moves by the difference.
 - `/tg setcash <name> <amount>` / `/tg give <name> <amount>`: adjust one player.
-- `/tg importprices`: an admin's game reads **every car in the game** (mods too): each stock
-  trim's BeamNG value plus its details (country, body style, years, transmission... - what car
-  classes filter on), saved to config.json; from then on each trim costs its game price.
+- **Cars and prices come built in** (`cars.json`, every stock car): nothing to import. The catalogue
+  isn't copied into config.json, so a mod update can refresh it; your own prices (`/tg setprice`),
+  classes and budget are saved in config.json and apply on top.
+- `/tg importprices` (optional - for mod cars, or a newer BeamNG): an admin's game reads **every car
+  in the game** (mods too): each stock trim's BeamNG value plus its details (country, body style,
+  years, transmission... - what car classes filter on). It **replaces the built-in catalogue** on this
+  server and is saved in config.json. `/tg importprices builtin` (or **Back to the built-in catalogue**
+  in the Admin tab) goes back to cars.json; your prices and classes are kept.
   After a full import, **every imported car and truck is for sale** when no class is picked (the
   dealer list is only used before one). `/tg importprices covet pickup` imports specific models (new
   ones are added to the dealer list); `/tg importprices listed` re-reads just the dealer list.

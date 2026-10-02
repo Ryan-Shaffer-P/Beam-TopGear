@@ -15,6 +15,8 @@ chats until 2026-09-30, then moved to Claude Code. Work on a branch; push/merge 
 ```
 Resources/Server/TopGear/main.lua      server plugin (~3,100 lines) - the authority on all game state
 Resources/Server/TopGear/courses.json  saved course library (kept in the repo; copy back from the server)
+Resources/Server/TopGear/cars.json     built-in car catalogue (stock cars + prices + attributes; GENERATED from an import -
+                                       see "Car catalogue" below; never hand-edit)
 Resources/Client/topgear.zip           client mod, BUILT from client/ (never edit the zip by hand)
 client/lua/ge/extensions/topgear.lua   client GE extension (~2,000 lines): HUD, ImGui window, input locks, car work
 client/scripts/topgear/modScript.lua   loads the extension (extensions.load + manual unload mode)
@@ -134,7 +136,7 @@ for the `/tg diag` "Client error" line or the matching `[TopGear]` server-consol
    handler error, server console error, client warn() or UI imbalance. Vehicle Lua (`queueLuaCommand`) runs
    in a per-car sandbox with fake engine/brakes/fuel/reset (`World:freshPhysics`); `queueGameEngineLua`
    replies run in the client. Trailers with a load part get simulated bed/load nodes, so CARGO_VLUA really measures the load share.
-   Tests: `test_smoke.lua` (load, dealership, theme), `test_flag.lua` (finish flag), `test_traffic.lua` (admin traffic mode), `test_modes.lua` (race/time trial mode), `test_speedtrap.lua` (one run), `test_sounds.lua` (sound bites; the fake Engine.Audio checks the .ogg exists), `test_roadside.lua` (tow/respawn/unstick pricing), `test_parts.lua` (Parts tab; fake catalogue `World.partCatalogue`, `c.partsFormat = "tree"`), `test_faults.lua` (fault revamp; `w.rolls` pins the server's random draws), `test_classes.lua` (car classes; test cars carry BeamNG attributes in `MODELS[].info/trims`), `test_settings.lua` (Settings tab; `tab(p, name)` slices one tab's text), `test_presets.lua` (no class = every car, ready-made classes, over-budget cars listed), `test_pricing.lua` (price estimates + props dropped; uses `tests/data/game-cars.json`, a real import from Ryan's game - 122 models, 1,711 trims - and checks estimate accuracy by hiding 1 in 6 real prices), `test_scoring.lua` (inspections, debt, faults, awards), `test_economy.lua` (energy: petrol vs electric), `test_trailer.lua` (cones + prebuilt load, hitching via
+   Tests: `test_smoke.lua` (load, dealership, theme), `test_flag.lua` (finish flag), `test_traffic.lua` (admin traffic mode), `test_modes.lua` (race/time trial mode), `test_speedtrap.lua` (one run), `test_sounds.lua` (sound bites; the fake Engine.Audio checks the .ogg exists), `test_roadside.lua` (tow/respawn/unstick pricing), `test_parts.lua` (Parts tab; fake catalogue `World.partCatalogue`, `c.partsFormat = "tree"`), `test_faults.lua` (fault revamp; `w.rolls` pins the server's random draws), `test_classes.lua` (car classes; test cars carry BeamNG attributes in `MODELS[].info/trims`), `test_catalogue.lua` (built-in cars.json, restarts, import/builtin, dealer list bandwidth), `test_settings.lua` (Settings tab; `tab(p, name)` slices one tab's text), `test_presets.lua` (no class = every car, ready-made classes, over-budget cars listed), `test_pricing.lua` (price estimates + props dropped; uses `tests/data/game-cars.json`, a real import from Ryan's game - 122 models, 1,711 trims - and checks estimate accuracy by hiding 1 in 6 real prices), `test_scoring.lua` (inspections, debt, faults, awards), `test_economy.lua` (energy: petrol vs electric), `test_trailer.lua` (cones + prebuilt load, hitching via
    `w:hitch`/`w:dropCargo`/`w:setLoad`, 70/30 scoring) and `test_session.lua` (full 5-event session, the
    successor of `sim13` - expected cash/points are hand-calculated in its comments; if a rule change
    moves them, recompute by hand rather than pasting the new output). Still to rebuild: workshop
@@ -160,7 +162,7 @@ for the `/tg diag` "Client error" line or the matching `[TopGear]` server-consol
 Players: `/tg menu | status | dealer | ready | go | repair | fix <id> | tow | respawn | unstick | hitchup |
 faults | fault take [n] | quote | standings | diag | partsdiag | lights | lightstest | flag | flagtest | sounds on|off|list | soundtest [clip|next] | theme`.
 Admins: `start [force] | next | stop | award <driver> <pts> [reason] | traffic on|off | play <clip> | budget | setcash | give | workshop <min> | workshopevery <n> |
-importprices [listed|models] | gameprices | setprice | class list/use/new/preset/delete/show/rule/unrule/include/exclude/clear/price/multiplier/values |
+importprices [listed|builtin|models] | gameprices | setprice | class list/use/new/preset/delete/show/rule/unrule/include/exclude/clear/price/multiplier/values |
 course list/save/load/new/delete | addevent/delevent/enable/moveevent |
 setstart/addcp/undocp/clearcp/settrap/addbay/undobay/clearbays/addvia/undovia/clearvia/setfinale |
 settype/setmode/setlaps/settime/rename | addworkshop/undoworkshop/clearworkshops/importgas |
@@ -195,6 +197,14 @@ model; no figures -> median of the model; rounded to $100). `trimPrice` = `deale
 import; inferred at startup for older configs), else the dealer list. `Class.PRESETS` (18, `/tg class preset`, Admin
 "Ready-made classes"). `dealerOffers` never drops a trim for the budget: `over = true` (no Buy button) - Ryan: "the
 budget shouldn't impact the car filter".
+0.9.7 - **Car catalogue:** `cars.json` = stock cars/trucks (Source "BeamNG - Official", no props/trailers) from Ryan's
+import (`tests/data/game-cars.json`). `Class.loadBuiltin` puts it in `cfg.dealer.gamePrices` when there's no import
+(`dealer.catalogue = "builtin"`); `saveConfig` leaves gamePrices out of config.json while builtin. A server's own
+import sets `catalogue = "import"` and is saved (a full import now REPLACES gamePrices: `imp.fresh`).
+`/tg importprices builtin` goes back. To refresh cars.json after a BeamNG update: Ryan runs `/tg importprices`, copies
+config.json here, regenerate with the same filter (see the 0.9.7 commit), and update tests' expected counts (986).
+UI bandwidth: `sendUi(pid, haveVer)` omits `d.dealer` when the client's echoed `dealerVer` matches (`Class.sentDealer`);
+a full list is ~110 KB, a refresh without it ~2-10 KB.
 
 ### 3. Fault system revamp - DONE in 0.8.8
 Taken by number (`/tg fault take [n]`, $2,500 each = `faults.payout`), drawn at random (`rollFault` /

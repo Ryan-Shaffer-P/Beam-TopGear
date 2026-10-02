@@ -888,6 +888,10 @@ end
 function World:ui(p) return p.client and p.client.lastUi end
 function World:state(p) return p.client and p.client.lastState end
 
+function World:consoleHas(text)   -- a server console line containing text (plain)
+  for _, line in ipairs(self.console) do if line:find(text, 1, true) then return true end end
+  return false
+end
 function World:chatHas(p, pattern, plain)
   for _, line in ipairs(p.chat) do
     if line:find(pattern, 1, plain ~= false) then return true end
