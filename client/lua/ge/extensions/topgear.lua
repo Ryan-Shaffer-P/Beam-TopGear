@@ -35,7 +35,7 @@ local RESET_ACTIONS = {
 local VEHSEL_ACTIONS = { "vehicle_selector" }
 local PARTS_ACTIONS  = { "parts_selector" }
 
-local VERSION = "0.9.10"
+local VERSION = "0.9.11"
 local recentErrors = {}
 local function warn(msg)
   log("W", "topgear", tostring(msg))
@@ -249,8 +249,18 @@ end
 -- spawning: the server checks and charges. Today's list is fetched in advance (dealership opening, cash changes)
 -- so it's ready when the screen opens. If anything goes wrong the game's own list goes through untouched (the
 -- server still refuses what isn't for sale). /tg diag reports what this game version does.
+-- BeamNG 0.37+ rebuilt the selector (ui_vehicleSelector_general): it no longer uses 'sendVehicleList' but reads
+-- every car through core_vehicles.getModelsData / getModel / getConfig (looked up on each call). While the
+-- dealership is open those answer with today's cars only, priced and labelled, and the selector is told to
+-- reload (clearCache), so its tiles, filters, search and grouping are all built from today's list.
 local selector = { list = nil, trigger = nil, origTrigger = nil, seen = {}, delivered = 0, swapped = 0,
-                   t = 0, askedAt = -99, sig = nil }
+                   t = 0, askedAt = -99, sig = nil,
+                   sale = nil, saleCount = 0, lookups = nil, lookupFns = nil, cache = {}, reloads = 0 }
+-- the game's own vehicle data, even while the dealership's lookups are in place (our import and list building)
+local function gameGetModel(model)
+  local f = selector.lookups and selector.lookups.getModel or core_vehicles.getModel
+  return f(model)
+end
 local function selFilters(list, ranges)   -- the game's createFilters (not exported): what the filter panel offers
   local filter = {}
   for _, item in ipairs(list) do
@@ -275,7 +285,7 @@ local function selBuild(offers)
                        "0-60 mph", "Weight/Power", "Off-Road Score" }) do ranges[r] = true end
   local models, configs = {}, {}
   for _, g in ipairs(offers or {}) do
-    local okM, m = pcall(core_vehicles.getModel, g.model)
+    local okM, m = pcall(gameGetModel, g.model)
     if okM and type(m) == "table" and type(m.model) == "table" then
       local mine = {}
       local wanted = {}   -- { config object, offer }: a trim with no config (the plain dealer list) = every trim of the model
@@ -310,6 +320,100 @@ local function selBuild(offers)
   return { models = models, configs = configs, filters = selFilters(models, ranges), displayInfo = display }
 end
 local function selWanted() return state.phase == "dealer" and not state.traffic end
+-- 0.37+ selector: today's cars through core_vehicles' lookups ------------------------------------------------
+local function selLabel(text, tr)
+  local note = ""
+  if tr.over then note = " - over budget"
+  elseif (tonumber(tr.needs) or 0) > 0 then note = string.format(" - needs %d fault%s", tr.needs, tr.needs == 1 and "" or "s") end
+  return string.format("%s (%s%s)%s", tostring(text), commas(tr.price), tr.est and ", est." or "", note)
+end
+local function selSaleModel(model)   -- a model with only its trims for sale, priced (built once per list)
+  if selector.cache[model] ~= nil then return selector.cache[model] or nil end
+  local offers = selector.sale and selector.sale[model]
+  local okM, m = pcall(selector.lookups.getModel, model)
+  if not (offers and okM and type(m) == "table") then selector.cache[model] = false; return nil end
+  local copy = {}
+  for k, v in pairs(m) do copy[k] = v end
+  copy.configs = {}
+  for key, src in pairs(m.configs or {}) do
+    local tr = offers[key] or offers["*"]
+    if tr and type(src) == "table" then
+      local c = {}
+      for k, v in pairs(src) do c[k] = v end
+      c.Value = tr.price
+      if type(src.aggregates) == "table" then c.aggregates = copyTable(src.aggregates); c.aggregates.Value = { min = tr.price, max = tr.price } end
+      c.Configuration = selLabel(src.Configuration or key, tr)
+      c.Name = selLabel(src.Name or key, tr)
+      copy.configs[key] = c
+    end
+  end
+  if not next(copy.configs) then selector.cache[model] = false; return nil end
+  selector.cache[model] = copy
+  return copy
+end
+local function selLookupsOn() return selector.lookups ~= nil and selector.sale ~= nil and selWanted() end
+local function selReload()   -- ask the 0.37+ selector to rebuild its list from the lookups
+  local gen = rawget(_G, "ui_vehicleSelector_general")
+  if type(gen) == "table" and type(gen.clearCache) == "function" and pcall(gen.clearCache) then selector.reloads = selector.reloads + 1 end
+end
+local function selWrapLookups()
+  local cv = core_vehicles
+  if type(cv) ~= "table" or type(cv.getModelsData) ~= "function" or type(cv.getModel) ~= "function" then return end
+  local fns = selector.lookupFns
+  if fns and cv.getModelsData == fns.getModelsData and cv.getModel == fns.getModel and cv.getConfig == fns.getConfig then return end
+  local orig = { getModelsData = cv.getModelsData, getModel = cv.getModel, getConfig = cv.getConfig }
+  selector.lookups, selector.cache = orig, {}
+  fns = {
+    getModelsData = function(...)
+      local all = orig.getModelsData(...)
+      if not selLookupsOn() or type(all) ~= "table" then return all end
+      local out = {}
+      for k, v in pairs(all) do if selSaleModel(k) then out[k] = v end end
+      return out
+    end,
+    getModel = function(model, ...)
+      if selLookupsOn() and selector.sale[model] then
+        local m = selSaleModel(model)
+        if m then return m end
+      end
+      return orig.getModel(model, ...)
+    end,
+    getConfig = orig.getConfig and function(model, key, ...)
+      if selLookupsOn() and selector.sale[model] then
+        local m = selSaleModel(model)
+        if m and m.configs[key] then return m.configs[key] end
+      end
+      return orig.getConfig(model, key, ...)
+    end or nil,
+  }
+  selector.lookupFns = fns
+  cv.getModelsData, cv.getModel, cv.getConfig = fns.getModelsData, fns.getModel, fns.getConfig
+  selReload()
+end
+local function selUnwrapLookups()
+  local cv, fns, orig = core_vehicles, selector.lookupFns, selector.lookups
+  if not fns then return end
+  if type(cv) == "table" then
+    if cv.getModelsData == fns.getModelsData then cv.getModelsData = orig.getModelsData end
+    if cv.getModel == fns.getModel then cv.getModel = orig.getModel end
+    if fns.getConfig and cv.getConfig == fns.getConfig then cv.getConfig = orig.getConfig end
+  end
+  selector.lookups, selector.lookupFns, selector.sale, selector.cache, selector.saleCount = nil, nil, nil, {}, 0
+  selReload()
+end
+local function selSetSale(offers)   -- server offers -> { model = { config | "*" = offer } }
+  local sale, n = {}, 0
+  for _, g in ipairs(offers or {}) do
+    for _, tr in ipairs(g.trims or {}) do
+      sale[g.model] = sale[g.model] or {}
+      sale[g.model][tr.config or "*"] = tr
+      n = n + 1
+    end
+  end
+  selector.sale, selector.saleCount, selector.cache = sale, n, {}
+  if selector.lookupFns then selReload() end
+end
+
 local function selRequest(force)   -- ask the server for today's list (it changes with cash and faults)
   if not TriggerServerEvent or (not force and selector.t - selector.askedAt < 3) then return end
   selector.askedAt = selector.t
@@ -337,11 +441,13 @@ end
 local function selUnhook()
   if selector.trigger and type(guihooks) == "table" and guihooks.trigger == selector.trigger then guihooks.trigger = selector.origTrigger end
   selector.trigger, selector.origTrigger, selector.list, selector.sig = nil, nil, nil, nil
+  selUnwrapLookups()
 end
 local function selUpdate(dt)   -- every frame: keep the hook in place while the dealership is open
   selector.t = selector.t + dt
-  if not selWanted() then if selector.trigger then selUnhook() end return end
+  if not selWanted() then if selector.trigger or selector.lookupFns then selUnhook() end return end
   selHook()
+  selWrapLookups()
   local sig = tostring(state.cash) .. "|" .. tostring(state.budget)
   if sig ~= selector.sig or not selector.list then
     if sig ~= selector.sig then selector.sig = sig; selRequest(true) else selRequest(false) end
@@ -354,13 +460,15 @@ local function selDiag()
   local ver = rawget(_G, "beamng_versiond") or rawget(_G, "beamng_version") or "?"
   local listText = not selWanted() and "not in use (the dealership isn't open)"
     or (selector.list and (#selector.list.configs .. " cars ready") or "not ready yet")
-  return string.format("BeamNG %s | today's list: %s | hook %s | selector lists %d, replaced %d | vehicle UI messages: %s",
+  return string.format("BeamNG %s | today's list: %s | hook %s | selector lists %d, replaced %d | lookups %s (%d for sale, reloads %d) | vehicle UI messages: %s",
     tostring(ver), listText, selector.trigger and "on" or "off", selector.delivered, selector.swapped,
+    selector.lookupFns and "on" or "off", selector.saleCount or 0, selector.reloads,
     #seen > 0 and table.concat(seen, ", ") or "none yet (open the vehicle selector first)")
 end
 local function onDealerList(data)   -- server -> client: { offers = dealerOffers }
   local ok, t = pcall(jsonDecode, data)
   if not ok or type(t) ~= "table" or not selWanted() then return end
+  selSetSale(t.offers)
   local okB, list = pcall(selBuild, t.offers)
   if okB and #list.configs == 0 and #(t.offers or {}) > 0 then okB, list = false, "none of today's cars were found in this game" end
   if not okB then
@@ -456,7 +564,7 @@ local function trimAttrs(info, c)
   return a
 end
 local function readModelPrices(model)
-  local m = core_vehicles.getModel(model)
+  local m = gameGetModel(model)
   if not (m and m.configs) then return nil, nil end
   local info = m.model or {}
   local modelName = ((info.Brand and (info.Brand .. " ") or "") .. (info.Name or model))

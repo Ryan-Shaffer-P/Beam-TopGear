@@ -247,6 +247,20 @@ function World:loadClient(p)
   sb.set("ui_message", function(msg, ttl, cat) c.messages[#c.messages + 1] = { msg = tostring(msg), cat = cat }; if cat then c.ui[cat] = tostring(msg) end end)
   sb.set("jsonEncode", json.encode)
   sb.set("jsonDecode", json.decode)
+  -- BeamNG 0.37+'s selector backend: builds its list through core_vehicles' lookups (like initializeVehicleData)
+  -- when it's (re)loaded; clearCache() makes it reload. c.selector039() = { [model/config] = { name, Value } }
+  c.selectorReloads = 0
+  sb.set("ui_vehicleSelector_general", { clearCache = function() c.selectorReloads = c.selectorReloads + 1 end })
+  function c.selector039()
+    local cv, out = rawget(sb.env, "core_vehicles"), {}
+    for model in pairs(cv.getModelsData()) do
+      for key in pairs(cv.getModel(model).configs or {}) do
+        local cfg = cv.getConfig(model, key)
+        out[model .. "/" .. key] = { name = cfg.Configuration, fullName = cfg.Name, Value = cfg.Value }
+      end
+    end
+    return out
+  end
   c.selectorLists = {}   -- every list the vehicle selector screen was sent ('sendVehicleList')
   sb.set("guihooks", { trigger = function(name, data)
     if name == "sendVehicleList" then c.selectorLists[#c.selectorLists + 1] = data end
@@ -346,6 +360,7 @@ function World:loadClient(p)
   sb.set("core_vehicles", {
     spawnNewVehicle = function(model, o) return w:clientSpawn(p, model, o or {}) end,
     removeCurrent = function() if p.current then w:clientDelete(p, p.current) end end,
+    __fakeGetModel = function(model) return rawget(p.client.sb.env, "core_vehicles").__realGetModel(model) end,
     getModel = function(model)
       local m = w.models[model]
       if not m then return nil end
@@ -360,6 +375,16 @@ function World:loadClient(p)
       local info = { key = model, Brand = m.brand, Name = m.name }
       for k, val in pairs(m.info or {}) do info[k] = val end
       return { model = info, configs = configs }
+    end,
+    -- (0.37+) the vehicle selector reads every car through these, looked up on each call
+    getModelsData = function()
+      local out = {}
+      for key in pairs(w.models) do out[key] = true end
+      return out
+    end,
+    getConfig = function(model, key)
+      local m = rawget(p.client.sb.env, "core_vehicles").__fakeGetModel(model)
+      return m and m.configs[key] or nil
     end,
     getModelList = function()
       local models = {}
@@ -378,6 +403,11 @@ function World:loadClient(p)
     end,
     openSelectorUI = function() p.client.selectorOpened = (p.client.selectorOpened or 0) + 1; rawget(p.client.sb.env, "core_vehicles").requestList() end,
   })
+  do   -- the game's own getModel, kept for getConfig (the mod may wrap getModel)
+    local cv = rawget(sb.env, "core_vehicles")
+    cv.__realGetModel = cv.getModel
+  end
+
   -- c.partsFormat = "tree": the newer parts-tree format (each slot node lists the parts that fit it)
   local function treeOf(v)
     local root = { path = "/", chosenPartName = v.model, children = {} }

@@ -117,7 +117,11 @@ parts snapshots/diffs, reverting refused parts.
 during the dealership; a 'sendVehicleList' payload is swapped for today's list, prefetched from the server (`tg_dealerlist`)
 and built from `core_vehicles.getModel(m).configs`; re-wrapped each frame if the game replaces it; `/tg diag` "Vehicle
 selector" line = game version, list ready, lists seen/replaced, vehicle UI hook names seen. 0.9.9's
-`requestList` override did NOT work on Ryan's game - first in-game report 2026-10-02), vlua `v.data.nodes[].partOrigin` +
+`requestList` override did NOT work on Ryan's game - first in-game report 2026-10-02. Ryan runs **BeamNG 0.39.4**: its
+rebuilt selector (`ui_vehicleSelector_general`, sends `VehicleSelectorDataLoaded`, never `sendVehicleList`) reads cars
+via `core_vehicles.getModelsData/getModel/getConfig`; 0.9.11 wraps those during the dealership (`selWrapLookups`, priced
+copies cached per list in `selector.cache`) and calls `ui_vehicleSelector_general.clearCache()`; our own code uses
+`gameGetModel`. 0.39 Lua reference: github.com/wlkmanist/BeamNG_lua (lua/ge/extensions/ui/vehicleSelector/)), vlua `v.data.nodes[].partOrigin` +
 `obj:getNodePosition` (trailer load %), `quatFromDir` convention + `setPositionRotation` (tow/unstick,
 self-verifying), `energyStorage.getStorages` (fuel), `freeroam_facilities` (gas stations),
 `getSpawnWorldOOBB` / `be:getObjectOOBB*` (trailer placement), `beamstate.activateAutoCoupling`,
