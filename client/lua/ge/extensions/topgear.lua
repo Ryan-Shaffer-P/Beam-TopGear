@@ -35,7 +35,7 @@ local RESET_ACTIONS = {
 local VEHSEL_ACTIONS = { "vehicle_selector" }
 local PARTS_ACTIONS  = { "parts_selector" }
 
-local VERSION = "0.9.5"
+local VERSION = "0.9.6"
 local recentErrors = {}
 local function warn(msg)
   log("W", "topgear", tostring(msg))
@@ -1515,12 +1515,26 @@ local function drawDriverButtons(d, me)
   colored(0.65, 0.65, 0.65, table.concat(notes, "  |  "))
 end
 
-local function drawLightsButton(d)
-  button("Position the start lights##lightspin", "lights"); same(); button("Test them##lightstest", "lightstest")
-  button("Position the finish flag##flagpin", "flag"); same(); button("Test it##flagtest", "flagtest")
+-- Settings tab (everyone): this player's own sound, window placement, colour theme and diagnostics
+local function drawSettings(d)
+  heading("SOUND")
   if d.soundsOn == false then button("Sounds: OFF - turn on##sounds", "sounds on")
   else button("Sounds: ON - turn off##sounds", "sounds off") end
-  same(); button("Test sound##soundtest", "soundtest")
+  same(); button("Test sound##soundtest", "soundtest"); same()
+  button("Not hearing it? Try another way##soundnext", "soundtest next")
+  colored(0.65, 0.65, 0.65, "Only for you: other players keep their own setting.")
+  im.Separator()
+  heading("START LIGHTS AND FINISH FLAG")
+  txt("Position: shows the window so you can drag it where you want it.")
+  button("Position the start lights##lightspin", "lights"); same(); button("Test them##lightstest", "lightstest")
+  button("Position the finish flag##flagpin", "flag"); same(); button("Test it##flagtest", "flagtest")
+  im.Separator()
+  heading("WINDOW")
+  button((ui.noTheme and "Colour theme: OFF - turn on" or "Colour theme: ON - turn off") .. "##theme", "theme")
+  im.Separator()
+  heading("TROUBLESHOOTING")
+  button("Diagnostics##diag", "diag"); same(); button("Parts tab diagnostics##partsdiag", "partsdiag")
+  colored(0.65, 0.65, 0.65, "The results appear in chat - handy when reporting a problem.")
 end
 
 local function drawAdminControls(d)
@@ -1586,8 +1600,6 @@ local function drawStatus(d)
     drawDriverButtons(d, me)
   end
   drawAdminControls(d)
-  im.Separator()
-  drawLightsButton(d)
   drawStandings(d)
 end
 
@@ -2277,6 +2289,7 @@ local function drawWindow(dt)
         if im.BeginTabItem("Dealership") then section("Dealership", drawDealer, d); im.EndTabItem() end
         if d.me and d.me.hasCar and im.BeginTabItem("Parts") then section("Parts", drawParts, d); im.EndTabItem() end
         if d.admin and im.BeginTabItem("Admin") then section("Admin", drawAdmin, d); im.EndTabItem() end
+        if im.BeginTabItem("Settings") then section("Settings", drawSettings, d); im.EndTabItem() end
         im.EndTabBar()
       end
       im.Separator()

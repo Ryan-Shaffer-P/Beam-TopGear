@@ -20,7 +20,7 @@ player already has the map.
 Type `/tg menu` to open or close it. Colour key: **solid blue = a button you click**; **grey box with a blue
 outline = a field you can type in or change**; blue headings mark sections; the standings are a light table.
 If the colours ever break the window on your BeamNG version, it switches them off by itself and
-keeps working (`/tg diag` shows why); `/tg theme` turns them on/off. It opens by itself when the dealership and workshops
+keeps working (`/tg diag` shows why); `/tg theme` (or the Settings tab) turns them on/off. It opens by itself when the dealership and workshops
 open. Tabs:
 
 - **Status**: your car, cash, points, damage, standings, and the button for whatever comes
@@ -28,11 +28,16 @@ open. Tabs:
   **Repair** (workshops only, shows the price), **Tow**, **Unstick** and **Respawn**, with a grey
   line saying what's usable right now. Tow and Respawn need two clicks. Admins also get an
   **Admin controls** dropdown here with Start, Start (unfinished course), Next phase and Stop.
-- **Dealership**: every affordable trim with a **Buy** button that spawns it for you, and
-  **Return for a full refund** to swap.
+- **Dealership**: every trim for sale (over-budget ones marked, with no button) with a **Buy**
+  button that spawns it for you, and **Return for a full refund** to swap.
+- **Parts** (once you have a car): what fitting each part costs, with **Fit** buttons in workshops.
 - **Admin** (admins only): budget and workshop timer, price import, hitch scan,
   per-player cash, and a course builder (pick an event, drive there, click Set start / Add
   checkpoint / Add route waypoint, then Save). Stop and Clear ALL need a second click.
+- **Settings** (everyone, the last tab): your own **sound** on/off (only for you), Test sound and
+  "Not hearing it? Try another way"; **Position / Test** the start lights and the finish flag;
+  the **colour theme** on/off; and **Diagnostics** / **Parts tab diagnostics** (the results show
+  in chat - include them when reporting a problem).
 
 If the window ever gets squashed or lost off-screen, `/tg menu reset` puts it back.
 
@@ -77,13 +82,13 @@ Race / Time trial**) or with `/tg setmode <n> race|trial`. The table shows each 
 - **Starting lights:** every countdown shows F1-style lights at the top of the screen - five
   reds, one per second, then all out (green) for GO. One-at-a-time runs show the runner's name.
   `/tg lightstest` plays the sequence on your screen right away (no race needed). The lights are
-  their own window: `/tg lights` (or **Position the start lights** on the Status page) keeps the box up
+  their own window: `/tg lights` (or **Position the start lights** in the Settings tab) keeps the box up
   so you can drag it by its title bar wherever you like - the game remembers where - and hides it again.
 - **Finish flag:** the moment your run is complete, a checkered flag with a big **FINISH**, the
   event's name and your time (best speed for a speed trap) appears for 6 seconds - so you know
   you're done even while others are still driving. It also shows when you reach the finale's finish
   line, with your drivability score. No flag if you didn't finish (DNF, DNS or towed). It's its own
-  window like the start lights: `/tg flag` (or **Position the finish flag** on the Status page) keeps
+  window like the start lights: `/tg flag` (or **Position the finish flag** in the Settings tab) keeps
   it up so you can drag it by its title bar - the game remembers where - and `/tg flag` again hides
   it. `/tg flagtest` shows a sample.
 - **Time trial mode:** runners go in the order they arrived, each with their own countdown;
@@ -228,7 +233,7 @@ Top Gear clips play at key moments. Who hears each one:
 | Workshop opens | james-may-says-cheese | everyone |
 | Final results | clarksooon, jeremy-clarkson-yeeeeeesss | everyone |
 
-- **`/tg sounds off`** / **`on`** (or the **Sounds** button on the Status page) mutes them for you.
+- **`/tg sounds off`** / **`on`** (or the **Sounds** button in the Settings tab) mutes them for you.
 - **`/tg soundtest [clip]`** plays one to you (even when muted) and says which way your game played it.
   **Can't hear it?** `/tg soundtest next` switches to the next way of playing sounds - there are three,
   because which one works depends on the BeamNG version. `/tg diag` shows the one in use.
