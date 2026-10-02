@@ -113,9 +113,11 @@ parts snapshots/diffs, reverting refused parts.
 ## BeamNG/BeamMP APIs used but NOT verified in game (suspect these first)
 
 `core_vehicle_partmgmt.setConfig/setPartsTreeConfig/setPartsConfig/setConfigVars` (faults, reverts),
-`spawnNewVehicle` with a serialized config table (trailer), the vehicle selector override (`core_vehicles.requestList`
-replaced during the dealership -> `guihooks.trigger('sendVehicleList', {models, configs, filters, displayInfo})`, built
-from `core_vehicles.getModel(m).configs`; `openSelectorUI`; 0.36 code), vlua `v.data.nodes[].partOrigin` +
+`spawnNewVehicle` with a serialized config table (trailer), the vehicle selector override (0.9.10: `guihooks.trigger` wrapped
+during the dealership; a 'sendVehicleList' payload is swapped for today's list, prefetched from the server (`tg_dealerlist`)
+and built from `core_vehicles.getModel(m).configs`; re-wrapped each frame if the game replaces it; `/tg diag` "Vehicle
+selector" line = game version, list ready, lists seen/replaced, vehicle UI hook names seen. 0.9.9's
+`requestList` override did NOT work on Ryan's game - first in-game report 2026-10-02), vlua `v.data.nodes[].partOrigin` +
 `obj:getNodePosition` (trailer load %), `quatFromDir` convention + `setPositionRotation` (tow/unstick,
 self-verifying), `energyStorage.getStorages` (fuel), `freeroam_facilities` (gas stations),
 `getSpawnWorldOOBB` / `be:getObjectOOBB*` (trailer placement), `beamstate.activateAutoCoupling`,

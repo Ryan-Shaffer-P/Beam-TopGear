@@ -7,7 +7,7 @@
   In game, type /tg help.
 ]]
 
-local SERVER_VERSION = "0.9.9"
+local SERVER_VERSION = "0.9.10"
 local PLUGIN_DIR  = "Resources/Server/TopGear/"
 local CONFIG_PATH = PLUGIN_DIR .. "config.json"
 local COURSES_PATH = PLUGIN_DIR .. "courses.json"   -- saved course library
@@ -1144,6 +1144,7 @@ local function stateFor(p)
   end
   local s = {
     phase = ph, title = title, cash = p.cash, points = p.points, wins = p.wins,
+    budget = ph == "dealer" and playerBudget(p) or nil,   -- (the vehicle selector's list follows it)
     car = p.carName, carId = p.carVid and (tostring(p.pid) .. "-" .. tostring(p.carVid)) or nil,
     allowVehicleSelector = (ph == "dealer") or inTrafficMode(p.name),
     traffic = inTrafficMode(p.name) or nil,
@@ -2989,6 +2990,7 @@ function TG_onDiag(pid, data)
   say(pid, string.format("Challenge car %s -> game id %s, you're driving id %s",
     tostring(t.carId or "none"), tostring(t.carFound or "none"), tostring(t.playerVeh or "none")))
   say(pid, "Sounds play via: " .. tostring(t.sound or "not tried yet (/tg soundtest)") .. (soundsOff[MP.GetPlayerName(pid)] and " - your sounds are OFF" or ""))
+  if t.selector then say(pid, "Vehicle selector: " .. tostring(t.selector)) end
   for _, e in ipairs(t.errors or {}) do say(pid, "Client error: " .. tostring(e)) end
 end
 

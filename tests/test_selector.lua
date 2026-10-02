@@ -73,8 +73,8 @@ end)
 
 t.test("outside the dealership, in traffic mode, or after unloading: the game's own list", function()
   local w, A, B = setup()
-  local cv = rawget(B.client.sb.env, "core_vehicles")
-  local gameFn = cv.requestList
+  local gh = rawget(B.client.sb.env, "guihooks")
+  local gameFn = gh.trigger
   t.ok(open(w, B).native, "no challenge")
   w:chat(A, "/tg start")
   w:chat(A, "/tg traffic on")
@@ -85,7 +85,7 @@ t.test("outside the dealership, in traffic mode, or after unloading: the game's 
   w:chat(A, "/tg ready"); w:chat(B, "/tg ready")
   w:step(2.5)
   t.ok(open(w, B).native, "the dealership has closed")
-  t.ok(cv.requestList == gameFn, "the game's own function is put back")
+  t.ok(gh.trigger == gameFn, "the game's own function is put back")
   B.client.M.onExtensionUnloaded()
   t.ok(open(w, B).native)
   w:assertClean()
@@ -93,13 +93,35 @@ end)
 
 t.test("if the list can't be built, the game's own list is shown (and the server still guards purchases)", function()
   local w, A, B = setup()
+  rawget(B.client.sb.env, "core_vehicles").getModel = function() error("changed in a game update") end
   w:chat(A, "/tg start")
   w:step(2.5)
-  rawget(B.client.sb.env, "core_vehicles").getModel = function() error("changed in a game update") end
   local list = open(w, B)
   t.ok(list.native, "fell back to the game's list")
   local pr = w:problems()
   t.eq(#pr, 1, table.concat(pr, "\n"))
   t.match(pr[1], "none of today's cars were found")
   t.eq(w:buy(B, "pickup", "d35_A"), nil, "an over-budget car is still refused by the server")
+end)
+
+t.test("whatever sends the list (another game version) and even if the game swaps its hook function, ours goes out", function()
+  local w, A, B = setup()
+  w:chat(A, "/tg start")
+  w:step(2.5)
+  local env = B.client.sb.env
+  -- a newer game: the screen's list comes from some other function, but still through 'sendVehicleList'
+  rawget(env, "guihooks").trigger("sendVehicleList", { models = {}, configs = { { key = "x", model_key = "covet" } }, native = true })
+  local got = B.client.selectorLists[#B.client.selectorLists]
+  t.ok(not got.native and #got.configs > 0, "swapped for today's list")
+  -- the game reloads its UI code: guihooks.trigger is a new function; we hook it again on the next frame
+  local fresh = function(name, data) if name == "sendVehicleList" then B.client.selectorLists[#B.client.selectorLists + 1] = data end end
+  rawget(env, "guihooks").trigger = fresh
+  w:step(0.5)
+  t.ok(rawget(env, "guihooks").trigger ~= fresh, "hooked again")
+  t.ok(not open(w, B).native)
+  w:chat(B, "/tg diag")
+  w:step(1)
+  t.ok(w:chatHas(B, "Vehicle selector: BeamNG ? | today's list: 8 cars ready | hook on | selector lists 2, replaced 2 | vehicle UI messages: sendVehicleList x"),
+    "diag reports it")
+  w:assertClean()
 end)

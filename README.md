@@ -39,7 +39,8 @@ open. Tabs:
   prices** - the price is in each name and in the Value filter, with "needs N faults" / "over
   budget" where it applies. Spawning one buys it. The usual vehicle-selector key does the same while
   the dealership is open; at any other time (and for an admin in traffic mode) it's the game's normal
-  list. Below the button is the same list as text, every trim with a **Buy** button (over-budget ones
+  list. If the selector still shows every car, `/tg diag` has a **Vehicle selector** line (game
+  version, whether today's list is ready and reached the selector) - send it to the developer. Below the button is the same list as text, every trim with a **Buy** button (over-budget ones
   marked, with no button), and **Return for a full refund** to swap.
 - **Parts** (once you have a car): what fitting each part costs, with **Fit** buttons in workshops.
 - **Admin** (admins only): budget and workshop timer, price import, hitch scan,
