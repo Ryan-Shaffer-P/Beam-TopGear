@@ -116,17 +116,17 @@ t.test("ignition: misfires raised, and the engine dies now and then on the road 
   start(w, A, "covet", { "ignition" })
   local e = A.current.engine
   -- (the mileage wear of a Used car sets the base misfire chances to the game's "new" value, 0, first)
-  t.ok(math.abs(e.slowIgnitionErrorChance - 0.10) < 1e-9 and math.abs(e.fastIgnitionErrorChance - 0.05) < 1e-9, "misfire chances raised")
+  t.ok(math.abs(e.slowIgnitionErrorChance - 0.05) < 1e-9 and math.abs(e.fastIgnitionErrorChance - 0.025) < 1e-9, "misfire chances raised")
   w:step(300)
   t.eq(A.current.stalls, 0, "no cut-outs at the dealership")
   w:chat(A, "/tg ready")
-  w:step(250)                     -- a cut-out comes every 90-240 s
+  w:step(490)                     -- a cut-out comes every 180-480 s (halved from 90-240 s after Ryan's drive)
   t.ok(A.current.stalls >= 1, "the engine died on the road")
   t.eq(A.current.ignition, 0, "and stays off until the player restarts it")
   t.ok(w:sawMessage(A, "Your engine just died! Restart it."))
   w:resetCar(A)                   -- a reset gives stock values back... and the fault is put back
   w:step(3)
-  t.ok(math.abs(A.current.engine.slowIgnitionErrorChance - 0.10) < 1e-9, "re-applied after a reset")
+  t.ok(math.abs(A.current.engine.slowIgnitionErrorChance - 0.05) < 1e-9, "re-applied after a reset")
   w:assertClean()
 end)
 
@@ -165,9 +165,9 @@ t.test("fuel leak: fuel drains on the road, not at the dealership", function()
   w:step(60)
   t.eq(A.current.fuel, f0, "no leak at the dealership")
   w:chat(A, "/tg ready")
-  w:step(60)                      -- 0.5 L a minute
+  w:step(60)                      -- 1 L a minute (doubled after Ryan's drive)
   local lost = f0 - A.current.fuel
-  t.ok(lost > 0.4 and lost < 0.6, "lost " .. lost .. " L in a minute")
+  t.ok(lost > 0.9 and lost < 1.1, "lost " .. lost .. " L in a minute")
   w:assertClean()
 end)
 
@@ -311,7 +311,7 @@ t.test("faults survive every kind of reset (illegal reset, respawn, tow, worksho
     t.ok(math.abs(a.radiatorDamage - 0.05) < 1e-9, "cooling " .. when)
     t.ok(a.damage >= 3000 and a.broken.headlight_L, "accident damage " .. when)
     t.eq(b.wheels[0].brakeTorque, 900, "brakes " .. when)
-    t.ok(math.abs(b.engine.slowIgnitionErrorChance - 0.10) < 1e-9, "ignition " .. when)   -- (0 base after the mileage + 0.10)
+    t.ok(math.abs(b.engine.slowIgnitionErrorChance - 0.05) < 1e-9, "ignition " .. when)   -- (0 base after the mileage + 0.05)
     t.eq(b.vars["$spring_F"], 20000, "suspension " .. when)
   end
   stillThere("when applied")
@@ -389,7 +389,7 @@ t.test("starter, clutch, synchros, ABS on a manual car; turbo on a turbo car; on
   w:buy(B, "pessima", "base_M")      -- automatic, turbo
   w:step(15)
   local a, b = A.current, B.current
-  t.ok(math.abs(a.engine.starterTorque - 35) < 1e-9, "weak starter")
+  t.ok(math.abs(a.engine.starterTorque - 60) < 1e-9, "weak starter: x0.6 (it still starts)")
   t.eq(a.devices.clutch.clutchPermanentlyDamaged, true, "slipping clutch")
   t.eq(a.devices.gearbox.synchroWear[2], 0.8, "worn synchros")
   t.eq(a.abs, "off", "no ABS")
@@ -562,11 +562,11 @@ t.test("mileage wear: kept through resets, back after a respawn, and fixing a pr
   local A = w:join("Alice")
   start(w, A, "covet", { "brakes", "ignition" })   -- Needs work: 100,000 km
   t.eq(A.current.odometer, 100000 * 1000)
-  t.ok(math.abs(A.current.engine.slowIgnitionErrorChance - 0.10) < 1e-9, "the problems go on after the mileage")
+  t.ok(math.abs(A.current.engine.slowIgnitionErrorChance - 0.05) < 1e-9, "the problems go on after the mileage")
   w:resetCar(A); w:step(3)
   t.eq(A.current.odometer, 100000 * 1000, "a reset keeps it (the game's own snapshot)")
   t.eq(A.current.partConditionCalls, 1, "not set again after a reset")
-  t.ok(math.abs(A.current.engine.slowIgnitionErrorChance - 0.10) < 1e-9, "the ignition problem back after the reset")
+  t.ok(math.abs(A.current.engine.slowIgnitionErrorChance - 0.05) < 1e-9, "the ignition problem back after the reset")
   w:chat(A, "/tg ready")
   w:drive(A, p(500), 40); w:chat(A, "/tg go")
   w:waitFor(function() return w:state(A).phase == "event" end, 10, "GO")
@@ -642,7 +642,7 @@ t.test("a new engine sorts the engine's problems; the old one is scrap, so the n
   w:buy(A, "covet", "base_M"); w:step(10)
   toWorkshop(w, A)
   local e = A.current.engine
-  t.ok(math.abs(e.damageFrictionCoef - 1.5) < 1e-9 and math.abs(e.slowIgnitionErrorChance - 0.10) < 1e-9, "oil leak + misfires")
+  t.ok(math.abs(e.damageFrictionCoef - 1.5) < 1e-9 and math.abs(e.slowIgnitionErrorChance - 0.05) < 1e-9, "oil leak + misfires")
   local before = w:state(A).cash
   fit(w, A, "/covet_engine/", "covet_engine_turbo")   -- stock $2,000 -> turbo $3,200
   t.ok(w:chatHas(A, "The new part sorted: Ignition problems (misfires, cuts out), Oil leak (runs hot - might blow the engine). The old one was scrap - no trade-in."))
@@ -693,5 +693,33 @@ t.test("new coilovers sort worn-out suspension (the same rule for every part sys
   t.ok(w:chatHas(A, "The new part sorted: Worn-out suspension (soft and bouncy)."))
   t.eq(before - w:state(A).cash, 1800 + 300, "full price for the coilovers: the worn ones are scrap")
   t.eq(A.current.vars["$spring_F"], 40000, "springs back to normal")
+  w:assertClean()
+end)
+
+t.test("Ryan's fault tuning: saved configs move to the new values once (custom values kept)", function()
+  local list = World.new():serverConfig().faults.list
+  for _, f in ipairs(list) do
+    if f.id == "ignition" then f.factor, f.cutoutMin, f.cutoutMax = 0.1, 90, 240 end
+    if f.id == "starter" then f.factor = 0.35 end
+    if f.id == "fuelleak" then f.factor = 0.7 end   -- an admin's own value: kept
+    if f.id == "brakefade" then f.refresh = nil end
+  end
+  local cfg = F.twoRaces(); cfg.faults = { list = list }; cfg.migrations = { mileageOverlap = true, conditionPricing = true }
+  local by = {}
+  for _, f in ipairs(World.new({ files = F.files(cfg) }):serverConfig().faults.list) do by[f.id] = f end
+  t.eq(by.ignition.factor, 0.05); t.eq(by.ignition.cutoutMin, 180); t.eq(by.ignition.cutoutMax, 480)
+  t.eq(by.starter.factor, 0.6)
+  t.eq(by.fuelleak.factor, 0.7, "a custom value isn't touched")
+  t.eq(by.brakefade.refresh, 0.5)
+end)
+
+t.test("glazed pads stay glazed through a hard stop (the game scrubs glazing off as you brake)", function()
+  local w = World.new({ files = F.files(F.twoRaces()) })
+  local A = w:join("Alice")
+  start(w, A, "covet", { "brakefade" })
+  local wh = A.current.wheels[0]
+  t.eq(wh.padGlazingFactor, 1)
+  for _ = 1, 6 do wh.padGlazingFactor = math.max(0, wh.padGlazingFactor - 0.4); w:step(0.5) end   -- 3 s of hard braking
+  t.ok(wh.padGlazingFactor >= 0.6, "topped up every 0.5 s: " .. wh.padGlazingFactor)
   w:assertClean()
 end)

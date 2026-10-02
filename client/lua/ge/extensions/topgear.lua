@@ -1108,7 +1108,7 @@ local function updateTimedFaults(dt)
   local glaze = faults.want.brakefade
   if glaze and faults.results.brakefade == "ok" then
     faults.glazeT = (faults.glazeT or 0) + dt
-    if faults.glazeT >= 10 then
+    if faults.glazeT >= (tonumber(glaze.refresh) or 0.5) then   -- (hard braking scrubs glazing off within seconds)
       faults.glazeT = 0
       local car = getCar()
       if car then pcall(function() car:queueLuaCommand(string.format(GLAZE_VLUA, tonumber(glaze.factor) or 1)) end) end

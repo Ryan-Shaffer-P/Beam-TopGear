@@ -578,16 +578,16 @@ The problems (the code and config.json call them *faults*):
 | bumpers | Missing bumpers | front/rear bumper slots emptied |
 | engine | Tired engine | engine output x0.8 |
 | brakes | Worn brakes | brake torque x0.6 |
-| ignition | Ignition problems | BeamNG's own misfire chances raised (the engine stumbles), and every 90-240 s on the road the engine dies - **restart it yourself** (never during a countdown) |
+| ignition | Ignition problems | BeamNG's own misfire chances raised a little (+0.05: the engine stumbles), and every 3-8 minutes on the road the engine dies - **restart it yourself** (never during a countdown) |
 | cooling | Cooling problems | the radiator is damaged like in a front-end crash: coolant leaks and the engine overheats when pushed |
 | suspension | Worn-out suspension | springs and dampers at their softest; on cars without adjustable suspension the anti-roll bars come off |
-| fuelleak | Fuel leak | 0.5 litres a minute drains from the tank on the road (it matters in the economy run) |
+| fuelleak | Fuel leak | 1 litre a minute drains from the tank on the road (it matters in the economy run) |
 | body | Accident damage | the car starts with 3,000 damage (repair costs, drivability) and some broken lights and glass; fixing the fault removes the dents |
-| starter | Weak starter | the starter motor has a third of its strength: slow cranking before the engine catches (nasty with the ignition fault) |
+| starter | Weak starter | the starter motor at 60% of its strength: slow, labouring cranking before the engine catches (nasty with the ignition fault) |
 | clutch | Slipping clutch | **off by default** (mileage wear already wears the clutch). The clutch's own "permanently overheated" state: drive slips away under hard acceleration (manual gearboxes) |
 | synchros | Worn gearbox synchros | every gear's synchro 80% worn: gears grind and fight you on quick shifts (manual gearboxes) |
 | turbo | Damaged turbo | the turbo's own damage: less boost, less power (turbo cars) |
-| brakefade | Glazed brake pads | fully glazed pads: the brakes squeal, are weaker and fade more as they heat up |
+| brakefade | Glazed brake pads | fully glazed pads, kept glazed (re-glazed every 0.5 s - hard braking would otherwise scrub it off): the brakes squeal and lose up to 20% when hot (that's BeamNG's own glazing effect, at its maximum) |
 | abs | ABS failure | ABS switched off: the wheels lock under hard braking |
 | oilleak | Oil leak | **only on a Beater or Death Trap** (`minCondition` 3 - a lightly used car's engine doesn't blow). The engine runs hot with more friction and a little less power - and there's a **20% chance it's doomed**: a doomed engine lets go (seizes) after 1-10 minutes of hard driving (above ~54 km/h), on a leg, in an event or on the final leg. That's a tow; the leak stays, but that engine can't blow again. Nobody knows whether theirs is doomed - the workshop just says "oil leak" - and fixing it removes the risk. |
 | idle | Rough idle | **off by default** (mileage wear already makes the idle hunt). The engine's idle-speed error turned way up (what engine wear does): it hunts at idle and can stall at junctions or on the start line |

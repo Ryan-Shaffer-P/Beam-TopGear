@@ -81,17 +81,18 @@ local DEFAULT_CONFIG = {
       { id = "bumpers",    name = "Missing bumpers" },
       { id = "engine",     name = "Tired engine (about -20% power)",         factor = 0.8 },
       { id = "brakes",     name = "Worn brakes (about -40% braking)",        factor = 0.6 },
-      { id = "ignition",   name = "Ignition problems (misfires, cuts out)",  factor = 0.1,     -- extra misfire chance
-        cutoutMin = 90, cutoutMax = 240 },                                                    -- seconds between cut-outs
+      { id = "ignition",   name = "Ignition problems (misfires, cuts out)",  factor = 0.05,    -- extra misfire chance
+        cutoutMin = 180, cutoutMax = 480 },                                                   -- seconds between cut-outs
       { id = "cooling",    name = "Cooling problems (leaking radiator)",     factor = 0.05 },  -- radiator damage (0.1 = wrecked)
       { id = "suspension", name = "Worn-out suspension (soft and bouncy)" },                   -- softest springs/dampers, or no anti-roll bars
-      { id = "fuelleak",   name = "Fuel leak",                                factor = 0.5 },   -- litres per minute
+      { id = "fuelleak",   name = "Fuel leak",                                factor = 1.0 },   -- litres per minute
       { id = "body",       name = "Accident damage (dents, broken lights)",  factor = 3000 },  -- damage it starts with
-      { id = "starter",    name = "Weak starter (slow to start)",            factor = 0.35 },  -- starter torque x this
+      { id = "starter",    name = "Weak starter (slow to start)",            factor = 0.6 },   -- starter torque x this
       { id = "clutch",     name = "Slipping clutch", enabled = false },                        -- manuals; off: mileage wears the clutch
       { id = "synchros",   name = "Worn gearbox synchros (gears grind)",     factor = 0.8 },   -- synchro wear (1 = gone); manuals
       { id = "turbo",      name = "Damaged turbo (low boost)",               factor = 0.02 },  -- turbo damage; turbo cars
-      { id = "brakefade",  name = "Glazed brake pads (squeal, fade when hot)", factor = 1 },   -- pad glazing (1 = fully glazed)
+      { id = "brakefade",  name = "Glazed brake pads (squeal, fade when hot)", factor = 1,     -- pad glazing (1 = fully glazed:
+        refresh = 0.5 },   -- the game's brakes x0.8 + squeal); re-glazed every `refresh` s - hard braking scrubs glazing off
       { id = "abs",        name = "ABS failure (wheels lock)" },
       { id = "oilleak",    name = "Oil leak (runs hot - might blow the engine)", factor = 0.5, -- engine friction +50%
         blowChance = 0.2, blowMin = 60, blowMax = 600,     -- chance the engine is doomed; seconds of hard driving until it goes
@@ -363,6 +364,16 @@ local function loadConfig()
       for _, f in ipairs((cfg.faults or {}).list or {}) do have[f.id] = true end
       for _, f in ipairs(DEFAULT_CONFIG.faults.list) do
         if not have[f.id] then cfg.faults.list[#cfg.faults.list + 1] = deepcopy(f) end
+      end
+    end
+    if not cfg.migrations.faultTuning2 then   -- 0.9.12, Ryan's in-game tuning: ignition halved, a starter that still
+      cfg.migrations.faultTuning2, changed = true, true   -- starts, double the fuel leak, pads kept glazed (only old defaults)
+      for _, f in ipairs((cfg.faults or {}).list or {}) do
+        if f.id == "ignition" and f.factor == 0.1 then f.factor = 0.05 end
+        if f.id == "ignition" and f.cutoutMin == 90 and f.cutoutMax == 240 then f.cutoutMin, f.cutoutMax = 180, 480 end
+        if f.id == "starter" and f.factor == 0.35 then f.factor = 0.6 end
+        if f.id == "fuelleak" and f.factor == 0.5 then f.factor = 1.0 end
+        if f.id == "brakefade" and f.refresh == nil then f.refresh = 0.5 end
       end
     end
     if not cfg.migrations.conditionPricing then   -- 0.9.12: condition pricing; mileage 60k/100k/200k/300k km
@@ -697,7 +708,7 @@ local function sendFaults(p, test)
   for _, id in ipairs(p.faults or {}) do
     local f = faultDef(id)
     if f then
-      list[#list + 1] = { id = f.id, factor = f.factor, cutoutMin = f.cutoutMin, cutoutMax = f.cutoutMax,
+      list[#list + 1] = { id = f.id, factor = f.factor, cutoutMin = f.cutoutMin, cutoutMax = f.cutoutMax, refresh = f.refresh,
                           blowMin = f.blowMin, blowMax = f.blowMax,
                           doomed = (f.id == "oilleak" and p.oilDoomed and not p.oilBlown) or nil }
       setup = setup or SETUP_FAULTS[f.id] or false
@@ -3188,7 +3199,7 @@ PLAYER_CMDS.fault = function(pid, name, args)
     if sub == "test" then
       for _, f in ipairs(cfg.faults.list) do
         if id == "" or id == f.id then
-          list[#list + 1] = { id = f.id, factor = f.factor, cutoutMin = f.cutoutMin, cutoutMax = f.cutoutMax,
+          list[#list + 1] = { id = f.id, factor = f.factor, cutoutMin = f.cutoutMin, cutoutMax = f.cutoutMax, refresh = f.refresh,
                               doomed = (f.id == "oilleak") or nil }   -- a test oil leak always blows (soon), so it can be seen
         end
       end
