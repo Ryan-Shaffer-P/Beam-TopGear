@@ -135,6 +135,7 @@ function World:loadServer()
   sb.set("math", setmetatable({ random = function(a, b)
     if a and not b and #w.rolls > 0 then
       local r = table.remove(w.rolls, 1)
+      if r == "last" then r = a end   -- (the last candidate, however many there are)
       assert(r >= 1 and r <= a, "w.rolls value " .. tostring(r) .. " out of range 1.." .. tostring(a))
       return r
     end

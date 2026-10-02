@@ -613,8 +613,8 @@ t.test("rough idle, worn gearbox and slipping clutch are out of the draw; the oi
   local A, B, C = w:join("Alice"), w:join("Bob"), w:join("Carol")
   w:chat(A, "/tg start")
   w:buy(A, "covet", "base_M"); w:buy(B, "covet", "base_M"); w:buy(C, "covet", "base_M")
-  -- Needs work: 15 problems in the draw (19 - idle, gearbox, clutch - the oil leak); 15 = the last one, ABS
-  w.rolls = { 15, 14 }; w:chat(A, "/tg condition needs work")
+  -- Needs work: always draw the LAST candidate - the oil leak is last in the list whenever it's in the draw
+  w.rolls = { "last", "last" }; w:chat(A, "/tg condition needs work")
   local a = drawn(w, "Alice")
   t.ok(has(a, "abs") and has(a, "brakefade") and not has(a, "oilleak"), "no oil leak for a Needs work car: " .. table.concat(a, ","))
   -- Beater: the oil leak joins the draw (16 candidates, the oil leak is the 16th)
