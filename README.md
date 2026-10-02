@@ -494,32 +494,45 @@ cars each with **Leave out** and a price box. `/tg class list` and `/tg class sh
 
 ## Car condition
 
-At the dealership each player picks their car's **condition** with a slider in the Dealership tab
-(or `/tg condition <name>`): **New, Used, Needs work, Beater or Death Trap**. A more worn car is
-cheaper on the market: **every step from New gives you $2,500 more to spend** (Used +$2,500 ...
-Death Trap +$10,000), paid at once and added to your dealership budget - so a worse condition can
-afford a better car. The cash moves as the slider moves.
+Before buying, each player picks their car's **condition** with a slider in the Dealership tab (or
+`/tg condition <name>`): **New, Used, Needs work, Beater or Death Trap**. A more worn car is cheaper on
+the market - **every car's price** drops with the condition's mileage, using career mode's own used-car
+formula (price x (1 - 0.25% per 1,000 km) + 5% scrap value, without career's age factor):
 
-- **Change your mind freely until you buy a car.** Once you've bought it the condition can only get
-  worse (return the car to choose again).
+| Condition | Mileage | Price |
+|---|---|---|
+| New | - | full price |
+| Used | 60,000 km | 90% (10% off) |
+| Needs work | 100,000 km | 80% |
+| Beater | 200,000 km | 55% |
+| Death Trap | 300,000 km | **30%** |
+
+So **a beaten-up luxury car costs what a new cheap one does**: a Death Trap ETK 800 ($34,000 new) is
+$10,200, about a new Pigeon ($10,000) - while a Death Trap supercar ($180,000) is still $54,000. Prices
+are rounded to $100. The Dealership tab, `/tg dealer` and the vehicle selector all show the prices for
+the condition you've picked, and say what an out-of-budget car would cost in the condition that makes
+it affordable ("$10,200 as a Death Trap").
+
+- **Choose before you buy: it's locked in with the car.** Return the car to choose again.
 - **Each step hides one problem in the car**, drawn at random from the ones **your car can
   actually take** when you buy it (swap or return the car at the dealership and they're drawn again).
-- **The problems are hidden.** Everyone sees the condition, nobody sees the problems - until a
+- **The problems are hidden.** Everyone hears the condition, nobody sees the problems - until a
   **workshop finds them**: the first time you're in a workshop the mechanics tell you what you've
   got, and the Status tab lists them with a **Fix this problem** button each. The finale inspection
   names any left.
-- **Fixing one costs $3,750** (1.5x the step) in a workshop: `/tg fix <id>` or the Status tab.
+- **Fixing one costs 5% of the car's new price** (at least $500) in a workshop: `/tg fix <id>` or the
+  Status tab. A luxury car is dear to keep running: a Pigeon's fix is $500, an ETK 800's $1,700.
 - **Every problem still there at the end costs 3 points** (a penalty of its own).
 - They come back after a tow, a respawn or a reset until they're fixed.
 - **A worn car also has the mileage to match**, using BeamNG's own part-condition system - the same one
-  career mode's used-car dealership uses: Used 60,000 km, Needs work 150,000 km, Beater 300,000 km,
-  Death Trap 500,000 km on the odometer, with the wear the game gives that mileage (a little more engine,
-  gearbox and clutch friction, a less steady idle) and **faded paint** (career's paint-age scale). It stays
-  for the whole challenge - resets, repairs and fixing problems don't make the car newer.
-  `config.json`: `faults.mileageKm` and `faults.paintWear` (one value per condition, New first).
-  Because mileage already wears the engine idle, gearbox and clutch, the **Rough idle, Worn gearbox and
-  Slipping clutch** problems are switched off by default (`"enabled": true` in `faults.list` brings one back).
-  `/tg diag` shows it ("Car wear (mileage): 150,000 km, paint 0.9 - ok").
+  career mode's used-car dealership uses: the odometer shows the mileage above, with the wear the game
+  gives it (a little more engine, gearbox and clutch friction, a less steady idle, slower automatic
+  shifts) and **faded paint** (career's paint-age scale). It stays for the whole challenge - resets,
+  repairs and fixing problems don't make the car newer. `/tg diag` shows it ("Car wear (mileage):
+  200,000 km, paint 0.88 - ok"). Because mileage already wears the idle, gearbox and clutch, the
+  **Rough idle, Worn gearbox and Slipping clutch** problems are switched off by default.
+- Everything is in `config.json` under `faults`: `mileageKm` and `paintWear` (one value per condition,
+  New first), `lossPerKm` (0.0000025), `scrapValue` (0.05), `fixPercent` (0.05), `fixMin` (500).
 
 The problems (the code and config.json call them *faults*):
 
@@ -551,8 +564,7 @@ the server remembers it for that car, so it isn't drawn for it again. Admins: `/
 **Which cars take which faults** in the Admin tab) lists what's been learnt per car; it's saved in
 `config.json` under `faultCaps` - the start of grouping cars by what faults they support.
 
-Everything is in `config.json` under `faults`: `payout`, `maxPerCar`, `fixMultiplier`,
-`inspectionPenaltyPoints`, and per fault `factor` (severity), `enabled` (false leaves it out of the
+Per problem, in `config.json` under `faults`: `maxPerCar`, `inspectionPenaltyPoints`, and per fault `factor` (severity), `enabled` (false leaves it out of the
 draw), for ignition `cutoutMin`/`cutoutMax` (seconds between cut-outs) and for the oil leak
 `blowChance` (0.2) and `blowMin`/`blowMax` (seconds of hard driving before a doomed engine goes). Saved configs from before
 0.8.8 get all nineteen faults automatically (custom severities and switched-off faults are kept).

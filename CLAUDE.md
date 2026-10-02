@@ -229,6 +229,13 @@ a full list is ~110 KB, a refresh without it ~2-10 KB.
 Death Trap = 0..4), one fault is "a problem". Dealership tab = `drawCondition` slider (`/tg condition <n|name>`, the old
 `/tg fault take` maps onto it); free both ways until a car is bought (`p.carVid` or drawn faults), then only worse. Code,
 config keys and admin tools still say fault.
+Condition PRICING (0.9.12, Ryan: "a luxury car that's been beat up should match a newer low-end car"): career's
+`valueCalculator.getAdjustedVehicleBaseValue` without age: price x (max(0, 1 - lossPerKm x km) + scrapValue) =
+`CONDITION.price(n, newPrice)` (nearest $100; +1e-9 for float halves). Used/NW/Beater/DT = 60k/100k/200k/300k km =
+90/80/55/30%. No cash payout any more: `dealerOffers` shows prices in the player's chosen condition (`t.newPrice`,
+`t.cond`/`t.condPrice` = the condition that makes it affordable, `CONDITION.needed`); purchase `setCar` stores
+`boughtCondition` (locked; `refundCar` clears), `carNewPrice`, `conditionSaving`. Fix = `fixCost(p)` = 5% of the new
+price, min $500. `playerBudget` = startingCash. Migration `conditionPricing` (old unreleased mileage defaults).
 Mileage wear (0.9.12): `CONDITION.mileage(p)` (by `CONDITION.level` = condition bought, fixes don't lower it) goes in
 `tg_faults` as `mileage = {m = metres, v = paint}`; VLUA calls `partCondition.initConditions(nil, m, nil, v)` (career's
 `vehicleShopping` call) once per vehicle-Lua state (`tgFaults.mileage`) BEFORE the faults - it resets the engine/gearbox
@@ -236,7 +243,7 @@ damage coefs and ignition chances, so it sets `wearFresh` (oil/idle/gearbox resc
 The game re-applies its own snapshot on reset. Result -> `out._mileage` -> `/tg diag` "Car wear". NOT yet tried in game.
 Overlap with mileage: idle, gearbox, clutch `enabled = false` by default (migration `mileageOverlap`); a fault's
 `minCondition` (oil leak = 3) keeps it out of `rollFault` below that condition (`CONDITION.level` incl. owed draws).
-Taken by number (`/tg fault take [n]`, $2,500 each = `faults.payout`), drawn at random (`rollFault` /
+Taken by number (`/tg fault take [n]`; since 0.9.12 a car CONDITION that discounts the price, see below), drawn at random (`rollFault` /
 `drawFaults`; owed faults wait for a car: `p.faultsOwed`) from enabled faults the car can take; hidden
 until a workshop (`revealFaults`), final, fix 1.5x. Ten faults: tires, alignment, bumpers, suspension (setup:
 vars `$spring*`/`$damp*` to min, else empty sway-bar slots), engine, brakes, ignition (engine

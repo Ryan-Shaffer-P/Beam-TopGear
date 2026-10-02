@@ -43,51 +43,49 @@ end
 
 local function start(w, A, model, faults, n)
   w:chat(A, "/tg start")
-  w:buy(A, model or "covet", "base_M")
-  if faults then pin(w, faults); w:chat(A, "/tg fault take " .. (n or #faults)) end
+  if faults then w:chat(A, "/tg fault take " .. (n or #faults)) end   -- the condition is chosen before buying...
+  if faults then pin(w, faults) end
+  w:buy(A, model or "covet", "base_M")                               -- ...and its problems drawn when the car is bought
   w:step(10)   -- applied: setup faults respawn the car, physics faults run in its Lua, the report comes back
 end
 
-t.test("car condition: $2,500 a step from New; both ways before buying, only worse after", function()
-  local w = World.new({ files = F.files(F.twoRaces()) })
+t.test("car condition: chosen before buying, it sets every car's price (career's formula); locked once bought", function()
+  local w = World.new({ files = F.files(F.twoRaces()) })   -- (the test dealer list: the Covet is $4,500 new)
   local A, B = w:join("Alice"), w:join("Bob")
   w:chat(A, "/tg start")
-  w:chat(A, "/tg condition needs work")    -- before buying: the money raises the budget
-  t.ok(w:chatHas(A, "Car condition: Needs work - +$5,000 more to spend (budget $15,000)."))
-  t.eq(w:state(A).cash, 15000)
-  w:chat(A, "/tg condition used")          -- changed her mind: allowed before buying, the cash follows
-  t.eq(w:state(A).cash, 12500)
+  w:chat(A, "/tg condition needs work")
+  t.ok(w:chatHas(A, "Car condition: Needs work (100,000 km) - every car is 20% off."))
+  t.eq(w:state(A).cash, 10000, "no cash bonus: the prices drop instead")
+  w:chat(A, "/tg dealer covet")
+  t.ok(w:chatHas(A, "  $3,600  Ibishu Covet"), "$4,500 x 0.8")
+  w:chat(A, "/tg condition used")          -- changed her mind: free before buying
+  w:chat(A, "/tg dealer covet")
+  t.ok(w:chatHas(A, "  $4,100  Ibishu Covet"), "$4,500 x 0.9 = $4,050, to the nearest $100")
   w:chat(A, "/tg condition new")
-  t.eq(w:state(A).cash, 10000)
+  t.ok(w:chatHas(A, "Car condition: New - full price."))
   w:chat(A, "/tg fault take 2")            -- the old command still works: two steps worse
   t.ok(w:chatHas(A, "Car condition: Needs work"))
-  w:chat(A, "/tg dealer")
-  t.ok(w:chatHas(A, "DEALERSHIP - budget $15,000"))
   pin(w, { "engine", "brakes" })
-  w:buy(A, "covet", "base_M")            -- the problems are drawn for this car now
+  w:buy(A, "covet", "base_M")            -- bought at the Needs work price; the problems are drawn now
   w:step(10)
-  local e = A.current.engine
-  t.ok(math.abs(e.outputTorqueState - 0.8) < 1e-9, "engine problem on the car")
+  t.ok(w:chatHas(B, "Alice bought an Ibishu Covet for $3,600 - a Needs work, $900 off ($6,400 left)."))
+  t.eq(w:state(A).cash, 10000 - 3600)
+  t.ok(math.abs(A.current.engine.outputTorqueState - 0.8) < 1e-9, "engine problem on the car")
   t.eq(A.current.wheels[0].brakeTorque, 1500 * 0.6, "brake problem on the car")
-  w:chat(A, "/tg condition used")          -- bought: it can only get worse
-  t.ok(w:chatHas(A, "You've bought your Ibishu Covet as Needs work - its condition can only get worse now"))
-  t.eq(w:state(A).cash, 15000 - 4500)
-  w:chat(A, "/tg condition death trap")    -- worse is fine (and capped at Death Trap)
-  t.ok(w:chatHas(B, "Alice's Ibishu Covet is now a Death Trap."))
-  t.eq(w:state(A).cash, 15000 - 4500 + 5000)
-  w:chat(A, "/tg condition 9")
-  t.ok(w:chatHas(A, "Your car is already Death Trap."))
+  w:chat(A, "/tg condition death trap")    -- locked in with the car
+  t.ok(w:chatHas(A, "You've bought your Ibishu Covet as Needs work - that's locked in (return it to choose again)."))
+  t.eq(w:state(A).cash, 10000 - 3600)
   w:assertClean()
 end)
 
-t.test("faults stay hidden until a workshop diagnoses the car, then can be fixed for $3,750", function()
+t.test("faults stay hidden until a workshop diagnoses the car, then can be fixed (5% of the new price, at least $500)", function()
   local cfg = F.twoRaces(); cfg.workshopEvery = 1
   cfg.admins = { "Zed" }   -- an ordinary player's view (admins see every fault's name in the fault-test tools)
   local w = World.new({ files = F.files(cfg) })
   local Z, A = w:join("Zed"), w:join("Alice")
   w:chat(Z, "/tg start")
+  w:chat(A, "/tg fault take"); pin(w, { "brakes" })
   w:buy(A, "covet", "base_M")
-  pin(w, { "brakes" }); w:chat(A, "/tg fault take")
   w:step(10)
   w:step(2.5)
   t.match(A.client.im.textOf("Top Gear Challenge"), "Bought as Used: 1 hidden problem %- a workshop will find it")
@@ -103,11 +101,11 @@ t.test("faults stay hidden until a workshop diagnoses the car, then can be fixed
   w:waitFor(function() return w:state(A).phase == "workshop" end, 10, "the workshop")
   t.ok(w:chatHas(A, "The mechanics have looked your car over and found: Worn brakes (about -40% braking) (/tg fix brakes)."))
   w:step(2.5)
-  t.ok(A.client.im.hasButton("Fix this problem: Worn brakes (about -40% braking) ($3,750)"), "Fix button once diagnosed")
+  t.ok(A.client.im.hasButton("Fix this problem: Worn brakes (about -40% braking) ($500)"), "Fix button once diagnosed")
   local before = w:state(A).cash
   w:chat(A, "/tg fix brakes")
   w:step(3)
-  t.eq(w:state(A).cash, before - 3750)
+  t.eq(w:state(A).cash, before - 500, "5% of the Covet's $4,500 is $225: the $500 minimum")
   t.eq(A.current.wheels[0].brakeTorque, 1500, "brakes back to normal")
   w:assertClean()
 end)
@@ -149,9 +147,9 @@ t.test("suspension: softest springs and dampers; on a car without adjustable sus
   local w = World.new({ files = F.files(F.twoRaces()) })
   local A, B = w:join("Alice"), w:join("Bob")
   w:chat(A, "/tg start")
-  w:buy(A, "covet", "base_M"); w:buy(B, "pickup", "d15_M")
-  pin(w, { "suspension" }); w:chat(A, "/tg fault take")
-  pin(w, { "suspension" }); w:chat(B, "/tg fault take")
+  w:chat(A, "/tg fault take"); w:chat(B, "/tg fault take")
+  pin(w, { "suspension" }); w:buy(A, "covet", "base_M")
+  pin(w, { "suspension" }); w:buy(B, "pickup", "d15_M")
   w:step(10)
   t.eq(A.current.vars["$spring_F"], 20000); t.eq(A.current.vars["$spring_R"], 20000); t.eq(A.current.vars["$damp_bump_F"], 1000)
   t.eq(B.current.parts["/pickup_swaybar_F/"], "", "the pickup's anti-roll bar is off")
@@ -196,7 +194,7 @@ t.test("accident damage: the car starts dented with broken lights; tows don't st
   w:chat(A, "/tg fix body")
   w:step(5)
   t.eq(A.current.damage, 0, "the dents go with the fault")
-  t.eq(w:state(A).cash, before - 3750, "just the fix - not a repair bill on top")
+  t.eq(w:state(A).cash, before - 500, "just the fix - not a repair bill on top")
   w:assertClean()
 end)
 
@@ -204,21 +202,21 @@ t.test("a fault the car can't take is quietly swapped for another, and remembere
   local w = World.new({ files = F.files(F.twoRaces()) })
   local A, B = w:join("Alice"), w:join("Bob")
   w:chat(A, "/tg start")
-  w:buy(A, "miramar", "base_M")   -- no fuel tank model, no radiator model on this test car
-  pin(w, { "fuelleak", "tires" }) -- the first draw can't be applied; the replacement draw is pinned too
   w:chat(A, "/tg fault take")
+  pin(w, { "fuelleak", "tires" }) -- the first draw can't be applied; the replacement draw is pinned too
+  w:buy(A, "miramar", "base_M")   -- no fuel tank model, no radiator model on this test car
   w:step(10)
   t.eq(A.current.vars["$tirepressure_F"], 9, "swapped for worn tyres")
-  t.eq(w:state(A).cash, 10000 - 3500 + 2500, "nothing handed back")
+  t.eq(w:state(A).cash, 10000 - 3200, "a Used Miramar ($3,500 x 0.9 = $3,150 -> $3,200); no money moves on a swap")
   t.noLine(A.chat, "can't take")
   w:chat(A, "/tg fault caps")
   t.ok(w:chatHas(A, "miramar/base_M: works tires | can't take fuelleak"))
   t.ok(w:serverConfig().faultCaps["miramar/base_M"].no.fuelleak, "saved to config.json")
 
   -- the next Miramar never draws the fuel leak: the draw skips it
-  w:buy(B, "miramar", "base_M")
-  pin(w, { "cooling", "bumpers" }, { "fuelleak" })   -- cooling can't be applied either; bumpers can
   w:chat(B, "/tg fault take")
+  pin(w, { "cooling", "bumpers" }, { "fuelleak" })   -- cooling can't be applied either; bumpers can
+  w:buy(B, "miramar", "base_M")
   w:step(10)
   w:chat(A, "/tg fault caps")
   t.ok(w:chatHas(A, "miramar/base_M: works bumpers, tires | can't take cooling, fuelleak"))
@@ -231,7 +229,7 @@ t.test("returning or swapping the car at the dealership redraws the faults for t
   local A = w:join("Alice")
   start(w, A, "covet", { "engine" })
   w:clientDelete(A, A.current); w:pump(); w:step(1)   -- returned to the dealership
-  t.eq(w:state(A).cash, 10000 + 2500, "the car's refunded, the fault money stays")
+  t.eq(w:state(A).cash, 10000, "the car's refunded; the condition stays chosen (Used) and can be changed again")
   pin(w, { "brakes" })
   w:buy(A, "pessima", "base_M")
   w:step(10)
@@ -240,7 +238,7 @@ t.test("returning or swapping the car at the dealership redraws the faults for t
   w:assertClean()
 end)
 
-t.test("saved configs with the old 5-fault menu get the 10 faults and the single payout; custom severities kept", function()
+t.test("saved configs with the old 5-fault menu get every fault; custom severities kept", function()
   local old = { enabled = true, maxPerCar = 3, list = {
     { id = "tires", name = "Worn tyres", payout = 2400, factor = 0.5 },
     { id = "alignment", name = "Alignment", payout = 2100, factor = 1.4 },
@@ -250,7 +248,6 @@ t.test("saved configs with the old 5-fault menu get the 10 faults and the single
   local w = World.new({ files = F.files(F.config({}, { faults = old })) })
   local fl = w:serverConfig().faults
   t.eq(#fl.list, 19)
-  t.eq(fl.payout, 2500)
   t.eq(fl.maxPerCar, 4, "the old limit of 3 becomes 4")
   local byId = {}
   for _, f in ipairs(fl.list) do byId[f.id] = f end
@@ -259,7 +256,7 @@ t.test("saved configs with the old 5-fault menu get the 10 faults and the single
   t.ok(byId.fuelleak and byId.body and byId.ignition, "new faults added")
 end)
 
-t.test("the Dealership tab: a Car Condition slider (New .. Death Trap, no numbers) moves the cash as it moves", function()
+t.test("the Dealership tab: a Car Condition slider (New .. Death Trap, no numbers) sets every price as it moves", function()
   local w = World.new({ files = F.files(F.twoRaces()) })
   local A = w:join("Alice")
   w:chat(A, "/tg start")
@@ -269,31 +266,31 @@ t.test("the Dealership tab: a Car Condition slider (New .. Death Trap, no number
   end
   local s = A.client.im.textOf(WIN)
   t.match(s, "CAR CONDITION\n<New>")
-  t.match(s, "A more worn car is cheaper on the market: every step from New gives you %$2,500 more to spend%.")
-  t.match(s, "You can change this until you buy a car%.")
+  t.match(s, "A more worn car is cheaper on the market: Used 10%% off, Needs work 20%% off, Beater 45%% off, Death Trap 70%% off%.")
+  t.match(s, "Choose before you buy %- it's locked in with the car%.")
+  t.match(s, "%$4,500  Ibishu Covet")
   t.ok(not s:find("Problem cars", 1, true) and not A.client.im.hasButton("Take 1 fault (+$2,500)"), "no dropdown, no Take buttons")
   t.eq(slider().min, 0); t.eq(slider().max, 4)
   A.client.im.setInt("##condition", 3)
   w:step(2.5)
-  t.eq(w:state(A).cash, 17500, "the cash follows the slider")
-  t.match(A.client.im.textOf(WIN), "<Beater>")
-  t.match(A.client.im.textOf(WIN), "Beater: %+%$7,500 to spend%.")
+  t.eq(w:state(A).cash, 10000, "the cash doesn't move...")
+  s = A.client.im.textOf(WIN)
+  t.match(s, "%$2,500  Ibishu Covet", "...the prices do: $4,500 x 0.55")
+  t.match(s, "<Beater>")
+  t.match(s, "Beater %(200,000 km%): every car below is 45%% off%.")
   t.ok(not slider().text:find("%d"), "no number on the slider: " .. slider().text)
   A.client.im.setInt("##condition", 1)
   w:step(2.5)
-  t.eq(w:state(A).cash, 12500)
   t.match(A.client.im.textOf(WIN), "<Used>")
-  pin(w, { "engine", "brakes", "cooling", "fuelleak" })   -- (Used's problem is drawn when the car is bought)
+  t.match(A.client.im.textOf(WIN), "%$4,100  Ibishu Covet")
+  pin(w, { "engine" })
   w:buy(A, "covet", "base_M")
   w:step(2.5)
-  t.eq(slider().min, 1, "bought: it can't go back to New")
-  t.match(A.client.im.textOf(WIN), "its condition can only get worse now")
-  A.client.im.setInt("##condition", 4)
-  w:step(10)
-  t.eq(w:state(A).cash, 12500 - 4500 + 7500)
-  t.ok(math.abs(A.current.engine.outputTorqueState - 0.8) < 1e-9 and A.current.wheels[0].brakeTorque == 900, "engine + brakes")
-  t.ok(math.abs(A.current.radiatorDamage - 0.05) < 1e-9, "cooling")
-  t.match(A.client.im.textOf(WIN), "Death Trap %- it can't get any worse%.")
+  t.eq(slider(), nil, "bought: no slider - it's locked in")
+  t.match(A.client.im.textOf(WIN), "Bought as Used %(60,000 km%)%.")
+  t.match(A.client.im.textOf(WIN), "That's locked in %- return the car to choose again%.")
+  t.match(A.client.im.textOf(WIN), "at least %$500%) %- %$500 for yours")
+  t.eq(w:state(A).cash, 10000 - 4100)
   w:assertClean()
 end)
 
@@ -302,9 +299,9 @@ t.test("faults survive every kind of reset (illegal reset, respawn, tow, worksho
   local w = World.new({ files = F.files(cfg) })
   local A, B = w:join("Alice"), w:join("Bob")
   w:chat(A, "/tg start")
-  w:buy(A, "covet", "base_M"); w:buy(B, "pessima", "base_M")
-  pin(w, { "tires", "engine", "cooling", "body" }); w:chat(A, "/tg fault take 4")
-  pin(w, { "brakes", "ignition", "suspension", "fuelleak" }); w:chat(B, "/tg fault take 4")
+  w:chat(A, "/tg fault take 4"); w:chat(B, "/tg fault take 4")
+  pin(w, { "tires", "engine", "cooling", "body" }); w:buy(A, "covet", "base_M")
+  pin(w, { "brakes", "ignition", "suspension", "fuelleak" }); w:buy(B, "pessima", "base_M")
   w:step(10)
 
   local function stillThere(when, engineFixed)
@@ -383,13 +380,13 @@ t.test("starter, clutch, synchros, ABS on a manual car; turbo on a turbo car; on
   local w = World.new({ files = F.files(allFaults(F.twoRaces())) })   -- (the clutch is off by default)
   local A, B = w:join("Alice"), w:join("Bob")
   w:chat(A, "/tg start")
+  w:chat(A, "/tg fault take 4"); w:chat(B, "/tg fault take 3")
+  pin(w, { "starter", "clutch", "synchros", "abs" }, nil, true)
   w:buy(A, "covet", "base_M")        -- manual, no turbo
-  w:buy(B, "pessima", "base_M")      -- automatic, turbo
-  pin(w, { "starter", "clutch", "synchros", "abs" }, nil, true); w:chat(A, "/tg fault take 4")
   -- Bob draws a clutch and synchros (no manual gearbox: swapped) and a turbo; the swaps are pinned to brakefade/oilleak
   pin(w, { "clutch", "synchros", "turbo", "brakefade", "oilleak" }, nil, true)
   w.chances = { 0.9 }                -- (oil leak: this engine isn't doomed)
-  w:chat(B, "/tg fault take 3")
+  w:buy(B, "pessima", "base_M")      -- automatic, turbo
   w:step(15)
   local a, b = A.current, B.current
   t.ok(math.abs(a.engine.starterTorque - 35) < 1e-9, "weak starter")
@@ -416,9 +413,9 @@ end)
 
 local function oilCar(w, A, chance)
   w:chat(A, "/tg start")
+  w:chat(A, "/tg condition beater")    -- (an oil leak needs a Beater or worse)
+  pin(w, { "oilleak", "brakes", "starter" }); w.chances = { chance }
   w:buy(A, "covet", "base_M")
-  pin(w, { "oilleak", "brakes", "starter" }); w.chances = { chance }   -- (an oil leak needs a Beater or worse)
-  w:chat(A, "/tg condition beater")
   w:step(10)
   w:chat(A, "/tg ready")
 end
@@ -486,15 +483,14 @@ t.test("rough idle and a worn gearbox (manual or automatic), re-applied after a 
   local w = World.new({ files = F.files(allFaults(F.twoRaces())) })   -- (both off by default: an admin can switch them on)
   local A, B = w:join("Alice"), w:join("Bob")
   w:chat(A, "/tg start")
-  w:buy(A, "covet", "base_M"); w:buy(B, "pessima", "base_M")   -- manual / automatic
-  pin(w, { "idle", "gearbox" }, { "oilleak" }, true); w:chat(A, "/tg fault take 2")   -- (no oil leak below a Beater)
-  pin(w, { "gearbox" }, { "oilleak" }, true); w:chat(B, "/tg fault take")
+  w:chat(A, "/tg condition beater"); w:chat(B, "/tg fault take")
+  -- Alice's third draw is a turbo her Covet can't take: it's swapped for brakes and the faults are sent again (no
+  -- reset) - nothing may multiply twice
+  pin(w, { "idle", "gearbox", "turbo", "brakes" }, nil, true); w:buy(A, "covet", "base_M")   -- manual
+  w:step(10)   -- (the swap's draw uses the last pinned roll: let it happen before Bob's draw is pinned)
+  pin(w, { "gearbox" }, { "oilleak" }, true); w:buy(B, "pessima", "base_M")                  -- automatic (Used: no oil leak)
   w:step(10)
-  t.eq(A.current.engine.damageIdleAVReadErrorRangeCoef, 15, "rough idle")
-  t.eq(A.current.devices.gearbox.damageFrictionCoef, 3, "worn manual gearbox")
-  t.eq(B.current.devices.gearbox.damageFrictionCoef, 3, "worn automatic gearbox")
-  pin(w, { "brakes" }); w:chat(A, "/tg fault take")   -- the faults are sent again (no reset): nothing may multiply twice
-  w:step(10)
+  t.eq(A.current.wheels[0].brakeTorque, 900, "the swapped-in brakes problem arrived")
   t.eq(A.current.engine.damageIdleAVReadErrorRangeCoef, 15, "idle not stacked")
   t.eq(A.current.devices.gearbox.damageFrictionCoef, 3, "gearbox not stacked")
   w:chat(A, "/tg ready"); w:chat(B, "/tg ready")
@@ -508,8 +504,8 @@ end)
 t.test("parts fitted right after a fault is applied are billed (no free-upgrade window)", function()
   local w = World.new({ files = F.files(F.twoRaces()) })
   local A = w:join("Alice")
-  w:chat(A, "/tg start"); w:buy(A, "covet", "base_M")
-  pin(w, { "tires" }); w:chat(A, "/tg fault take")   -- a setup fault: the car respawns
+  w:chat(A, "/tg start"); w:chat(A, "/tg fault take")
+  pin(w, { "tires" }); w:buy(A, "covet", "base_M")   -- a setup fault: the car respawns
   w:step(10)
   local cash0 = w:state(A).cash
   local parts = {}
@@ -525,11 +521,11 @@ t.test("the mod's own part changes (a fault taking a part off, a fix putting it 
   local cfg = F.twoRaces(); cfg.workshopEvery = 1
   local w = World.new({ files = F.files(cfg) })
   local A = w:join("Alice")
-  w:chat(A, "/tg start"); w:buy(A, "pickup", "d15_M")   -- no adjustable suspension: the fault removes the anti-roll bar
-  pin(w, { "suspension" }); w:chat(A, "/tg fault take")
+  w:chat(A, "/tg start"); w:chat(A, "/tg fault take")
+  pin(w, { "suspension" }); w:buy(A, "pickup", "d15_M")   -- no adjustable suspension: the fault removes the anti-roll bar
   w:step(10)
   t.eq(A.current.parts["/pickup_swaybar_F/"], "", "the anti-roll bar is off")
-  t.eq(w:state(A).cash, 10000 - 7500 + 2500, "no refund for the part the fault took off")
+  t.eq(w:state(A).cash, 10000 - 6800, "a Used pickup ($7,500 x 0.9 = $6,750 -> $6,800); no refund for the part the fault took off")
   w:chat(A, "/tg ready")
   w:drive(A, p(500), 40); w:chat(A, "/tg go")
   w:waitFor(function() return w:state(A).phase == "event" end, 10, "GO")
@@ -539,7 +535,7 @@ t.test("the mod's own part changes (a fault taking a part off, a fix putting it 
   w:chat(A, "/tg fix suspension")
   w:step(10)
   t.eq(A.current.parts["/pickup_swaybar_F/"], "pickup_swaybar_F", "back on")
-  t.eq(w:state(A).cash, before - 3750, "just the fix - no part or labour charge for putting it back")
+  t.eq(w:state(A).cash, before - 500, "just the fix - no part or labour charge for putting it back")
   w:assertClean()
 end)
 
@@ -552,11 +548,11 @@ t.test("mileage wear: each condition sets the car's odometer and paint wear thro
   w:buy(A, "covet", "base_M"); w:buy(B, "covet", "base_M"); w:buy(C, "pessima", "base_M")
   w:step(10)
   t.eq(A.current.partConditionCalls, 0, "a New car is left alone")
-  t.eq(B.current.odometer, 60000 * 1000); t.eq(B.current.paintVisual, 0.94)
-  t.eq(C.current.odometer, 500000 * 1000); t.eq(C.current.paintVisual, 0.82)
+  t.eq(B.current.odometer, 60000 * 1000); t.eq(B.current.paintVisual, 0.945)
+  t.eq(C.current.odometer, 300000 * 1000); t.eq(C.current.paintVisual, 0.862)
   w:chat(C, "/tg diag")
   w:step(1)
-  t.ok(w:chatHas(C, "Car wear (mileage): 500,000 km, paint 0.82 - ok"))
+  t.ok(w:chatHas(C, "Car wear (mileage): 300,000 km, paint 0.862 - ok"))
   w:assertClean()
 end)
 
@@ -564,11 +560,11 @@ t.test("mileage wear: kept through resets, back after a respawn, and fixing a pr
   local cfg = F.twoRaces(); cfg.workshopEvery = 1
   local w = World.new({ files = F.files(cfg) })
   local A = w:join("Alice")
-  start(w, A, "covet", { "brakes", "ignition" })   -- Needs work: 150,000 km
-  t.eq(A.current.odometer, 150000 * 1000)
+  start(w, A, "covet", { "brakes", "ignition" })   -- Needs work: 100,000 km
+  t.eq(A.current.odometer, 100000 * 1000)
   t.ok(math.abs(A.current.engine.slowIgnitionErrorChance - 0.10) < 1e-9, "the problems go on after the mileage")
   w:resetCar(A); w:step(3)
-  t.eq(A.current.odometer, 150000 * 1000, "a reset keeps it (the game's own snapshot)")
+  t.eq(A.current.odometer, 100000 * 1000, "a reset keeps it (the game's own snapshot)")
   t.eq(A.current.partConditionCalls, 1, "not set again after a reset")
   t.ok(math.abs(A.current.engine.slowIgnitionErrorChance - 0.10) < 1e-9, "the ignition problem back after the reset")
   w:chat(A, "/tg ready")
@@ -578,25 +574,10 @@ t.test("mileage wear: kept through resets, back after a respawn, and fixing a pr
   w:waitFor(function() return w:state(A).phase == "workshop" end, 10, "the workshop")
   w:chat(A, "/tg fix brakes")
   w:step(3)
-  t.eq(A.current.odometer, 150000 * 1000, "still a Needs work car's mileage after a fix")
+  t.eq(A.current.odometer, 100000 * 1000, "still a Needs work car's mileage after a fix")
   w:chat(A, "/tg respawn")   -- a fresh car: the mileage goes on again
   w:step(10)
-  t.eq(A.current.odometer, 150000 * 1000, "re-applied after a respawn")
-  w:assertClean()
-end)
-
-t.test("mileage wear: a car made worse after buying gets the new mileage, and its problems stay right", function()
-  local w = World.new({ files = F.files(F.twoRaces()) })
-  local A = w:join("Alice")
-  start(w, A, "covet", { "ignition" })         -- Used: 60,000 km, misfires +0.10
-  t.eq(A.current.odometer, 60000 * 1000)
-  pin(w, { "oilleak", "brakes" }, { "ignition" })   -- (drawn from the problems the car doesn't have yet)
-  w:chat(A, "/tg condition beater")            -- +2 problems, 300,000 km: the mileage resets the wear values first
-  w:step(10)
-  t.eq(A.current.odometer, 300000 * 1000)
-  t.ok(math.abs(A.current.engine.slowIgnitionErrorChance - 0.10) < 1e-9, "misfires still +0.10 (not undone, not stacked)")
-  t.ok(math.abs(A.current.engine.damageFrictionCoef - 1.5) < 1e-9, "oil leak x1.5 on top of the new mileage")
-  t.eq(A.current.wheels[0].brakeTorque, 900, "worn brakes")
+  t.eq(A.current.odometer, 100000 * 1000, "re-applied after a respawn")
   w:assertClean()
 end)
 
@@ -610,24 +591,17 @@ local function has(list, id) for _, x in ipairs(list) do if x == id then return 
 
 t.test("rough idle, worn gearbox and slipping clutch are out of the draw; the oil leak only for Beaters and Death Traps", function()
   local w = World.new({ files = F.files(F.twoRaces()) })
-  local A, B, C = w:join("Alice"), w:join("Bob"), w:join("Carol")
+  local A, B = w:join("Alice"), w:join("Bob")
   w:chat(A, "/tg start")
-  w:buy(A, "covet", "base_M"); w:buy(B, "covet", "base_M"); w:buy(C, "covet", "base_M")
-  -- Needs work: always draw the LAST candidate - the oil leak is last in the list whenever it's in the draw
-  w.rolls = { "last", "last" }; w:chat(A, "/tg condition needs work")
+  -- always draw the LAST candidate: the oil leak is last in the list whenever it's in the draw
+  w:chat(A, "/tg condition needs work"); w.rolls = { "last", "last" }; w:buy(A, "covet", "base_M")
   local a = drawn(w, "Alice")
   t.ok(has(a, "abs") and has(a, "brakefade") and not has(a, "oilleak"), "no oil leak for a Needs work car: " .. table.concat(a, ","))
-  -- Beater: the oil leak joins the draw (16 candidates, the oil leak is the 16th)
-  w.rolls = { 16, 1, 1 }; w:chat(B, "/tg condition beater")
-  t.ok(has(drawn(w, "Bob"), "oilleak"), "a Beater can have an oil leak")
-  -- a Used car made a Beater afterwards: from then on its draws can include the oil leak
-  w.rolls = { 1 }; w:chat(C, "/tg condition used")
-  -- (Carol has tires, and Bob's draw taught the server this Covet can't take an alignment fault: oil leak = 14th)
-  w.rolls = { 14, 1 }; w:chat(C, "/tg condition beater")
-  local cl = drawn(w, "Carol")
-  t.ok(has(cl, "oilleak"))
+  w:chat(B, "/tg condition beater"); w.rolls = { "last", 1, 1 }; w:buy(B, "covet", "base_M")
+  local b = drawn(w, "Bob")
+  t.ok(has(b, "oilleak"), "a Beater can have an oil leak: " .. table.concat(b, ","))
   for _, id in ipairs({ "idle", "gearbox", "clutch" }) do
-    for _, pl in ipairs({ "Alice", "Bob", "Carol" }) do t.ok(not has(drawn(w, pl), id), id .. " is off") end
+    t.ok(not has(a, id) and not has(b, id), id .. " is off")
   end
   w:assertClean()
 end)

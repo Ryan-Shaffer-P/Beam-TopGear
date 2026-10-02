@@ -246,7 +246,7 @@ end
 -- The selector screen gets its list from the 'sendVehicleList' UI hook (core_vehicles.requestList() sends it when
 -- the screen opens; career mode swaps in its own list the same way). While the dealership is open we catch that
 -- hook - whichever game function sends it - and swap in today's cars at today's prices ("Value"), with
--- "as a Beater" (the car condition that would afford it) / "over budget" in the name. Thumbnails, filters and search keep working. Buying is still
+-- "$5,500 as a Beater" (the car condition that would afford it) / "over budget" in the name. Thumbnails, filters and search keep working. Buying is still
 -- spawning: the server checks and charges. Today's list is fetched in advance (dealership opening, cash changes)
 -- so it's ready when the screen opens. If anything goes wrong the game's own list goes through untouched (the
 -- server still refuses what isn't for sale). /tg diag reports what this game version does.
@@ -305,7 +305,7 @@ local function selBuild(offers)
         c.Value, c.aggregates.Value = tr.price, { min = tr.price, max = tr.price }
         local note = ""
         if tr.over then note = " - over budget"
-        elseif (tonumber(tr.needs) or 0) > 0 then note = " - as a " .. tostring(tr.cond or "worn car") end
+        elseif (tonumber(tr.needs) or 0) > 0 then note = string.format(" - %s as a %s", commas(tr.condPrice), tostring(tr.cond)) end
         c.Name = string.format("%s (%s%s)%s", tostring(src.Name or tr.name), commas(tr.price), tr.est and ", est." or "", note)
         configs[#configs + 1] = c
         mine[#mine + 1] = c
@@ -325,7 +325,7 @@ local function selWanted() return state.phase == "dealer" and not state.traffic 
 local function selLabel(text, tr)
   local note = ""
   if tr.over then note = " - over budget"
-  elseif (tonumber(tr.needs) or 0) > 0 then note = " - as a " .. tostring(tr.cond or "worn car") end
+  elseif (tonumber(tr.needs) or 0) > 0 then note = string.format(" - %s as a %s", commas(tr.condPrice), tostring(tr.cond)) end
   return string.format("%s (%s%s)%s", tostring(text), commas(tr.price), tr.est and ", est." or "", note)
 end
 local function selSaleModel(model)   -- a model with only its trims for sale, priced (built once per list)
@@ -449,7 +449,7 @@ local function selUpdate(dt)   -- every frame: keep the hook in place while the 
   if not selWanted() then if selector.trigger or selector.lookupFns then selUnhook() end return end
   selHook()
   selWrapLookups()
-  local sig = tostring(state.cash) .. "|" .. tostring(state.budget)
+  local sig = tostring(state.cash) .. "|" .. tostring(state.budget) .. "|" .. tostring(state.condition)
   if sig ~= selector.sig or not selector.list then
     if sig ~= selector.sig then selector.sig = sig; selRequest(true) else selRequest(false) end
   end
@@ -1905,36 +1905,40 @@ end
 -- is cheaper on the market (+payout to spend). Moves both ways until a car is bought, then only toward Death Trap.
 local function drawCondition(d, fl)
   heading("CAR CONDITION")
-  local names, payout = fl.names or {}, fl.payout or 0
-  local max, count = math.min(fl.max or 4, 4), fl.count or 0
-  local function name(n) return names[n + 1] or CONDITION_NAMES[n] or tostring(n) end
-  if d.phase ~= "dealer" then
-    txt("Your car was bought as " .. name(count) .. " - the condition is picked at the dealership.")
-    return
-  end
-  local lo = fl.locked and count or 0
-  if lo >= max then
-    txt(name(count) .. " - it can't get any worse.")
+  local levels, max, count = fl.levels or {}, math.min(fl.max or 4, 4), fl.count or 0
+  local function name(n) return (levels[n + 1] or {}).name or CONDITION_NAMES[n] or tostring(n) end
+  local function km(n) return (commas((levels[n + 1] or {}).km or 0):gsub("^%$", "")) .. " km" end
+  local function off(n) return (levels[n + 1] or {}).off or 0 end
+  if fl.locked or d.phase ~= "dealer" then
+    txt(string.format("Bought as %s%s.", name(count), count > 0 and (" (" .. km(count) .. ")") or ""))
+    if d.phase == "dealer" then colored(0.65, 0.65, 0.65, "That's locked in - return the car to choose again.") end
   else
     local ptr = intPtr("condition", count)
-    if ptr[0] < lo then ptr[0] = lo elseif ptr[0] > max then ptr[0] = max end
-    local okS, changed = pcall(im.SliderInt, "##condition", ptr, lo, max, name(ptr[0]))
+    if ptr[0] < 0 then ptr[0] = 0 elseif ptr[0] > max then ptr[0] = max end
+    local okS, changed = pcall(im.SliderInt, "##condition", ptr, 0, max, name(ptr[0]))
     if not okS then   -- (no slider on this ImGui: one button per condition instead)
       if not ui.sliderWarned then ui.sliderWarned = true; warn("condition slider: " .. tostring(changed)) end
-      for n = lo, max do
+      for n = 0, max do
         button((n == count and "> " or "") .. name(n) .. "##cond_" .. n, "condition " .. n)
         if n < max then same() end
       end
     elseif changed and ptr[0] ~= count then
-      sendCmd("condition " .. ptr[0])   -- the cash follows straight away
+      sendCmd("condition " .. ptr[0])   -- every price in the list follows straight away
     end
+    local offs = {}
+    for n = 1, max do offs[#offs + 1] = string.format("%s %d%% off", name(n), off(n)) end
+    txt("A more worn car is cheaper on the market: " .. table.concat(offs, ", ") .. ".")
+    if count > 0 then
+      colored(0.4, 1, 0.4, string.format("%s (%s): every car below is %d%% off.", name(count), km(count), off(count)))
+    else
+      txt("New: full price.")
+    end
+    colored(0.65, 0.65, 0.65, "Choose before you buy - it's locked in with the car.")
   end
-  txt(string.format("A more worn car is cheaper on the market: every step from New gives you %s more to spend.", commas(payout)))
-  txt(string.format("%s: %s.", name(count), count > 0 and ("+" .. commas(count * payout) .. " to spend") or "no extra cash"))
-  txt(string.format("Each step hides a problem in the car that a workshop will find; fixing one costs %s, and each one", commas(fl.fix)))
-  txt(string.format("still there at the finale costs %s points.", tostring(fl.points or 0)))
-  if fl.locked then colored(1, 0.8, 0.3, "You've bought your car - its condition can only get worse now (return it to choose again).")
-  else colored(0.65, 0.65, 0.65, "You can change this until you buy a car.") end
+  txt(string.format("Each step also hides a problem in the car (a workshop finds them). Fixing one costs %d%% of the car's new price",
+    math.floor((fl.fixPercent or 0.05) * 100 + 0.5)))
+  txt(string.format("(at least %s)%s; each one still there at the finale costs %s points.", commas(fl.fixMin or 500),
+    fl.fix and (" - " .. commas(fl.fix) .. " for yours") or "", tostring(fl.points or 0)))
   im.Separator()
 end
 
@@ -1973,7 +1977,7 @@ local function drawDealer(d)
         if t.over then
           colored(1, 0.45, 0.45, string.format("%s  %s  - over budget", commas(t.price), label))
         elseif needs > 0 then
-          colored(1, 0.7, 0.3, string.format("%s  %s  - as a %s", commas(t.price), label, tostring(t.cond or "worn car")))
+          colored(1, 0.7, 0.3, string.format("%s  %s  - %s as a %s", commas(t.price), label, commas(t.condPrice), tostring(t.cond)))
         elseif me and t.price > (me.cash or 0) then colored(1, 0.45, 0.45, commas(t.price) .. "  " .. label)
         else txt(commas(t.price) .. "  " .. label) end
       end
@@ -2346,8 +2350,8 @@ local function drawResults(d)
   for _, r in ipairs(rows) do
     local row = { ordinal(r.place), r.name, string.format("%s (%s)", r.car, commas(r.carPrice)) }
     for i = 1, #(s.events or {}) do row[#row + 1] = (r.places or {})[i] or "-" end
-    if (r.faultsTaken or 0) > 0 then
-      row[#row + 1] = string.format("%s (+%s), %d fixed (-%s)", CONDITION_NAMES[math.min(r.faultsTaken, 4)], commas(r.faultCash),
+    if (r.condition or 0) > 0 then
+      row[#row + 1] = string.format("%s (%s off), %d fixed (-%s)", CONDITION_NAMES[math.min(r.condition, 4)], commas(r.conditionSaving),
         r.faultsFixed or 0, commas(r.faultFixes))
     else row[#row + 1] = "New" end
     row[#row + 1] = commas(r.repairs)

@@ -162,8 +162,8 @@ t.test("repairs, tows and respawns can go as deep into the red as they need; par
   local w = World.new({ files = F.files(cfg) })
   local A = w:join("Alice")
   w:chat(A, "/tg start")
-  w:buy(A, "covet", "base_M")
-  w.rolls = { 5 }; w:chat(A, "/tg fault take")   -- (draw 5 = worn brakes: a fault to try fixing later)
+  w:chat(A, "/tg fault take")
+  w.rolls = { 5 }; w:buy(A, "covet", "base_M")   -- (draw 5 = worn brakes: a fault to try fixing later)
   w:step(10)
   w:chat(A, "/tg ready")
   w:chat(A, "/tg setcash Alice 0")
@@ -187,7 +187,7 @@ t.test("repairs, tows and respawns can go as deep into the red as they need; par
   t.eq(w:state(A).cash, cash - 4250)
   t.ok(w:chatHas(A, "You're overdrawn: -$9,126. Prize money pays it off. (Parts and problem fixes stop at -$1,500 overdrawn.)"))
   w:chat(A, "/tg fix brakes")              -- $3,750: refused, way past -$1,500
-  t.ok(w:chatHas(A, "Fixing that costs $3,750 - you have -$9,126 (at most $1,500 overdrawn)."))
+  t.ok(w:chatHas(A, "Fixing that costs $500 - you have -$9,126 (at most $1,500 overdrawn)."))
   -- a part fitted with the game's own parts menu: refused by the server, taken back off the car
   local parts = {}
   for k, v in pairs(A.current.parts) do parts[k] = v end

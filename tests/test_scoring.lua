@@ -85,8 +85,8 @@ t.test("each unfixed fault costs 3 points on its own line - not capped by a zero
   local w = World.new({ files = F.files(oneRace()) })
   local A = w:join("Alice")
   w:chat(A, "/tg start")
-  w:buy(A, "covet", "base_M")
-  w.rolls = { 1, 2 }; w:chat(A, "/tg fault take 2")   -- worn tyres, then (alignment won't fit: swapped)...
+  w:chat(A, "/tg fault take 2")
+  w.rolls = { 1, 2 }; w:buy(A, "covet", "base_M")   -- worn tyres, then (alignment won't fit: swapped)...
   w:step(10)
   w:chat(A, "/tg ready")
   raceTo(w, A, 500, 900)

@@ -108,16 +108,17 @@ t.test("ready-made classes on the real game data: none is empty", function()
   end
   print("        " .. table.concat(lines, ", "))
   t.eq(#lines, 18)
-  w:chat(A, "/tg start")   -- a $10,000 budget: the cheapest Sunburst is $25,500, out of reach even with 4 faults
+  w:chat(A, "/tg start")   -- a $10,000 budget: a Sunburst ($25,500) only as a Death Trap; a Bolide ($180,000) never
   w:step(2.5)
   local txt = A.client.im.textOf(WIN)
   t.match(txt, "Hirochi Sunburst", "Ryan's missing Sunburst is on sale with no class")
-  t.match(txt, "%$25,500  Hirochi Sunburst [^\n]*  %- over budget", "the budget doesn't hide it, it's marked")
+  t.match(txt, "%$25,500  Hirochi Sunburst [^\n]*  %- %$7,700 as a Death Trap", "x0.3 = $7,650 -> $7,700")
+  t.match(txt, "%$180,000  Civetta Bolide [^\n]*  %- over budget", "the budget doesn't hide it, it's marked")
   local buy = {}
   for _, it in ipairs(A.client.im.items(WIN)) do if it.kind == "button" then buy[it.id] = true end end
   t.ok(buy["Buy##pigeon_base_M"] or next(buy), "sanity: buttons recorded")
-  t.ok(not buy["Buy##sunburst2_base_EU_M"], "but it has no Buy button")
-  w:chat(A, "/tg dealer sunburst2")
+  t.ok(not buy["Buy##sunburst2_base_EU_M"], "no Buy button until the condition makes it affordable")
+  w:chat(A, "/tg dealer bolide")
   t.ok(w:chatHas(A, "(over budget)"))
   w:assertClean()
 end)

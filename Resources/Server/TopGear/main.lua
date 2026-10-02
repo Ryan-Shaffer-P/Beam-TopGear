@@ -62,15 +62,19 @@ local DEFAULT_CONFIG = {
   -- fault leaves it out of the draw.
   faults = {
     enabled = true,
-    payout = 2500,                -- paid for every fault taken (all faults pay the same)
-    maxPerCar = 4,                -- a player takes 0 to this many
-    fixMultiplier = 1.5,          -- workshop fix costs this x the payout
+    maxPerCar = 4,                -- 0 (New) .. 4 (Death Trap) problems: the car's condition
+    -- Condition pricing (0.9.12, career mode's formula without age): every car's price x
+    -- (1 - lossPerKm x the condition's mileage) + scrapValue -> Used 90%, Needs work 80%, Beater 55%, Death Trap 30%
+    lossPerKm = 0.0000025,
+    scrapValue = 0.05,
+    fixPercent = 0.05,            -- a workshop fix costs this share of the car's new price per problem...
+    fixMin = 500,                 -- ...but at least this
     inspectionPenaltyPoints = 3,  -- points lost per fault still unfixed at the end (its own penalty)
     -- Mileage wear by car condition (New, Used, Needs work, Beater, Death Trap): BeamNG's own part-condition
     -- system, as career mode's used-car dealership uses it - odometer (engine/gearbox/clutch wear, rough idle)
     -- and paint wear (1 = like new). Applied when the car spawns; it stays (resets, repairs, problem fixes).
-    mileageKm = { 0, 60000, 150000, 300000, 500000 },
-    paintWear = { 1, 0.94, 0.9, 0.86, 0.82 },
+    mileageKm = { 0, 60000, 100000, 200000, 300000 },
+    paintWear = { 1, 0.945, 0.925, 0.88, 0.862 },   -- career's paint age for that mileage
     list = {                      -- factor = severity (see README)
       { id = "tires",      name = "Worn, underinflated tires",               factor = 0.3 },   -- pressure = 30% of normal
       { id = "alignment",  name = "Knocked-out wheel alignment",             factor = 1.4 },   -- front toe to its limit + rear 40%
@@ -361,6 +365,12 @@ local function loadConfig()
         if not have[f.id] then cfg.faults.list[#cfg.faults.list + 1] = deepcopy(f) end
       end
     end
+    if not cfg.migrations.conditionPricing then   -- 0.9.12: condition pricing; mileage 60k/100k/200k/300k km
+      cfg.migrations.conditionPricing, changed = true, true
+      local f = cfg.faults or {}
+      if type(f.mileageKm) == "table" and f.mileageKm[5] == 500000 and f.mileageKm[3] == 150000 then f.mileageKm = deepcopy(DEFAULT_CONFIG.faults.mileageKm) end
+      if type(f.paintWear) == "table" and f.paintWear[5] == 0.82 then f.paintWear = deepcopy(DEFAULT_CONFIG.faults.paintWear) end
+    end
     if not cfg.migrations.mileageOverlap then   -- 0.9.12: mileage wear replaces rough idle / worn gearbox / slipping clutch;
       cfg.migrations.mileageOverlap, changed = true, true   -- the oil leak only for Beaters and worse
       for _, f in ipairs((cfg.faults or {}).list or {}) do
@@ -529,20 +539,45 @@ end
 -- faults ---------------------------------------------------------------------
 local function faultsOn() return cfg.faults and cfg.faults.enabled end
 local function playerBudget(p)   -- what the dealership lets this player spend up to
-  return cfg.economy.startingCash + ((p and p.spent and p.spent.faultCash) or 0)
+  return cfg.economy.startingCash
 end
 local function faultDef(id)
   for _, f in ipairs((cfg.faults or {}).list or {}) do if f.id == id then return f end end
   return nil
 end
-local function faultPayout() return tonumber(cfg.faults.payout) or 2500 end
-local function fixCost() return math.ceil(faultPayout() * (tonumber(cfg.faults.fixMultiplier) or 1.5)) end
+local function fixCost(p)   -- a workshop fix: a share of the car's new price (a luxury car is dear to keep running)
+  local newPrice = p and (p.carNewPrice or p.carPrice) or 0
+  local pct, min = tonumber(cfg.faults.fixPercent) or 0.05, tonumber(cfg.faults.fixMin) or 500
+  return math.max(min, math.floor(newPrice * pct / 50 + 0.5) * 50)
+end
 -- Players see faults as the car's CONDITION (0.9.12): New, Used, Needs work, Beater, Death Trap = 0..4 problems.
 -- (Code and config keep the word "fault"; a single fault is "a problem" to players.)
 local CONDITION = { [0] = "New", "Used", "Needs work", "Beater", "Death Trap" }
 function CONDITION.name(n) n = math.floor(tonumber(n) or 0); return CONDITION[math.max(0, math.min(n, 4))] end
-function CONDITION.level(p)   -- the condition the car was bought in (fixing problems doesn't make it newer)
-  return math.min(#(p.faults or {}) + (p.faultsFixed or 0) + (p.faultsOwed or 0), 4)
+function CONDITION.level(p)   -- the condition chosen (before buying) or the car was bought in (fixes don't change it)
+  if not p then return 0 end
+  if p.boughtCondition then return p.boughtCondition end
+  return math.min(#(p.faults or {}) + (p.faultsOwed or 0), 4)
+end
+function CONDITION.km(n) return tonumber(((cfg.faults or {}).mileageKm or {})[(n or 0) + 1]) or 0 end
+-- career's used-car price: x (1 - lossPerKm x km) + scrap value (age left out); New = full price
+function CONDITION.factor(n)
+  if (n or 0) <= 0 or not faultsOn() then return 1 end
+  return math.max(0, 1 - CONDITION.km(n) * (tonumber(cfg.faults.lossPerKm) or 0.0000025)) + (tonumber(cfg.faults.scrapValue) or 0.05)
+end
+function CONDITION.price(n, newPrice)   -- a car's price in that condition (to the nearest $100)
+  if not newPrice then return nil end
+  if (n or 0) <= 0 or not faultsOn() then return newPrice end
+  return math.floor(newPrice * CONDITION.factor(n) / 100 + 0.5 + 1e-9) * 100   -- (1e-9: 25,500 x 0.3 is 7,649.999...)
+end
+function CONDITION.percentOff(n) return math.floor((1 - CONDITION.factor(n)) * 100 + 0.5) end
+-- the best (newest) condition that brings a car's new price within the budget; nil = not even as a Death Trap
+function CONDITION.needed(p, newPrice)
+  local budget, max = playerBudget(p), math.min((cfg.faults or {}).maxPerCar or 4, 4)
+  for n = 0, faultsOn() and max or 0 do
+    if CONDITION.price(n, newPrice) <= budget then return n end
+  end
+  return nil
 end
 function CONDITION.mileage(p)   -- { m = odometer in metres, v = paint visual value } or nil for a New car
   local n = CONDITION.level(p)
@@ -604,13 +639,9 @@ local function drawFaults(p)
     p.faults[#p.faults + 1] = id
     p.faultsOwed = p.faultsOwed - 1
   end
-  local left = p.faultsOwed or 0
-  if left > 0 then
+  if (p.faultsOwed or 0) > 0 then   -- the car can't take that many problems: it keeps its condition (and price)
+    log(string.format("%s's %s can't take %d more problem(s)", p.name, carKey(p), p.faultsOwed))
     p.faultsOwed = 0
-    p.cash = p.cash - left * faultPayout()
-    spend(p, "faultCash", -left * faultPayout())
-    say(p.pid, string.format("Your %s can't be in that bad a condition - it's now %s, %s handed back.", p.carName or "car",
-      CONDITION.name(faultsTaken(p)), money(left * faultPayout())))
   end
 end
 -- a different car (bought, swapped or returned at the dealership): its faults get drawn again
@@ -631,7 +662,7 @@ local function revealFaults(p)
   end
   say(p.pid, "The mechanics have looked your car over and found: " .. table.concat(lines, ", ") .. ".")
   say(p.pid, string.format("Each fix costs %s here; every problem still there at the finale costs %s point%s.",
-    money(fixCost()), tostring(cfg.faults.inspectionPenaltyPoints or 0), (cfg.faults.inspectionPenaltyPoints or 0) == 1 and "" or "s"))
+    money(fixCost(p)), tostring(cfg.faults.inspectionPenaltyPoints or 0), (cfg.faults.inspectionPenaltyPoints or 0) == 1 and "" or "s"))
 end
 
 local function sendFaults(p, test)
@@ -949,14 +980,12 @@ local function classTrims(cls, withUnpriced)
   return out
 end
 -- 0 = affordable now; n = n more faults would cover it; nil = out of reach even with the most faults
-local function faultsNeeded(p, price)
-  local budget = playerBudget(p)
-  if price <= budget then return 0 end
-  if not faultsOn() then return nil end
-  local left = (cfg.faults.maxPerCar or 4) - (p and faultsTaken(p) or 0)
-  local n = math.ceil((price - budget) / faultPayout())
-  if n >= 1 and n <= left then return n end
-  return nil
+-- 0 = affordable in the chosen condition; n = n conditions worse would bring it within budget; nil = out of reach
+-- (newPrice = the car's price as new)
+local function faultsNeeded(p, newPrice)
+  local need = CONDITION.needed(p, newPrice)
+  if not need then return nil end
+  return math.max(0, need - CONDITION.level(p))
 end
 
 local function lookupCar(model, config)
@@ -992,9 +1021,13 @@ local function lookupCar(model, config)
   if not fallback then return nil, "not sold here" end
   return fallback
 end
+-- car.price is the price as new; the player pays it in their chosen condition (locked in from now on)
 local function setCar(p, vid, model, config, car)
   p.carVid, p.carModel, p.carConfig = vid, model, config
-  p.carName, p.carPrice = car.name, car.price
+  p.boughtCondition = math.min(#(p.faults or {}) + (p.faultsOwed or 0), 4)
+  p.carName, p.carNewPrice = car.name, car.price
+  p.carPrice = CONDITION.price(p.boughtCondition, car.price)
+  p.conditionSaving = car.price - p.carPrice
 end
 local function refundCar(p)
   p.faultsOwed = #(p.faults or {}) + (p.faultsOwed or 0)   -- faults stay paid for; drawn again for the next car
@@ -1003,6 +1036,7 @@ local function refundCar(p)
   if (p.dealerParts or 0) ~= 0 then spend(p, "upgrades", -p.dealerParts) end
   p.dealerParts = 0
   p.carVid, p.carModel, p.carConfig, p.carName, p.carPrice = nil, nil, nil, nil, 0
+  p.boughtCondition, p.carNewPrice, p.conditionSaving = nil, nil, nil   -- (the condition can be changed again)
   p.ready = false
 end
 
@@ -1180,7 +1214,8 @@ local function stateFor(p)
   end
   local s = {
     phase = ph, title = title, cash = p.cash, points = p.points, wins = p.wins,
-    budget = ph == "dealer" and playerBudget(p) or nil,   -- (the vehicle selector's list follows it)
+    budget = ph == "dealer" and playerBudget(p) or nil,   -- (the vehicle selector's list follows these)
+    condition = ph == "dealer" and CONDITION.level(p) or nil,
     car = p.carName, carId = p.carVid and (tostring(p.pid) .. "-" .. tostring(p.carVid)) or nil,
     allowVehicleSelector = (ph == "dealer") or inTrafficMode(p.name),
     traffic = inTrafficMode(p.name) or nil,
@@ -2124,7 +2159,7 @@ local function buildSummary(list)
       repairs = sp.repairs or 0, upgrades = sp.upgrades or 0,
       tows = p.tows or 0, respawns = p.respawns or 0, towCost = sp.towCost or 0, resets = p.recoveries or 0, fines = sp.fines or 0,
       faultsTaken = #(p.faults or {}) + (p.faultsFixed or 0), faultsFixed = p.faultsFixed or 0,
-      faultCash = sp.faultCash or 0, faultFixes = sp.faultFixes or 0, faultsLeft = faultNames(p),
+      condition = CONDITION.level(p), conditionSaving = p.conditionSaving or 0, faultFixes = sp.faultFixes or 0, faultsLeft = faultNames(p),
       drivability = p.drivability or 0, eventPoints = eventPts, penalty = p.penaltyPoints or 0,
       inspections = (function() local o = {} for _, i in ipairs(p.inspections or {}) do o[#o + 1] = i.score end return o end)(),
       awards = p.awardPoints or 0,
@@ -2173,10 +2208,10 @@ showResults = function()
   sayAll("----- What it cost -----")
   for _, p in ipairs(list) do
     local sp = p.spent or {}
-    local taken = #(p.faults or {}) + (p.faultsFixed or 0)
+    local taken = CONDITION.level(p)
     sayAll(string.format("%s: repairs %s, upgrades %s, tows %d + respawns %d (%s), illegal resets %d (%s)%s", p.name, money(sp.repairs or 0),
       money(sp.upgrades or 0), p.tows or 0, p.respawns or 0, money(sp.towCost or 0), p.recoveries or 0, money(sp.fines or 0),
-      taken > 0 and string.format(", bought as %s (+%s), %d problem%s fixed (-%s)", CONDITION.name(taken), money(sp.faultCash or 0),
+      taken > 0 and string.format(", bought as %s (%s off), %d problem%s fixed (-%s)", CONDITION.name(taken), money(p.conditionSaving or 0),
         p.faultsFixed or 0, (p.faultsFixed or 0) == 1 and "" or "s", money(sp.faultFixes or 0)) or ""))
   end
   if list[1] then
@@ -2492,11 +2527,13 @@ function TG_onVehicleSpawn(pid, vid, data)
   local model, config = parseVehicle(data)
   if game.phase == "dealer" then
     local car, why = lookupCar(model, config)
-    if car and car.price > playerBudget(p) then
-      local n = faultsNeeded(p, car.price)
-      say(pid, string.format("The %s (%s) is over your %s budget%s.", car.name, money(car.price), money(playerBudget(p)),
-        n and string.format(" - as a %s it would fit (/tg condition %s)", CONDITION.name(faultsTaken(p) + n), CONDITION.name(faultsTaken(p) + n):lower())
-          or ", even as a " .. CONDITION.name(cfg.faults.maxPerCar or 4)))
+    local cond = CONDITION.level(p)
+    local price = car and CONDITION.price(cond, car.price)
+    if car and price > playerBudget(p) then
+      local need = CONDITION.needed(p, car.price)
+      say(pid, string.format("The %s (%s as %s) is over your %s budget%s.", car.name, money(price), CONDITION.name(cond), money(playerBudget(p)),
+        need and string.format(" - as a %s it's %s (/tg condition %s)", CONDITION.name(need), money(CONDITION.price(need, car.price)), CONDITION.name(need):lower())
+          or (", even as a " .. CONDITION.name(math.min(cfg.faults.maxPerCar or 4, 4)))))
       return 1
     end
     if not car then
@@ -2505,14 +2542,15 @@ function TG_onVehicleSpawn(pid, vid, data)
       log(string.format("rejected spawn: model=%s config=%s", tostring(model), tostring(config)))
       return 1
     end
-    if car.price > p.cash then
-      say(pid, string.format("The %s costs %s - you have %s.", car.name, money(car.price), money(p.cash)))
+    if price > p.cash then
+      say(pid, string.format("The %s costs %s - you have %s.", car.name, money(price), money(p.cash)))
       return 1
     end
-    p.cash = p.cash - car.price
+    p.cash = p.cash - price
     setCar(p, vid, model, config, car)
     p.lastVcf = select(3, parseVehicle(data))
-    sayAll(string.format("%s bought %s for %s (%s left).", p.name, withArticle(car.name), money(car.price), money(p.cash)))
+    sayAll(string.format("%s bought %s for %s%s (%s left).", p.name, withArticle(car.name), money(price),
+      cond > 0 and string.format(" - a %s, %s off", CONDITION.name(cond), money(p.conditionSaving)) or "", money(p.cash)))
     if faultsTaken(p) > 0 then redrawFaults(p); sendFaults(p) end
     pushState(p)
     return 0
@@ -2553,8 +2591,9 @@ function TG_onVehicleEdited(pid, vid, data)
     local car = lookupCar(model, config)
     if not car then say(pid, "The dealership doesn't sell that configuration."); return 1 end
     p.swapAt = now()   -- a trim/model swap is priced here, not as parts
-    local diff = car.price - (p.carPrice or 0)
-    if diff > p.cash then say(pid, "You can't afford that - " .. money(car.price) .. "."); return 1 end
+    local swapPrice = CONDITION.price(CONDITION.level(p), car.price)   -- (same condition as the car it replaces)
+    local diff = swapPrice - (p.carPrice or 0)
+    if diff > p.cash then say(pid, "You can't afford that - " .. money(swapPrice) .. "."); return 1 end
     p.cash = p.cash - diff
     setCar(p, vid, model, config, car)
     if vcf then p.lastVcf = vcf end
@@ -2903,11 +2942,15 @@ end
 -- fault. The budget never hides a car: the class (or dealer list) decides what's listed.
 local function dealerOffers(p)
   local groups, byModel = {}, {}
-  local function add(model, modelName, t)
+  local cond = CONDITION.level(p)
+  local function add(model, modelName, t)   -- t.price comes in as the price new; shown in the chosen condition
     local need = faultsNeeded(p, t.price)
+    t.newPrice, t.price = t.price, CONDITION.price(cond, t.price)
     t.needs = need or 0
     t.over = need == nil or nil
-    if need and need > 0 then t.cond = CONDITION.name((p and faultsTaken(p) or 0) + need) end   -- the condition that would afford it
+    if need and need > 0 then   -- the condition that would afford it, and its price then
+      t.cond, t.condPrice = CONDITION.name(cond + need), CONDITION.price(cond + need, t.newPrice)
+    end
     local g = byModel[model]
     if not g then g = { model = model, name = modelName, trims = {} }; byModel[model] = g; groups[#groups + 1] = g end
     g.trims[#g.trims + 1] = t
@@ -2943,7 +2986,7 @@ PLAYER_CMDS.dealer = function(pid, _, args)
   if #groups == 0 then say(pid, "  Nothing for sale."); return end
   local function line(t)
     return string.format("  %s  %s%s", money(t.price), t.name,
-      t.over and "  (over budget)" or (t.needs > 0 and ("  (as a " .. tostring(t.cond) .. ")")) or "")
+      t.over and "  (over budget)" or (t.needs > 0 and ("  (" .. money(t.condPrice) .. " as a " .. tostring(t.cond) .. ")")) or "")
   end
   if want then
     for _, g in ipairs(groups) do
@@ -3061,12 +3104,14 @@ local testRestore = {}   -- pid -> restore data from an admin fault test
 PLAYER_CMDS.faults = function(pid)
   if not faultsOn() then say(pid, "Car condition is switched off (every car is New)."); return end
   local p = playerByPid(pid)
-  say(pid, string.format("CAR CONDITION - a more worn car is cheaper on the market: each step from New (Used, Needs work, Beater, " ..
-    "Death Trap) gives you %s more to spend, and adds one hidden problem picked at random. A workshop finds them.", money(faultPayout())))
-  say(pid, string.format("Fixing a problem in a workshop costs %s; each one still there at the finale costs %s points.",
-    money(fixCost()), tostring(cfg.faults.inspectionPenaltyPoints or 0)))
+  local offs = {}
+  for n = 1, 4 do offs[#offs + 1] = string.format("%s %d%% off", CONDITION.name(n), CONDITION.percentOff(n)) end
+  say(pid, "CAR CONDITION - a more worn car is cheaper on the market (every car's price): " .. table.concat(offs, ", ") ..
+    ". Each step adds mileage and one hidden problem picked at random; a workshop finds them.")
+  say(pid, string.format("Fixing a problem in a workshop costs %d%% of the car's new price (at least %s); each one still there at the finale costs %s points.",
+    math.floor((tonumber(cfg.faults.fixPercent) or 0.05) * 100 + 0.5), money(tonumber(cfg.faults.fixMin) or 500), tostring(cfg.faults.inspectionPenaltyPoints or 0)))
   if p then
-    local n = faultsTaken(p)
+    local n = CONDITION.level(p)
     say(pid, "Your car: " .. CONDITION.name(n) .. (p.faultsRevealed and (" - " .. (#p.faults == 0 and "no problems left" or table.concat(faultNames(p), ", ")))
       or (n > 0 and " - a workshop will find its problems" or "")))
   end
@@ -3122,28 +3167,19 @@ PLAYER_CMDS.condition = function(pid, name, args)
   if not faultsOn() then say(pid, "Car condition is switched off (every car is New)."); return end
   local p = playerByPid(pid)
   if not p then say(pid, "You're not in the challenge."); return end
-  local cur, max = faultsTaken(p), cfg.faults.maxPerCar or 4
+  local cur, max = CONDITION.level(p), math.min(cfg.faults.maxPerCar or 4, 4)
   local want = CONDITION.parse(table.concat(args, " ", 3))
   if not want then say(pid, "Your car: " .. CONDITION.name(cur) .. ". Usage: /tg condition <New|Used|Needs work|Beater|Death Trap>"); return end
   if game.phase ~= "dealer" then say(pid, "The car's condition is picked at the dealership."); return end
-  want = math.max(0, math.min(want, max))
-  if want == cur then say(pid, "Your car is already " .. CONDITION.name(cur) .. "."); pushState(p); return end
-  local delta = want - cur
-  if delta < 0 and (p.carVid or #(p.faults or {}) > 0) then
-    say(pid, string.format("You've bought your %s as %s - its condition can only get worse now (return it to pick again).",
-      p.carName or "car", CONDITION.name(cur)))
+  if p.boughtCondition then
+    say(pid, string.format("You've bought your %s as %s - that's locked in (return it to choose again).", p.carName or "car", CONDITION.name(cur)))
     pushState(p)
     return
   end
-  p.faultsOwed = (p.faultsOwed or 0) + delta
-  p.cash = p.cash + delta * faultPayout()
-  spend(p, "faultCash", delta * faultPayout())
-  say(pid, string.format("Car condition: %s - %s to spend (budget %s).", CONDITION.name(want),
-    want > 0 and ("+" .. money(want * faultPayout()) .. " more") or "nothing extra", money(playerBudget(p))))
-  if p.carVid and delta > 0 then
-    sayAll(string.format("%s's %s is now a %s.", p.name, p.carName or "car", CONDITION.name(want)))
-    drawFaults(p); sendFaults(p)
-  end
+  want = math.max(0, math.min(want, max))
+  p.faultsOwed = want   -- (drawn as hidden problems when the car is bought)
+  say(pid, string.format("Car condition: %s%s.", CONDITION.name(want),
+    want > 0 and string.format(" (%s km) - every car is %d%% off", (money(CONDITION.km(want)):gsub("^%$", "")), CONDITION.percentOff(want)) or " - full price"))
   pushState(p)
 end
 
@@ -3156,7 +3192,7 @@ PLAYER_CMDS.fix = function(pid, _, args)
   local id = (args[3] or ""):lower()
   local f = faultDef(id)
   if not (f and hasFault(p, id)) then say(pid, "Your car doesn't have that problem. Yours: " .. (#p.faults > 0 and table.concat(p.faults, ", ") or "none")); return end
-  local cost = fixCost()
+  local cost = fixCost(p)
   if cost > creditLeft(p) then say(pid, string.format("Fixing that costs %s - you have %s (at most %s overdrawn).", money(cost), money(p.cash), money(cfg.workshop.creditLimit or 1500))); return end
   removeFault(p, id)
   if id == "body" then p.repairPending = now() end   -- the dents go with the fault: not a repair to bill as well
@@ -4456,10 +4492,13 @@ local function buildUi(pid)
       mine = {}
       for _, id in ipairs(p.faults or {}) do local f = faultDef(id); mine[#mine + 1] = { id = id, name = f and f.name or id } end
     end
-    d.faults = { all = all, max = cfg.faults.maxPerCar or 4, count = p and faultsTaken(p) or 0, payout = faultPayout(),
+    local levels = {}
+    for n = 0, 4 do levels[n + 1] = { name = CONDITION[n], km = CONDITION.km(n), off = CONDITION.percentOff(n) } end
+    d.faults = { all = all, max = math.min(cfg.faults.maxPerCar or 4, 4), count = CONDITION.level(p), levels = levels,
+                 fixPercent = tonumber(cfg.faults.fixPercent) or 0.05, fixMin = tonumber(cfg.faults.fixMin) or 500,
                  names = { CONDITION[0], CONDITION[1], CONDITION[2], CONDITION[3], CONDITION[4] },
-                 locked = (p and (p.carVid ~= nil or #(p.faults or {}) > 0)) and true or false,
-                 fix = fixCost(), revealed = (p and p.faultsRevealed) and true or false, mine = mine,
+                 locked = (p and p.boughtCondition ~= nil) and true or false,
+                 fix = (p and p.carModel) and fixCost(p) or nil, revealed = (p and p.faultsRevealed) and true or false, mine = mine,
                  points = cfg.faults.inspectionPenaltyPoints or 0 }
   end
   d.standings = {}
