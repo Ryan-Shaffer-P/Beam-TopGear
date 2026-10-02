@@ -2609,6 +2609,39 @@ local function section(name, fn, d)  -- a broken section shows an error instead 
   end
 end
 
+-- The message log under the tabs: a "System messages" heading and a tinted, bordered box (a child window) with the
+-- last few lines, newest brightest. BeginChild isn't used anywhere else, so if it fails the lines show plain.
+local function drawMessages()
+  local MSG_LINES = 6
+  local MSG_BOX = { ChildBg = { 0.05, 0.09, 0.22, 1 }, Border = { 0.40, 0.56, 0.95, 0.80 } }
+  im.Separator()
+  heading("System messages")
+  local from = math.max(1, #ui.log - MSG_LINES + 1)
+  local function lines()
+    if #ui.log == 0 then colored(0.55, 0.62, 0.70, "No messages yet."); return end
+    for i = from, #ui.log do
+      if i == #ui.log then colored(0.95, 0.97, 1.00, ui.log[i]) else colored(0.70, 0.76, 0.86, ui.log[i]) end
+    end
+  end
+  local begin = imGet("BeginChild1") or imGet("BeginChild")
+  local okH, lh = pcall(function() return im.GetTextLineHeightWithSpacing() end)
+  lh = (okH and tonumber(lh)) or 17
+  local rec = { c = 0 }
+  pcall(pushColors, MSG_BOX, rec)
+  local okB, err = false, "no BeginChild"
+  if begin then okB, err = pcall(begin, "##tgmessages", im.ImVec2(0, MSG_LINES * lh + 12), 1) end   -- 1 = border (bool or child flags)
+  if okB then
+    local okL, errL = pcall(lines)
+    pcall(im.EndChild)   -- always, whatever BeginChild returned
+    popColors(rec)
+    if not okL and not ui.failed.messages then ui.failed.messages = true; warn("messages UI error: " .. tostring(errL)) end
+  else
+    popColors(rec)
+    if not ui.failed.msgbox then ui.failed.msgbox = true; warn("message box unavailable, plain lines instead: " .. tostring(err)) end
+    lines()
+  end
+end
+
 local function drawWindow(dt)
   ui.t = ui.t + dt
   ui.reqTimer = ui.reqTimer - dt
@@ -2643,8 +2676,7 @@ local function drawWindow(dt)
         if im.BeginTabItem("Settings") then section("Settings", drawSettings, d); im.EndTabItem() end
         im.EndTabBar()
       end
-      im.Separator()
-      for i = math.max(1, #ui.log - 5), #ui.log do txt(ui.log[i]) end
+      drawMessages()
     end
   end
   im.End()

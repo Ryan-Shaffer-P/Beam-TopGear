@@ -11,7 +11,7 @@ local M = {}
 local function visible(label) return (tostring(label):gsub("##.*$", "")) end
 
 local function newState()
-  return { colors = 0, vars = 0, windows = 0, tabbars = 0, tables = 0, combos = 0 }
+  return { colors = 0, vars = 0, windows = 0, tabbars = 0, tables = 0, combos = 0, children = 0 }
 end
 
 function M.new()
@@ -128,6 +128,14 @@ function M.new()
   function im.TableHeadersRow() end
   function im.TableNextRow() end
   function im.TableNextColumn() end
+
+  function im.BeginChild1(id, size, border)   -- (like BeamNG's binding; returns visible, EndChild is always due)
+    st.children = st.children + 1
+    record({ kind = "child", label = visible(id), size = size, border = border })
+    return true
+  end
+  function im.EndChild() st.children = st.children - 1 end
+  function im.GetTextLineHeightWithSpacing() return 17 end
 
   -- style -----------------------------------------------------------------------
   function im.PushStyleColor2() st.colors = st.colors + 1 end

@@ -103,7 +103,7 @@ parts snapshots/diffs, reverting refused parts.
     (where it spawned / was last reset), i.e. it teleports it. To repair where it stands use `repairInPlace` (client):
     `spawn.safeTeleport(car, pos, quatFromDir(dir))`, BeamNG's own "reset here". A reset followed by our own placement
     (tow/unstick `startMove`) is fine. The harness models this (`requestReset` -> `v.resetPos`).
-12. **Lua allows at most 200 locals per chunk.** main.lua's top level is near it (~190): group new helpers into a
+12. **Lua allows at most 200 locals per chunk.** main.lua's top level is near it (~190), and so is topgear.lua's (198 in 0.9.12): group new helpers into a
     table (like `Class.*`) instead of adding many top-level `local function`s. Check with
     `luac -l -l -p Resources/Server/TopGear/main.lua | awk '/^main/{m=1} m&&/^locals \(/{print; exit}'`.
 13. **Don't assign to a `for` loop variable** (`for v in ... do v = ...`) - Lua 5.5 rejects it; use a new local.
@@ -125,7 +125,8 @@ copies cached per list in `selector.cache`) and calls `ui_vehicleSelector_genera
 `obj:getNodePosition` (trailer load %), `quatFromDir` convention + `setPositionRotation` (tow/unstick,
 self-verifying), `energyStorage.getStorages` (fuel), `partCondition.initConditions` (mileage wear, vehicle Lua), `freeroam_facilities` (gas stations),
 `getSpawnWorldOOBB` / `be:getObjectOOBB*` (trailer placement), `beamstate.activateAutoCoupling`,
-ImGui draw lists / tables / style pushes (lights, theme), sound playback (`Engine.Audio.playOnce` with a
+ImGui draw lists / tables / style pushes (lights, theme), `BeginChild1`/`EndChild` (System messages box, `drawMessages`;
+falls back to plain lines + a warn), sound playback (`Engine.Audio.playOnce` with a
 mod file path, `be:executeJS` HTML audio - three methods tried in order, `/tg soundtest next` cycles). When Ryan reports a bug in one of these, ask
 for the `/tg diag` "Client error" line or the matching `[TopGear]` server-console line.
 

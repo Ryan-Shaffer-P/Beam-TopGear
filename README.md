@@ -27,7 +27,8 @@ Type `/tg menu` to open or close it. Colour key: **solid blue = a button you cli
 outline = a field you can type in or change**; blue headings mark sections; the standings are a light table.
 If the colours ever break the window on your BeamNG version, it switches them off by itself and
 keeps working (`/tg diag` shows why); `/tg theme` (or the Settings tab) turns them on/off. It opens by itself when the dealership and workshops
-open. Tabs:
+open. Under the tabs, a **System messages** box (dark blue, outlined) keeps the mod's last 6 messages,
+newest at the bottom and brightest. Tabs:
 
 - **Status**: your car, cash, points, damage, standings, and the button for whatever comes
   next (Ready, GO, Join, problem fixes in a workshop). The driver buttons are always there:
