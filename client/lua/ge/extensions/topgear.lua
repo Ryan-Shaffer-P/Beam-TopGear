@@ -35,7 +35,7 @@ local RESET_ACTIONS = {
 local VEHSEL_ACTIONS = { "vehicle_selector" }
 local PARTS_ACTIONS  = { "parts_selector" }
 
-local VERSION = "0.9.4"
+local VERSION = "0.9.5"
 local recentErrors = {}
 local function warn(msg)
   log("W", "topgear", tostring(msg))
@@ -1627,17 +1627,19 @@ local function drawDealer(d)
     heading("TODAY'S CARS: " .. d.dealerClass.name)
     txt(d.dealerClass.summary)
   end
-  if #(d.dealer or {}) == 0 then txt("Nothing fits the budget.") end
+  if #(d.dealer or {}) == 0 then txt("Nothing for sale.") end
   for _, m in ipairs(d.dealer or {}) do
     if header(m.name .. " (" .. #m.trims .. ")##" .. m.model) then
       for _, t in ipairs(m.trims) do
         local needs = tonumber(t.needs) or 0
-        if canBuy and needs == 0 then
+        if canBuy and needs == 0 and not t.over then
           if im.Button("Buy##" .. m.model .. "_" .. tostring(t.config)) then buyCar(m.model, t.config) end
           same()
         end
         local label = t.est and (t.name .. "  (est. price)") or t.name
-        if needs > 0 then
+        if t.over then
+          colored(1, 0.45, 0.45, string.format("%s  %s  - over budget", commas(t.price), label))
+        elseif needs > 0 then
           colored(1, 0.7, 0.3, string.format("%s  %s  - needs %d fault%s", commas(t.price), label, needs, needs == 1 and "" or "s"))
         elseif me and t.price > (me.cash or 0) then colored(1, 0.45, 0.45, commas(t.price) .. "  " .. label)
         else txt(commas(t.price) .. "  " .. label) end
@@ -1731,7 +1733,7 @@ local function drawAdmin(d)
   local cl = d.classes
   if cl and header("Car classes - which cars the dealership sells##classes") then
     if not cl.imported then colored(1, 0.8, 0.3, "Import the game's cars first (prices + details):"); same(); button("Import every car", "importprices") end
-    txt("Next challenge: " .. (cl.active or "no class - the normal dealer list"))
+    txt("Next challenge: " .. (cl.active or cl.none or "no class - the normal dealer list"))
     if cl.idle and cl.active then same(); button("Use no class##clsnone", "class use none") end
     for _, c in ipairs(cl.list or {}) do
       if cl.idle and c.name ~= cl.active then button("Use##clsuse_" .. c.name, "class use " .. c.name); same() end
@@ -1750,6 +1752,18 @@ local function drawAdmin(d)
     if im.Button("All cars, base trims##clsnewbase") then   -- every car, each model's cheapest factory trim
       local nm = trim(textOf(nb))
       sendCmd("class new " .. (nm ~= "" and nm or "basetrims") .. " base")
+    end
+    -- ready-made classes: one click makes an ordinary (editable) class
+    if cl.imported and #(cl.presets or {}) > 0 and header("Ready-made classes##clspresets") then
+      for _, pr in ipairs(cl.presets) do
+        if pr.made then
+          if cl.idle and pr.key ~= cl.active then button("Use##clspu_" .. pr.key, "class use " .. pr.key); same() end
+        else
+          button("Make##clspm_" .. pr.key, "class preset " .. pr.key); same()
+        end
+        local line = string.format("%s - %s (%d trims)", pr.key, pr.title, pr.count or 0)
+        if pr.key == cl.active then colored(0.4, 1, 0.4, line .. "  (in use)") else txt(line) end
+      end
     end
     local v
     for _, c in ipairs(cl.list or {}) do if c.name == cl.view then v = c end end

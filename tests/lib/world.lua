@@ -64,6 +64,7 @@ local function partCatalogue(model)
   }
 end
 World.partCatalogue = partCatalogue
+World.MODELS = MODELS
 local function catalogueIndex(model)   -- part name -> { value, nice, key }
   local idx = {}
   for _, sl in ipairs(partCatalogue(model)) do

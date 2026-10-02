@@ -57,7 +57,7 @@ Install = copy `Resources/` into the BeamMP server.
   physics faults run in vlua), workshop billing (parts from the client's before/after rebuild diff,
   labour once, damage-drop repairs), $1,500 overdraft (`creditLimit`), tows/respawns/unstick.
   Roadside help (`roadsideCost`): workshop repair price x `roadsideMarkup` (1.25) + `towFee` 1000 /
-  `respawnFee` 500, and -`towPenaltyPoints` (1) each at the results; an unstick that repairs the car
+  `respawnFee` 500, and -`towPenaltyPoints` (2) each at the results; an unstick that repairs the car
   bills the roadside repair once (reset event or damage drop, `billUnstickRepair`).
 - Workshops: anywhere, or at course `workshopSpots` (imported gas stations / placed) + the dealership.
   The dealership stays a workshop after the doors close until the player drives away.
@@ -134,7 +134,7 @@ for the `/tg diag` "Client error" line or the matching `[TopGear]` server-consol
    handler error, server console error, client warn() or UI imbalance. Vehicle Lua (`queueLuaCommand`) runs
    in a per-car sandbox with fake engine/brakes/fuel/reset (`World:freshPhysics`); `queueGameEngineLua`
    replies run in the client. Trailers with a load part get simulated bed/load nodes, so CARGO_VLUA really measures the load share.
-   Tests: `test_smoke.lua` (load, dealership, theme), `test_flag.lua` (finish flag), `test_traffic.lua` (admin traffic mode), `test_modes.lua` (race/time trial mode), `test_speedtrap.lua` (one run), `test_sounds.lua` (sound bites; the fake Engine.Audio checks the .ogg exists), `test_roadside.lua` (tow/respawn/unstick pricing), `test_parts.lua` (Parts tab; fake catalogue `World.partCatalogue`, `c.partsFormat = "tree"`), `test_faults.lua` (fault revamp; `w.rolls` pins the server's random draws), `test_classes.lua` (car classes; test cars carry BeamNG attributes in `MODELS[].info/trims`), `test_pricing.lua` (price estimates + props dropped; uses `tests/data/game-cars.json`, a real import from Ryan's game - 122 models, 1,711 trims - and checks estimate accuracy by hiding 1 in 6 real prices), `test_scoring.lua` (inspections, debt, faults, awards), `test_economy.lua` (energy: petrol vs electric), `test_trailer.lua` (cones + prebuilt load, hitching via
+   Tests: `test_smoke.lua` (load, dealership, theme), `test_flag.lua` (finish flag), `test_traffic.lua` (admin traffic mode), `test_modes.lua` (race/time trial mode), `test_speedtrap.lua` (one run), `test_sounds.lua` (sound bites; the fake Engine.Audio checks the .ogg exists), `test_roadside.lua` (tow/respawn/unstick pricing), `test_parts.lua` (Parts tab; fake catalogue `World.partCatalogue`, `c.partsFormat = "tree"`), `test_faults.lua` (fault revamp; `w.rolls` pins the server's random draws), `test_classes.lua` (car classes; test cars carry BeamNG attributes in `MODELS[].info/trims`), `test_presets.lua` (no class = every car, ready-made classes, over-budget cars listed), `test_pricing.lua` (price estimates + props dropped; uses `tests/data/game-cars.json`, a real import from Ryan's game - 122 models, 1,711 trims - and checks estimate accuracy by hiding 1 in 6 real prices), `test_scoring.lua` (inspections, debt, faults, awards), `test_economy.lua` (energy: petrol vs electric), `test_trailer.lua` (cones + prebuilt load, hitching via
    `w:hitch`/`w:dropCargo`/`w:setLoad`, 70/30 scoring) and `test_session.lua` (full 5-event session, the
    successor of `sim13` - expected cash/points are hand-calculated in its comments; if a rule change
    moves them, recompute by hand rather than pasting the new output). Still to rebuild: workshop
@@ -160,7 +160,7 @@ for the `/tg diag` "Client error" line or the matching `[TopGear]` server-consol
 Players: `/tg menu | status | dealer | ready | go | repair | fix <id> | tow | respawn | unstick | hitchup |
 faults | fault take [n] | quote | standings | diag | partsdiag | lights | lightstest | flag | flagtest | sounds on|off|list | soundtest [clip|next] | theme`.
 Admins: `start [force] | next | stop | award <driver> <pts> [reason] | traffic on|off | play <clip> | budget | setcash | give | workshop <min> | workshopevery <n> |
-importprices [listed|models] | gameprices | class list/use/new/delete/show/rule/unrule/include/exclude/clear/price/multiplier/values |
+importprices [listed|models] | gameprices | setprice | class list/use/new/preset/delete/show/rule/unrule/include/exclude/clear/price/multiplier/values |
 course list/save/load/new/delete | addevent/delevent/enable/moveevent |
 setstart/addcp/undocp/clearcp/settrap/addbay/undobay/clearbays/addvia/undovia/clearvia/setfinale |
 settype/setmode/setlaps/settime/rename | addworkshop/undoworkshop/clearworkshops/importgas |
@@ -191,6 +191,10 @@ class multiplier. Rule `trims base` = `Class.baseTrim` (cheapest priced factory 
 log weight/power, log 0-100, top speed, year, off-road, log weight; +4 distance for another Type, x0.5 for the same
 model; no figures -> median of the model; rounded to $100). `trimPrice` = `dealer.prices` > game value > `est`;
 `Class.isEstimate` marks "(est. price)". Real data: median error 10% (tests/data/game-cars.json).
+0.9.5: `Class.selling()` = the chosen class, else `Class.ALL` (Type Car/Truck) once `dealer.importedAll` (set by a full
+import; inferred at startup for older configs), else the dealer list. `Class.PRESETS` (18, `/tg class preset`, Admin
+"Ready-made classes"). `dealerOffers` never drops a trim for the budget: `over = true` (no Buy button) - Ryan: "the
+budget shouldn't impact the car filter".
 
 ### 3. Fault system revamp - DONE in 0.8.8
 Taken by number (`/tg fault take [n]`, $2,500 each = `faults.payout`), drawn at random (`rollFault` /

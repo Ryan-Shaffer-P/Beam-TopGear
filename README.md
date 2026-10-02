@@ -371,14 +371,16 @@ Player commands: `/tg menu`, `/tg go`, `/tg unstick`, `/tg tow`, `/tg respawn`, 
 - `/tg importprices`: an admin's game reads **every car in the game** (mods too): each stock
   trim's BeamNG value plus its details (country, body style, years, transmission... - what car
   classes filter on), saved to config.json; from then on each trim costs its game price.
-  `/tg importprices covet pickup` imports specific models (new ones are added to the dealer list);
-  `/tg importprices listed` re-reads just the dealer list.
+  After a full import, **every imported car and truck is for sale** when no class is picked (the
+  dealer list is only used before one). `/tg importprices covet pickup` imports specific models (new
+  ones are added to the dealer list); `/tg importprices listed` re-reads just the dealer list.
   Custom/modified configs have no price and can't be bought. `/tg gameprices off|on` switches
   between game prices and the manual list.
 - Trims over your budget that **taking faults could pay for** are listed with **"needs N faults"**
-  (no Buy button until you've taken them); anything out of reach even with the most faults is
-  hidden. Spawning one you can't afford yet says how many faults would cover it. Raising the
-  budget reveals more without re-importing. `/tg dealer <model>` lists one model's trims.
+  (no Buy button until you've taken them); anything out of reach even with the most faults is still
+  listed, marked **"over budget"**, with no Buy button. **The budget never hides a car** - only a
+  class narrows the list. Spawning one you can't afford yet says how many faults would cover it.
+  `/tg dealer <model>` lists one model's trims.
 
 ## Car classes (which cars the dealership sells)
 
@@ -389,6 +391,24 @@ the imported trims that match its **rules**, plus any you **include** by hand, m
 `propulsion`, `induction`, `configtype` (Factory/Police/...), `performance`, `derby`, and ranges
 for `value`, `weight`, `topspeed`, `accel` (0-100 km/h) and `offroad` - and `trims base`: only each
 model's **base trim** (its cheapest factory trim). A trim must match every rule.
+
+**Ready-made classes:** `/tg class preset` lists them with how many trims each has; `/tg class preset
+jdm` makes one (`/tg class preset jdm myname` under another name), or use the Admin tab's
+**Ready-made classes** (Make, then Use). Once made it's an ordinary class you can edit.
+
+| Name | Cars |
+|---|---|
+| `allcars` | every car and truck (what "no class" sells) |
+| `basetrims` | each model's cheapest factory trim |
+| `jdm` / `american` / `euro` | Japanese cars / American cars and trucks / German, Italian, French and Polish cars |
+| `classics` / `retro` / `modern` | cars up to 1979 / from the 80s and 90s / 2000 and newer |
+| `muscle` | American RWD coupes and sedans of the 60s and 70s |
+| `hothatch` | hatchbacks doing 0-100 km/h in 9 s or less |
+| `small` / `sports` | sub-compact and compact cars / sports cars |
+| `offroad` / `vans` | 4WD/AWD pickups and SUVs / vans and minivans |
+| `police` / `motorsport` | police builds / race, rally and drift builds |
+| `specials` | derby, Gambler 500, ratrods and other custom builds |
+| `commercial` | commercial trucks and buses |
 
 1. `/tg importprices` once (the class only sells imported stock trims).
 2. `/tg class new jdm`, then rules: `/tg class rule jdm country Japan`,
@@ -402,8 +422,8 @@ model's **base trim** (its cheapest factory trim). A trim must match every rule.
 4. Prices: `/tg class price jdm covet/gtz_M 13000` (one trim; `off` = back to the game price) and
    `/tg class multiplier jdm 0.8` (every trim's game price x 0.8). Price a car just over the budget
    and it's the prize for taking faults ("needs 2 faults").
-5. **Pick the class for each challenge**, before `/tg start`: `/tg class use jdm` (`none` = the normal
-   dealer list). It isn't saved with courses. `/tg start` announces it, the Dealership tab shows it,
+5. **Pick the class for each challenge**, before `/tg start`: `/tg class use jdm` (`none` = every
+   imported car and truck). It isn't saved with courses. `/tg start` announces it, the Dealership tab shows it,
    and spawning anything else is refused with the reason ("not in today's class (jdm): Country is
    United States"). A class with no cars won't start.
 
