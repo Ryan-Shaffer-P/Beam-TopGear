@@ -35,7 +35,7 @@ local RESET_ACTIONS = {
 local VEHSEL_ACTIONS = { "vehicle_selector" }
 local PARTS_ACTIONS  = { "parts_selector" }
 
-local VERSION = "0.9.11"
+local VERSION = "0.9.12"
 local recentErrors = {}
 local function warn(msg)
   log("W", "topgear", tostring(msg))
@@ -187,6 +187,7 @@ local function reassertPath(dt)
 end
 
 -- HUD --------------------------------------------------------------------------
+local CONDITION_NAMES = { [0] = "New", "Used", "Needs work", "Beater", "Death Trap" }   -- (the server sends them too)
 local function commas(n)
   n = math.floor((n or 0) + 0.5)
   local s = tostring(math.abs(n)):reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", "")
@@ -245,7 +246,7 @@ end
 -- The selector screen gets its list from the 'sendVehicleList' UI hook (core_vehicles.requestList() sends it when
 -- the screen opens; career mode swaps in its own list the same way). While the dealership is open we catch that
 -- hook - whichever game function sends it - and swap in today's cars at today's prices ("Value"), with
--- "needs N faults" / "over budget" in the name. Thumbnails, filters and search keep working. Buying is still
+-- "as a Beater" (the car condition that would afford it) / "over budget" in the name. Thumbnails, filters and search keep working. Buying is still
 -- spawning: the server checks and charges. Today's list is fetched in advance (dealership opening, cash changes)
 -- so it's ready when the screen opens. If anything goes wrong the game's own list goes through untouched (the
 -- server still refuses what isn't for sale). /tg diag reports what this game version does.
@@ -304,7 +305,7 @@ local function selBuild(offers)
         c.Value, c.aggregates.Value = tr.price, { min = tr.price, max = tr.price }
         local note = ""
         if tr.over then note = " - over budget"
-        elseif (tonumber(tr.needs) or 0) > 0 then note = string.format(" - needs %d fault%s", tr.needs, tr.needs == 1 and "" or "s") end
+        elseif (tonumber(tr.needs) or 0) > 0 then note = " - as a " .. tostring(tr.cond or "worn car") end
         c.Name = string.format("%s (%s%s)%s", tostring(src.Name or tr.name), commas(tr.price), tr.est and ", est." or "", note)
         configs[#configs + 1] = c
         mine[#mine + 1] = c
@@ -324,7 +325,7 @@ local function selWanted() return state.phase == "dealer" and not state.traffic 
 local function selLabel(text, tr)
   local note = ""
   if tr.over then note = " - over budget"
-  elseif (tonumber(tr.needs) or 0) > 0 then note = string.format(" - needs %d fault%s", tr.needs, tr.needs == 1 and "" or "s") end
+  elseif (tonumber(tr.needs) or 0) > 0 then note = " - as a " .. tostring(tr.cond or "worn car") end
   return string.format("%s (%s%s)%s", tostring(text), commas(tr.price), tr.est and ", est." or "", note)
 end
 local function selSaleModel(model)   -- a model with only its trims for sale, priced (built once per list)
@@ -1829,13 +1830,14 @@ local function drawStatus(d)
     if fl.revealed and #(fl.mine or {}) > 0 then
       local names = {}
       for _, f in ipairs(fl.mine) do names[#names + 1] = f.name end
-      colored(1, 0.8, 0.3, "Faults: " .. table.concat(names, ", "))
+      colored(1, 0.8, 0.3, "Problems: " .. table.concat(names, ", "))
     elseif (fl.count or 0) > 0 and not fl.revealed then
-      colored(1, 0.8, 0.3, string.format("Faults: %d hidden - a workshop will diagnose them", fl.count))
+      colored(1, 0.8, 0.3, string.format("Bought as %s: %d hidden problem%s - a workshop will find %s", (fl.names or {})[fl.count + 1] or "worn",
+        fl.count, fl.count == 1 and "" or "s", fl.count == 1 and "it" or "them"))
     end
     txt(string.format("Cash: %s    Points: %.1f    Wins: %d    Damage: %d", commas(me.cash), me.points or 0, me.wins or 0, me.damage or 0))
     if (me.cash or 0) < 0 then
-      colored(1, 0.4, 0.4, string.format("Overdrawn: %s - prize money pays it off. Parts and fault fixes stop at %s overdrawn.",
+      colored(1, 0.4, 0.4, string.format("Overdrawn: %s - prize money pays it off. Parts and problem fixes stop at %s overdrawn.",
         commas(-me.cash), commas(me.creditLimit or 1500)))
     end
     im.Separator()
@@ -1857,7 +1859,7 @@ local function drawStatus(d)
       else txt("Waiting for everyone to arrive...") end
     elseif d.phase == "workshop" then
       for _, f in ipairs((d.faults or {}).mine or {}) do
-        button("Fix: " .. f.name .. " (" .. commas(d.faults.fix) .. ")##fix_" .. f.id, "fix " .. f.id)
+        button("Fix this problem: " .. f.name .. " (" .. commas(d.faults.fix) .. ")##fix_" .. f.id, "fix " .. f.id)
       end
       txt("Spent in this workshop: " .. commas(me.upgrade or 0) .. " (parts charged as fitted; paint, cosmetics and tuning free)")
     end
@@ -1866,6 +1868,43 @@ local function drawStatus(d)
   drawPaused(d)
   drawAdminControls(d)
   drawStandings(d)
+end
+
+-- Car condition (= how many hidden faults the car comes with): a slider New .. Death Trap; each step down from New
+-- is cheaper on the market (+payout to spend). Moves both ways until a car is bought, then only toward Death Trap.
+local function drawCondition(d, fl)
+  heading("CAR CONDITION")
+  local names, payout = fl.names or {}, fl.payout or 0
+  local max, count = math.min(fl.max or 4, 4), fl.count or 0
+  local function name(n) return names[n + 1] or CONDITION_NAMES[n] or tostring(n) end
+  if d.phase ~= "dealer" then
+    txt("Your car was bought as " .. name(count) .. " - the condition is picked at the dealership.")
+    return
+  end
+  local lo = fl.locked and count or 0
+  if lo >= max then
+    txt(name(count) .. " - it can't get any worse.")
+  else
+    local ptr = intPtr("condition", count)
+    if ptr[0] < lo then ptr[0] = lo elseif ptr[0] > max then ptr[0] = max end
+    local okS, changed = pcall(im.SliderInt, "##condition", ptr, lo, max, name(ptr[0]))
+    if not okS then   -- (no slider on this ImGui: one button per condition instead)
+      if not ui.sliderWarned then ui.sliderWarned = true; warn("condition slider: " .. tostring(changed)) end
+      for n = lo, max do
+        button((n == count and "> " or "") .. name(n) .. "##cond_" .. n, "condition " .. n)
+        if n < max then same() end
+      end
+    elseif changed and ptr[0] ~= count then
+      sendCmd("condition " .. ptr[0])   -- the cash follows straight away
+    end
+  end
+  txt(string.format("A more worn car is cheaper on the market: every step from New gives you %s more to spend.", commas(payout)))
+  txt(string.format("%s: %s.", name(count), count > 0 and ("+" .. commas(count * payout) .. " to spend") or "no extra cash"))
+  txt(string.format("Each step hides a problem in the car that a workshop will find; fixing one costs %s, and each one", commas(fl.fix)))
+  txt(string.format("still there at the finale costs %s points.", tostring(fl.points or 0)))
+  if fl.locked then colored(1, 0.8, 0.3, "You've bought your car - its condition can only get worse now (return it to choose again).")
+  else colored(0.65, 0.65, 0.65, "You can change this until you buy a car.") end
+  im.Separator()
 end
 
 local function drawDealer(d)
@@ -1885,25 +1924,7 @@ local function drawDealer(d)
     if im.Button("Return it for a full refund") then returnCar() end
   end
   local fl = d.faults
-  if fl and me and header("Problem cars - take faults for extra cash (" .. (fl.count or 0) .. "/" .. (fl.max or 4) .. ")##faults") then
-    txt(string.format("Each fault pays %s and raises your budget by the same. Which faults you get is picked at random", commas(fl.payout)))
-    txt("from what your car can take, and stays hidden until a workshop diagnoses the car. Taken faults are final.")
-    txt(string.format("A workshop fixes one for %s; each one left at the finale costs %s drivability.", commas(fl.fix), tostring(fl.points or 1)))
-    if d.phase ~= "dealer" then
-      txt("Faults can only be taken at the dealership.")
-    else
-      local left = (fl.max or 4) - (fl.count or 0)
-      for n = 1, left do
-        button(string.format("Take %d%s (+%s)##ft_%d", n, n == 1 and " fault" or " faults", commas(n * (fl.payout or 0)), n), "fault take " .. n)
-        if n < left then same() end
-      end
-      if left <= 0 then colored(1, 0.8, 0.3, "That's the limit.") end
-    end
-    if (fl.count or 0) > 0 then
-      colored(1, 0.8, 0.3, string.format("You've taken %d (+%s).", fl.count, commas(fl.count * (fl.payout or 0))))
-    end
-    im.Separator()
-  end
+  if fl and me then drawCondition(d, fl) end
   if d.dealerClass then
     heading("TODAY'S CARS: " .. d.dealerClass.name)
     txt(d.dealerClass.summary)
@@ -1921,7 +1942,7 @@ local function drawDealer(d)
         if t.over then
           colored(1, 0.45, 0.45, string.format("%s  %s  - over budget", commas(t.price), label))
         elseif needs > 0 then
-          colored(1, 0.7, 0.3, string.format("%s  %s  - needs %d fault%s", commas(t.price), label, needs, needs == 1 and "" or "s"))
+          colored(1, 0.7, 0.3, string.format("%s  %s  - as a %s", commas(t.price), label, tostring(t.cond or "worn car")))
         elseif me and t.price > (me.cash or 0) then colored(1, 0.45, 0.45, commas(t.price) .. "  " .. label)
         else txt(commas(t.price) .. "  " .. label) end
       end
@@ -2289,14 +2310,15 @@ local function drawResults(d)
   -- build every cell as text first, so the table itself only draws
   local cols = { "#", "Driver", "Car" }
   for _, name in ipairs(s.events or {}) do cols[#cols + 1] = name end
-  for _, c in ipairs({ "Faults", "Repairs", "Upgrades", "Tows", "Resets", "Drivability", "Points", "Cash left" }) do cols[#cols + 1] = c end
+  for _, c in ipairs({ "Condition", "Repairs", "Upgrades", "Tows", "Resets", "Drivability", "Points", "Cash left" }) do cols[#cols + 1] = c end
   local cells = {}
   for _, r in ipairs(rows) do
     local row = { ordinal(r.place), r.name, string.format("%s (%s)", r.car, commas(r.carPrice)) }
     for i = 1, #(s.events or {}) do row[#row + 1] = (r.places or {})[i] or "-" end
     if (r.faultsTaken or 0) > 0 then
-      row[#row + 1] = string.format("%d taken (+%s), %d fixed (-%s)", r.faultsTaken, commas(r.faultCash), r.faultsFixed or 0, commas(r.faultFixes))
-    else row[#row + 1] = "none" end
+      row[#row + 1] = string.format("%s (+%s), %d fixed (-%s)", CONDITION_NAMES[math.min(r.faultsTaken, 4)], commas(r.faultCash),
+        r.faultsFixed or 0, commas(r.faultFixes))
+    else row[#row + 1] = "New" end
     row[#row + 1] = commas(r.repairs)
     row[#row + 1] = commas(r.upgrades)
     local nt, nr = r.tows or 0, r.respawns or 0
@@ -2330,7 +2352,7 @@ local function drawResults(d)
       for i, name in ipairs(s.events or {}) do ev[#ev + 1] = name .. ": " .. row[3 + i] end
       txt("    " .. table.concat(ev, " | "))
       local n = #row
-      txt(string.format("    Faults %s | Repairs %s | Upgrades %s | Tows %s | Resets %s | Drivability %s | Points %s | Cash %s",
+      txt(string.format("    Condition %s | Repairs %s | Upgrades %s | Tows %s | Resets %s | Drivability %s | Points %s | Cash %s",
         row[n - 7], row[n - 6], row[n - 5], row[n - 4], row[n - 3], row[n - 2], row[n - 1], row[n]))
     end
   end

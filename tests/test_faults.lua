@@ -4,6 +4,7 @@ local t = require("t")
 local World = require("world")
 local F = require("fixtures")
 local p = F.p
+local WIN = "Top Gear Challenge"
 
 -- the draw order is the fault list's order, minus faults already drawn / known not to fit the car
 local ORDER = { "tires", "alignment", "bumpers", "engine", "brakes", "ignition", "cooling", "suspension", "fuelleak", "body",
@@ -35,26 +36,35 @@ local function start(w, A, model, faults, n)
   w:step(10)   -- applied: setup faults respawn the car, physics faults run in its Lua, the report comes back
 end
 
-t.test("faults are taken by number for $2,500 each, before or after buying; the limit is 4; taken is final", function()
+t.test("car condition: $2,500 a step from New; both ways before buying, only worse after", function()
   local w = World.new({ files = F.files(F.twoRaces()) })
   local A, B = w:join("Alice"), w:join("Bob")
   w:chat(A, "/tg start")
-  w:chat(A, "/tg fault take 2")          -- before buying: the money raises the budget
-  t.ok(w:chatHas(B, "Alice takes a car with 2 hidden faults for an extra $5,000."))
+  w:chat(A, "/tg condition needs work")    -- before buying: the money raises the budget
+  t.ok(w:chatHas(A, "Car condition: Needs work - +$5,000 more to spend (budget $15,000)."))
   t.eq(w:state(A).cash, 15000)
+  w:chat(A, "/tg condition used")          -- changed her mind: allowed before buying, the cash follows
+  t.eq(w:state(A).cash, 12500)
+  w:chat(A, "/tg condition new")
+  t.eq(w:state(A).cash, 10000)
+  w:chat(A, "/tg fault take 2")            -- the old command still works: two steps worse
+  t.ok(w:chatHas(A, "Car condition: Needs work"))
   w:chat(A, "/tg dealer")
   t.ok(w:chatHas(A, "DEALERSHIP - budget $15,000"))
   pin(w, { "engine", "brakes" })
-  w:buy(A, "covet", "base_M")            -- the faults are drawn for this car now
+  w:buy(A, "covet", "base_M")            -- the problems are drawn for this car now
   w:step(10)
   local e = A.current.engine
-  t.ok(math.abs(e.outputTorqueState - 0.8) < 1e-9, "engine fault on the car")
-  t.eq(A.current.wheels[0].brakeTorque, 1500 * 0.6, "brake fault on the car")
-  w:chat(A, "/tg fault take 3")
-  t.ok(w:chatHas(A, "That's over the limit - 4 faults per car (you have 2)."))
-  w:chat(A, "/tg fault undo engine")
-  t.ok(w:chatHas(A, "Taken faults are final"))
+  t.ok(math.abs(e.outputTorqueState - 0.8) < 1e-9, "engine problem on the car")
+  t.eq(A.current.wheels[0].brakeTorque, 1500 * 0.6, "brake problem on the car")
+  w:chat(A, "/tg condition used")          -- bought: it can only get worse
+  t.ok(w:chatHas(A, "You've bought your Ibishu Covet as Needs work - its condition can only get worse now"))
   t.eq(w:state(A).cash, 15000 - 4500)
+  w:chat(A, "/tg condition death trap")    -- worse is fine (and capped at Death Trap)
+  t.ok(w:chatHas(B, "Alice's Ibishu Covet is now a Death Trap."))
+  t.eq(w:state(A).cash, 15000 - 4500 + 5000)
+  w:chat(A, "/tg condition 9")
+  t.ok(w:chatHas(A, "Your car is already Death Trap."))
   w:assertClean()
 end)
 
@@ -68,9 +78,9 @@ t.test("faults stay hidden until a workshop diagnoses the car, then can be fixed
   pin(w, { "brakes" }); w:chat(A, "/tg fault take")
   w:step(10)
   w:step(2.5)
-  t.match(A.client.im.textOf("Top Gear Challenge"), "Faults: 1 hidden %- a workshop will diagnose them")
+  t.match(A.client.im.textOf("Top Gear Challenge"), "Bought as Used: 1 hidden problem %- a workshop will find it")
   w:chat(A, "/tg faults")
-  t.ok(w:chatHas(A, "You've taken 1 - a workshop will tell you what they are."))
+  t.ok(w:chatHas(A, "Your car: Used - a workshop will find its problems"))
   hiddenEverywhere(w, A, { "Worn brakes", "brakes)" })
 
   w:chat(A, "/tg ready")   -- (Zed didn't buy a car: closing the dealership makes him a spectator)
@@ -81,7 +91,7 @@ t.test("faults stay hidden until a workshop diagnoses the car, then can be fixed
   w:waitFor(function() return w:state(A).phase == "workshop" end, 10, "the workshop")
   t.ok(w:chatHas(A, "The mechanics have looked your car over and found: Worn brakes (about -40% braking) (/tg fix brakes)."))
   w:step(2.5)
-  t.ok(A.client.im.hasButton("Fix: Worn brakes (about -40% braking) ($3,750)"), "Fix button once diagnosed")
+  t.ok(A.client.im.hasButton("Fix this problem: Worn brakes (about -40% braking) ($3,750)"), "Fix button once diagnosed")
   local before = w:state(A).cash
   w:chat(A, "/tg fix brakes")
   w:step(3)
@@ -236,22 +246,41 @@ t.test("saved configs with the old 5-fault menu get the 10 faults and the single
   t.ok(byId.fuelleak and byId.body and byId.ignition, "new faults added")
 end)
 
-t.test("up to four faults: four buttons at the dealership, and a car with all four", function()
+t.test("the Dealership tab: a Car Condition slider (New .. Death Trap, no numbers) moves the cash as it moves", function()
   local w = World.new({ files = F.files(F.twoRaces()) })
   local A = w:join("Alice")
   w:chat(A, "/tg start")
   w:step(2.5)
-  for n = 1, 4 do t.ok(A.client.im.hasButton(string.format("Take %d%s (+$%s)", n, n == 1 and " fault" or " faults",
-    ({ "2,500", "5,000", "7,500", "10,000" })[n])), "button for " .. n) end
+  local function slider()
+    for _, it in ipairs(A.client.im.items(WIN)) do if it.kind == "slider" then return it end end
+  end
+  local s = A.client.im.textOf(WIN)
+  t.match(s, "CAR CONDITION\n<New>")
+  t.match(s, "A more worn car is cheaper on the market: every step from New gives you %$2,500 more to spend%.")
+  t.match(s, "You can change this until you buy a car%.")
+  t.ok(not s:find("Problem cars", 1, true) and not A.client.im.hasButton("Take 1 fault (+$2,500)"), "no dropdown, no Take buttons")
+  t.eq(slider().min, 0); t.eq(slider().max, 4)
+  A.client.im.setInt("##condition", 3)
+  w:step(2.5)
+  t.eq(w:state(A).cash, 17500, "the cash follows the slider")
+  t.match(A.client.im.textOf(WIN), "<Beater>")
+  t.match(A.client.im.textOf(WIN), "Beater: %+%$7,500 to spend%.")
+  t.ok(not slider().text:find("%d"), "no number on the slider: " .. slider().text)
+  A.client.im.setInt("##condition", 1)
+  w:step(2.5)
+  t.eq(w:state(A).cash, 12500)
+  t.match(A.client.im.textOf(WIN), "<Used>")
+  pin(w, { "engine", "brakes", "cooling", "fuelleak" })   -- (Used's problem is drawn when the car is bought)
   w:buy(A, "covet", "base_M")
-  pin(w, { "engine", "brakes", "cooling", "fuelleak" })
-  w:chat(A, "/tg fault take 4")
+  w:step(2.5)
+  t.eq(slider().min, 1, "bought: it can't go back to New")
+  t.match(A.client.im.textOf(WIN), "its condition can only get worse now")
+  A.client.im.setInt("##condition", 4)
   w:step(10)
-  t.eq(w:state(A).cash, 10000 - 4500 + 10000)
+  t.eq(w:state(A).cash, 12500 - 4500 + 7500)
   t.ok(math.abs(A.current.engine.outputTorqueState - 0.8) < 1e-9 and A.current.wheels[0].brakeTorque == 900, "engine + brakes")
   t.ok(math.abs(A.current.radiatorDamage - 0.05) < 1e-9, "cooling")
-  w:step(2.5)
-  t.ok(A.client.im.textOf("Top Gear Challenge"):find("That's the limit.", 1, true), "no more buttons")
+  t.match(A.client.im.textOf(WIN), "Death Trap %- it can't get any worse%.")
   w:assertClean()
 end)
 

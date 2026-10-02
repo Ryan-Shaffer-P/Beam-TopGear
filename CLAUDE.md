@@ -171,7 +171,7 @@ for the `/tg diag` "Client error" line or the matching `[TopGear]` server-consol
 ## Quick command reference
 
 Players: `/tg menu | status | dealer | ready | go | repair | fix <id> | tow | respawn | unstick | hitchup |
-faults | fault take [n] | quote | standings | diag | partsdiag | lights | lightstest | flag | flagtest | sounds on|off|list | soundtest [clip|next] | theme`.
+condition [name] | faults | fault take [n] | quote | standings | diag | partsdiag | lights | lightstest | flag | flagtest | sounds on|off|list | soundtest [clip|next] | theme`.
 Admins: `start [force] | next | stop | resume | discard | award <driver> <pts> [reason] | traffic on|off | play <clip> | budget | setcash | give | workshop <min> | workshopevery <n> |
 importprices [listed|builtin|models] | gameprices | setprice | class list/use/new/preset/delete/show/rule/unrule/include/exclude/clear/price/multiplier/values |
 course list/save/load/new/delete | addevent/delevent/enable/moveevent |
@@ -224,7 +224,11 @@ config.json here, regenerate with the same filter (see the 0.9.7 commit), and up
 UI bandwidth: `sendUi(pid, haveVer)` omits `d.dealer` when the client's echoed `dealerVer` matches (`Class.sentDealer`);
 a full list is ~110 KB, a refresh without it ~2-10 KB.
 
-### 3. Fault system revamp - DONE in 0.8.8
+### 3. Fault system revamp - DONE in 0.8.8 (players see it as CAR CONDITION since 0.9.12)
+0.9.12: players never read "fault": the count is the car's condition (`CONDITION` table: New, Used, Needs work, Beater,
+Death Trap = 0..4), one fault is "a problem". Dealership tab = `drawCondition` slider (`/tg condition <n|name>`, the old
+`/tg fault take` maps onto it); free both ways until a car is bought (`p.carVid` or drawn faults), then only worse. Code,
+config keys and admin tools still say fault.
 Taken by number (`/tg fault take [n]`, $2,500 each = `faults.payout`), drawn at random (`rollFault` /
 `drawFaults`; owed faults wait for a car: `p.faultsOwed`) from enabled faults the car can take; hidden
 until a workshop (`revealFaults`), final, fix 1.5x. Ten faults: tires, alignment, bumpers, suspension (setup:

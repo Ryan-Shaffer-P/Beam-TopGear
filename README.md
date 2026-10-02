@@ -30,13 +30,13 @@ keeps working (`/tg diag` shows why); `/tg theme` (or the Settings tab) turns th
 open. Tabs:
 
 - **Status**: your car, cash, points, damage, standings, and the button for whatever comes
-  next (Ready, GO, Join, fault fixes in a workshop). The driver buttons are always there:
+  next (Ready, GO, Join, problem fixes in a workshop). The driver buttons are always there:
   **Repair** (workshops only, shows the price), **Tow**, **Unstick** and **Respawn**, with a grey
   line saying what's usable right now. Tow and Respawn need two clicks. Admins also get an
   **Admin controls** dropdown here with Start, Start (unfinished course), Next phase and Stop.
 - **Dealership**: **Browse the cars in the vehicle selector** opens the game's own vehicle selector
   (the freeroam one: pictures, filters, search, details) showing **only today's cars at today's
-  prices** - the price is in each name and in the Value filter, with "needs N faults" / "over
+  prices** - the price is in each name and in the Value filter, with "as a Beater" (the condition that would afford it) / "over
   budget" where it applies. Spawning one buys it. The usual vehicle-selector key does the same while
   the dealership is open; at any other time (and for an admin in traffic mode) it's the game's normal
   list. If the selector still shows every car, `/tg diag` has a **Vehicle selector** line (game
@@ -116,7 +116,7 @@ Race / Time trial**) or with `/tg setmode <n> race|trial`. The table shows each 
   repaired afterwards. With several bays, raise the time limit (`/tg settime <n> <seconds>`
   or the course builder's Time limit box - available for every event).
 - **Fragile delivery:** once the results are in, every car that took part gets a free full
-  repair where it stands (upgrades and unfixed faults stay, like a tow).
+  repair where it stands (upgrades and unfixed problems stay, like a tow).
 - **Economy:** the least **energy** used wins - read from each player's own car: what's left in its
   fuel tanks *and* batteries, so petrol, diesel and electric cars compare fairly (an electric car is
   naturally efficient). Results show litres for fuel cars and kWh for electric ones, with the
@@ -261,13 +261,13 @@ Top Gear clips play at key moments. Who hears each one:
 ### Server crashes and dropped connections
 
 The running challenge is **saved to `session.json`** (next to config.json) every few seconds and at every
-phase change: everyone's cash, points, results, faults, tows, the car they bought with its upgrades, and
+phase change: everyone's cash, points, results, car condition and problems, tows, the car they bought with its upgrades, and
 where it was.
 
 - **Server crash or restart:** the challenge comes back **paused**. As players reconnect the window shows
   who's back. An admin presses **Resume the challenge** (`/tg resume`) when everyone's here, or
   **Discard it** (`/tg discard`, two clicks). On resume everyone's car is brought back - upgrades and
-  setup faults included - where it was last seen; the dealership and workshops reopen with the time
+  its problems included - where it was last seen; the dealership and workshops reopen with the time
   they had left. **An event that was running (or counting down) is run again** from its start line:
   the cars are delivered there and nobody gets a second arrival bonus. Anyone not back yet gets their
   car when they rejoin.
@@ -313,7 +313,7 @@ Player commands: `/tg menu`, `/tg go`, `/tg unstick`, `/tg tow`, `/tg respawn`, 
   | 2,000 (dented) | $1,250 | $2,063 | $2,563 |
   | 10,000 (wrecked) | $5,250 | $7,063 | $7,563 |
 - **Stuck? `/tg unstick`** (or the Status tab button) is free: it sets the car upright in place
-  and keeps all damage and faults. Only when (nearly) stopped, 15 s cooldown, not in a
+  and keeps all damage and problems. Only when (nearly) stopped, 15 s cooldown, not in a
   countdown. If on your BeamNG version the move repairs the car (with or without a reset), that
   roadside repair is billed once; the unstick itself stays free and costs no points.
 - **`/tg respawn`** (Status tab button, click twice) respawns your car where it is: free at the
@@ -324,7 +324,7 @@ Player commands: `/tg menu`, `/tg go`, `/tg unstick`, `/tg tow`, `/tg respawn`, 
   with tows on the final screen.
 - **`/tg tow`** (Status tab button, click twice) costs the roadside repair + $1,000 (`economy.towFee`)
   and -2 points, and is a full repair that keeps
-  upgrades, paid fault fixes and unfixed faults. During an event: DSQ from that event and
+  upgrades, paid problem fixes and unfixed problems. During an event: DSQ from that event and
   delivered to the next event's start, ready to race. During a travel leg: delivered to that
   event's start (no arrival bonus). On the final leg: delivered to the finish with 0 at the
   finale inspection. Respawning a lost/deleted car counts as a tow and restores its upgrades.
@@ -337,7 +337,7 @@ Player commands: `/tg menu`, `/tg go`, `/tg unstick`, `/tg tow`, `/tg respawn`, 
   **Where:** give a course workshop locations (Admin tab -> Workshop locations: **Import gas
   stations** reads the map's gas stations; **Add workshop here** places one where you're parked;
   `/tg importgas`, `/tg addworkshop [name]`, `/tg undoworkshop`, `/tg clearworkshops`). When a
-  workshop opens, the arrows point to the nearest one, and repairs, fault fixes, parts, paint and
+  workshop opens, the arrows point to the nearest one, and repairs, problem fixes, parts, paint and
   tuning only work while you're within 30 m of it. A course with no locations keeps the old
   "workshop anywhere" behaviour. Locations are saved with the course.
   **The dealership is workshop mode too:** once you've bought a car, the parts menu is open until
@@ -363,9 +363,9 @@ Player commands: `/tg menu`, `/tg go`, `/tg unstick`, `/tg tow`, `/tg respawn`, 
     `/tg partsdiag` shows what your game reports: how many parts it found, in which format, and
     how many have a price - and whether the Parts tab can list your car (and how).
   - **Labour:** $300, once per workshop, on your first real part change.
-  - **Overdraft:** parts, labour and fault fixes can take a driver up to $1,500 into the red
+  - **Overdraft:** parts, labour and problem fixes can take a driver up to $1,500 into the red
     (`workshop.creditLimit`). Repairs, tows, respawns and fines have no limit - you can always get
-    the car fixed and back on the road, however deep in the red that puts you. A part or fault fix that would
+    the car fixed and back on the road, however deep in the red that puts you. A part or problem fix that would
     go past the limit is refused - a part is taken straight back off the car, nothing charged.
     Prize money pays it all off.
   - **Free (looks only):** paint, skins/liveries, decals, plates, badges, mirrors, lights, trim,
@@ -388,7 +388,7 @@ Player commands: `/tg menu`, `/tg go`, `/tg unstick`, `/tg tow`, `/tg respawn`, 
     is 0 if you were towed or respawned on the final leg or didn't arrive. On a course with
     workshop locations, anyone who never reaches one is inspected when the workshop closes.
   - **Penalties at the end:** -2 per illegal reset, **-2 per tow or roadside respawn**, **-3 per
-    fault still unfixed** (its own penalty - a wrecked car can't hide it), and **-1 for every $500
+    problem still unfixed** (its own penalty - a wrecked car can't hide it), and **-1 for every $500
     (or part of it) you're in debt** - so overspending, debt-funded repairs and tows all cost.
   - **Producer points:** an admin can award or dock points with a reason, like the show's
     producers: `/tg award Alice 2 best-looking wreck`, `/tg award Bob -1 got lost`.
@@ -417,10 +417,10 @@ Player commands: `/tg menu`, `/tg go`, `/tg unstick`, `/tg tow`, `/tg respawn`, 
   ones are added to the dealer list); `/tg importprices listed` re-reads just the dealer list.
   Custom/modified configs have no price and can't be bought. `/tg gameprices off|on` switches
   between game prices and the manual list.
-- Trims over your budget that **taking faults could pay for** are listed with **"needs N faults"**
-  (no Buy button until you've taken them); anything out of reach even with the most faults is still
+- Trims over your budget that **a more worn condition could pay for** are listed with **"as a Beater"** (etc.)
+  (no Buy button until you pick that condition); anything out of reach even as a Death Trap is still
   listed, marked **"over budget"**, with no Buy button. **The budget never hides a car** - only a
-  class narrows the list. Spawning one you can't afford yet says how many faults would cover it.
+  class narrows the list. Spawning one you can't afford yet says which condition would cover it.
   `/tg dealer <model>` lists one model's trims.
 
 ## Car classes (which cars the dealership sells)
@@ -462,7 +462,7 @@ jdm` makes one (`/tg class preset jdm myname` under another name), or use the Ad
    to narrow it, e.g. `/tg class rule basics country Japan`.
 4. Prices: `/tg class price jdm covet/gtz_M 13000` (one trim; `off` = back to the game price) and
    `/tg class multiplier jdm 0.8` (every trim's game price x 0.8). Price a car just over the budget
-   and it's the prize for taking faults ("needs 2 faults").
+   and it's the prize for picking a worse condition ("as a Needs work").
 5. **Pick the class for each challenge**, before `/tg start`: `/tg class use jdm` (`none` = every
    imported car and truck). It isn't saved with courses. `/tg start` announces it, the Dealership tab shows it,
    and spawning anything else is refused with the reason ("not in today's class (jdm): Country is
@@ -492,23 +492,29 @@ The Admin tab's **Car classes** section does all of this with buttons: Use / Edi
 class, Add rule (pick the field, type the value), Include / Exclude, the price %, and the class's
 cars each with **Leave out** and a price box. `/tg class list` and `/tg class show <name>` in chat.
 
-## Problem cars (faults for cash)
+## Car condition
 
-At the dealership each player can take **0 to 4 faults for $2,500 each** - you choose *how many*,
-not which. The money is paid at once and raises your dealership budget by the same amount, so you
-can take faults before buying to afford a better car. Which faults you get is drawn at random from
-the ones **your car can actually take**, when you buy it (swap or return the car at the dealership
-and they're drawn again for the next one). Then:
+At the dealership each player picks their car's **condition** with a slider in the Dealership tab
+(or `/tg condition <name>`): **New, Used, Needs work, Beater or Death Trap**. A more worn car is
+cheaper on the market: **every step from New gives you $2,500 more to spend** (Used +$2,500 ...
+Death Trap +$10,000), paid at once and added to your dealership budget - so a worse condition can
+afford a better car. The cash moves as the slider moves.
 
-- **They're hidden.** You (and everyone else) only know how many you took - until a **workshop
-  diagnoses the car**: the first time you're in a workshop the mechanics tell you what you've got,
-  and the Status tab lists them with a **Fix** button each. The finale inspection names any left.
-- **They're final.** There's no handing them back; the way out is a workshop fix.
-- **Fixing one costs $3,750** (1.5x the payout) in a workshop: `/tg fix <id>` or the Status tab.
-- **Every fault still there at the end costs 3 points** (a penalty of its own).
+- **Change your mind freely until you buy a car.** Once you've bought it the condition can only get
+  worse (return the car to choose again).
+- **Each step hides one problem in the car**, drawn at random from the ones **your car can
+  actually take** when you buy it (swap or return the car at the dealership and they're drawn again).
+- **The problems are hidden.** Everyone sees the condition, nobody sees the problems - until a
+  **workshop finds them**: the first time you're in a workshop the mechanics tell you what you've
+  got, and the Status tab lists them with a **Fix this problem** button each. The finale inspection
+  names any left.
+- **Fixing one costs $3,750** (1.5x the step) in a workshop: `/tg fix <id>` or the Status tab.
+- **Every problem still there at the end costs 3 points** (a penalty of its own).
 - They come back after a tow, a respawn or a reset until they're fixed.
 
-| id | Fault | What it does in the game |
+The problems (the code and config.json call them *faults*):
+
+| id | Problem | What it does in the game |
 |---|---|---|
 | tires | Worn, underinflated tires | tire pressures set to 30% of normal (`$tirepressure_*`), never below the car's minimum |
 | alignment | Knocked-out alignment | front toe pushed to its limit, rear toe 40% of the way (`$toe_*`) |
@@ -552,8 +558,9 @@ that repair is now billed automatically (the same price as `/tg repair`).
 applies every fault to the car you're in, no money involved, and reports ok / unavailable /
 error for each. `/tg fault testoff` removes them. Drive it and check each fault is felt.
 
-Commands: `/tg faults` (what you've taken, and the rules), `/tg fault take [how many]` (dealership),
-`/tg fix <id>` (workshop, once diagnosed). Admins: `/tg fault test [id]`, `/tg fault testoff`, `/tg fault caps`.
+Commands: `/tg condition` (yours) / `/tg condition <New|Used|Needs work|Beater|Death Trap>` (dealership;
+`/tg fault take [n]` still works: n steps worse), `/tg faults` (the rules and your car), `/tg fix <id>`
+(workshop, once it's found the problem). Admins: `/tg fault test [id]`, `/tg fault testoff`, `/tg fault caps`.
 
 **Check the new faults on your game version:** everything after the first five uses BeamNG
 functions that couldn't be tried outside the game. `/tg fault test <id>` on your own car

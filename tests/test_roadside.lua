@@ -185,7 +185,7 @@ t.test("repairs, tows and respawns can go as deep into the red as they need; par
   w:chat(A, "/tg repair")                  -- 250 + 4000 = $4,250, far past the limit: allowed
   t.ok(w:chatHas(A, "Alice paid $4,250 to have their Ibishu Covet repaired."))
   t.eq(w:state(A).cash, cash - 4250)
-  t.ok(w:chatHas(A, "You're overdrawn: -$9,126. Prize money pays it off. (Parts and fault fixes stop at -$1,500 overdrawn.)"))
+  t.ok(w:chatHas(A, "You're overdrawn: -$9,126. Prize money pays it off. (Parts and problem fixes stop at -$1,500 overdrawn.)"))
   w:chat(A, "/tg fix brakes")              -- $3,750: refused, way past -$1,500
   t.ok(w:chatHas(A, "Fixing that costs $3,750 - you have -$9,126 (at most $1,500 overdrawn)."))
   -- a part fitted with the game's own parts menu: refused by the server, taken back off the car

@@ -93,7 +93,7 @@ t.test("each unfixed fault costs 3 points on its own line - not capped by a zero
   w:waitFor(function() return w:state(A).phase == "finale" end, 10, "the finale")
   w:damage(A, 25000); w:step(2.5)              -- wrecked: the finale inspection scores 0
   w:drive(A, p(5000), 40)
-  t.ok(w:chatHas(A, "Alice loses 6 pts: 2 unfixed faults (-6)."))
+  t.ok(w:chatHas(A, "Alice loses 6 pts: 2 problems left unfixed (-6)."))
   t.eq(w:state(A).points, 10 + 0 - 6)
   w:assertClean()
 end)

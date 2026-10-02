@@ -44,7 +44,8 @@ t.test("full session: five events, two workshops, faults, tow, reset fine, final
   w:step(10)                           -- faults applied, reports back
   t.eq(B.current.vars["$tirepressure_F"], 9, "Bob's tyres let down to 30%")
   t.ok(math.abs(C.current.engine.outputTorqueState - 0.8) < 1e-9, "Carol's engine at 80%")
-  t.ok(w:chatHas(C, "Carol takes a car with 1 hidden fault for an extra $2,500."), "the fault stays hidden")
+  t.ok(w:chatHas(A, "Carol's Gavril D-Series is now a Used."), "everyone hears the condition, not the problem")
+  t.ok(not w:chatHas(A, "Tired engine"), "the problem stays hidden")
   t.eq(cash(A), 5500); t.eq(cash(B), 7500); t.eq(cash(C), 5000)
   for _, pl in ipairs(all) do w:chat(pl, "/tg ready") end
   t.eq(w:state(A).phase, "travel")
@@ -132,10 +133,10 @@ t.test("full session: five events, two workshops, faults, tow, reset fine, final
   waitPhase("results")
   -- drivability: inspected on arrival at both workshops (everyone undamaged: 20) and at the finale, then averaged
   t.ok(w:chatHas(A, "Carol made it to The Test Track! Inspection: damage 10000 -> 10.0/20. Drivability (average of 3 inspections): 16.7/20. " ..
-    "1 unfixed fault (Tired engine (about -20% power)): -3 pts at the results"))
+    "1 problem left unfixed (Tired engine (about -20% power)): -3 pts at the results"))
   t.ok(w:chatHas(A, "Alice made it to The Test Track! Inspection: damage 0 -> 20.0/20. Drivability (average of 3 inspections): 20.0/20"))
   t.ok(w:chatHas(A, "Bob loses 2 pts: 1 illegal reset (-2)."))
-  t.ok(w:chatHas(A, "Carol loses 5 pts: 1 tow/respawn (-2), 1 unfixed fault (-3)."))
+  t.ok(w:chatHas(A, "Carol loses 5 pts: 1 tow/respawn (-2), 1 problem left unfixed (-3)."))
 
   -- the tally ----------------------------------------------------------------------------------
   -- Alice: 10000 - 4500 car + 5 x 500 arrivals + prizes (6000 + 1500 + 3000 + 1500 + 6000) - 1250 repair = 24750

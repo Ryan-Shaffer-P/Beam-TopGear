@@ -104,6 +104,12 @@ function M.new()
     record({ kind = "input", label = visible(label), value = buf.value })
     return false
   end
+  function im.SliderInt(label, ptr, lo, hi, fmt)   -- (setInt(label, n) drags it; shows its text like "<Beater>")
+    local changed = false
+    if ints[label] then ptr[0] = math.max(lo, math.min(hi, ints[label])); ints[label] = nil; changed = true end
+    record({ kind = "slider", label = visible(label), value = ptr[0], min = lo, max = hi, text = "<" .. tostring(fmt) .. ">" })
+    return changed
+  end
   function im.InputInt(label, ptr)
     if ints[label] then ptr[0] = ints[label]; ints[label] = nil end
     record({ kind = "inputint", label = visible(label), value = ptr[0] })
