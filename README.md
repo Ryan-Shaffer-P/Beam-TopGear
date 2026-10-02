@@ -40,8 +40,8 @@ open. Tabs:
   budget" where it applies. Spawning one buys it. The usual vehicle-selector key does the same while
   the dealership is open; at any other time (and for an admin in traffic mode) it's the game's normal
   list. If the selector still shows every car, `/tg diag` has a **Vehicle selector** line (game
-  version, whether today's list is ready and reached the selector) - send it to the developer. Below the button is the same list as text, every trim with a **Buy** button (over-budget ones
-  marked, with no button), and **Return for a full refund** to swap.
+  version, whether today's list is ready and reached the selector) - send it to the developer. Below the button is the same list as text, every trim you could buy with a **Buy** button
+  (ones that need a more worn condition say which, with no button), and **Return for a full refund** to swap.
 - **Parts** (once you have a car): what fitting each part costs, with **Fit** buttons in workshops.
 - **Admin** (admins only): budget and workshop timer, price import, hitch scan,
   per-player cash, and a course builder (pick an event, drive there, click Set start / Add
@@ -417,10 +417,10 @@ Player commands: `/tg menu`, `/tg go`, `/tg unstick`, `/tg tow`, `/tg respawn`, 
   ones are added to the dealer list); `/tg importprices listed` re-reads just the dealer list.
   Custom/modified configs have no price and can't be bought. `/tg gameprices off|on` switches
   between game prices and the manual list.
-- Trims over your budget that **a more worn condition could pay for** are listed with **"as a Beater"** (etc.)
-  (no Buy button until you pick that condition); anything out of reach even as a Death Trap is still
-  listed, marked **"over budget"**, with no Buy button. **The budget never hides a car** - only a
-  class narrows the list. Spawning one you can't afford yet says which condition would cover it.
+- Trims over your budget that **a more worn condition could pay for** are listed with **"$10,200 as a Death
+  Trap"** (etc.) - no Buy button until you pick that condition. **A car that's over the budget even as a
+  Death Trap isn't shown at all** - not in the Dealership tab, `/tg dealer` or the vehicle selector -
+  whatever class is in use. Spawning one you can't afford yet says which condition would cover it.
   `/tg dealer <model>` lists one model's trims.
 
 ## Car classes (which cars the dealership sells)

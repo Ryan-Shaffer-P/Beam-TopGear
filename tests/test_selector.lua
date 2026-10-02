@@ -41,14 +41,14 @@ t.test("during the dealership the selector lists today's cars at today's prices"
   t.eq(c["covet/base_M"].Value, 2100, "$4,200 x 0.5")
   t.eq(c["covet/base_M"].Name, "Covet base_M ($2,100) - $1,900 as a Used")
   t.eq(c["miramar/base_M"].Name, "Miramar base_M ($1,550)", "affordable: just the price")
-  t.eq(c["covet/gtz_M"].Name, "Covet gtz_M ($7,000) - over budget", "even a $2,100 Death Trap is over $2,000")
-  t.eq(c["covet/sport_M"].Name, "Covet sport_M ($20,000) - over budget", "listed, marked - the budget never hides a car")
+  t.eq(c["covet/gtz_M"], nil, "even a $2,100 Death Trap is over $2,000: not shown")
+  t.eq(c["covet/sport_M"], nil, "over budget at any condition: not shown")
   t.eq(c["covet/base_M"].aggregates.Value.min, 2100, "the Value filter uses our price")
   t.eq(c["covet/base_M"].preview, "/vehicles/covet/base_M.jpg", "thumbnails kept")
   local models = {}
   for _, m in ipairs(list.models) do models[m.key] = m end
   t.ok(models.covet and models.miramar and not models.pickup, "only models with a car for sale")
-  t.eq(models.covet.aggregates.Value.max, 20000, "a model's price range covers its trims for sale (up to the $20,000 sport)")
+  t.eq(models.covet.aggregates.Value.max, 2100, "a model's price range covers only the trims that can be bought")
   t.ok(list.filters.Country.Japan and not list.filters.Country["United States"], "filters offer only what's for sale")
   -- buying = spawning one from the list, at that price
   t.ok(w:buy(B, "miramar", "base_M"))
@@ -142,8 +142,8 @@ t.test("0.39 selector: while the dealership is open it only sees today's cars, p
   t.eq(sel["covet/base_M"].name, "base_M ($4,200)")
   t.eq(sel["covet/base_M"].fullName, "Covet base_M ($4,200)")
   t.eq(sel["covet/sport_M"].name, "sport_M ($7,800)")
-  t.eq(sel["covet/gtz_M"].name, "gtz_M ($40,000) - over budget", "listed and marked - the budget never hides a car")
-  t.eq(sel["covet/gtz_M"].Value, 40000, "Value = our price (the selector sorts and filters by it)")
+  t.eq(sel["covet/gtz_M"], nil, "over budget even as a Death Trap ($12,000): not shown")
+  t.eq(sel["covet/sport_M"].Value, 7800, "Value = our price (the selector sorts and filters by it)")
   -- the car condition changes every price: the list follows
   w:chat(A, "/tg setprice covet/gtz_M 14000")
   w:chat(B, "/tg condition used")

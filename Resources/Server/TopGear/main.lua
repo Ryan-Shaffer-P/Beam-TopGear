@@ -2938,13 +2938,14 @@ local function listedModels()
 end
 
 -- what the dealership sells this player: { { model, name, trims = { { config, name, price, needs } } } }, cheapest models
--- first. needs = how many more faults would make it affordable (0 = now); over = out of reach even with every
--- fault. The budget never hides a car: the class (or dealer list) decides what's listed.
+-- first. needs = how many conditions worse would make it affordable (0 = now). A car over the budget even as a Death
+-- Trap isn't listed at all (0.9.12: no point showing what nobody can buy) - in the window, /tg dealer and the selector.
 local function dealerOffers(p)
   local groups, byModel = {}, {}
   local cond = CONDITION.level(p)
   local function add(model, modelName, t)   -- t.price comes in as the price new; shown in the chosen condition
     local need = faultsNeeded(p, t.price)
+    if need == nil then return end   -- over budget even at the worst condition: not shown
     t.newPrice, t.price = t.price, CONDITION.price(cond, t.price)
     t.needs = need or 0
     t.over = need == nil or nil

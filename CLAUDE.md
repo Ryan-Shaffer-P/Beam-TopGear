@@ -206,8 +206,8 @@ model; no figures -> median of the model; rounded to $100). `trimPrice` = `deale
 `Class.isEstimate` marks "(est. price)". Real data: median error 10% (tests/data/game-cars.json).
 0.9.5: `Class.selling()` = the chosen class, else `Class.ALL` (Type Car/Truck) once `dealer.importedAll` (set by a full
 import; inferred at startup for older configs), else the dealer list. `Class.PRESETS` (18, `/tg class preset`, Admin
-"Ready-made classes"). `dealerOffers` never drops a trim for the budget: `over = true` (no Buy button) - Ryan: "the
-budget shouldn't impact the car filter".
+"Ready-made classes"). (0.9.5-0.9.11 listed over-budget trims marked; since 0.9.12 `dealerOffers` DROPS a trim that's
+over the budget even as a Death Trap - Ryan: "no reason to show cars we cannot buy" - window, /tg dealer and selector.)
 0.9.8 - **Persistence** (`Save` table, near the BeamMP events): `Save.snapshot/write` -> `session.json` (tmp + `FS.Rename`)
 every `Save.EVERY` s and at phase/stage changes (`Save.tick`); `Save.pack/unpack` keep number keys as "#n"; game timers
 are stored as time remaining (`Save.TIMERS`), per-player runtime fields dropped (`Save.TRANSIENT`), `game.solo` not saved.
