@@ -7,7 +7,7 @@
   In game, type /tg help.
 ]]
 
-local SERVER_VERSION = "0.9.8"
+local SERVER_VERSION = "0.9.9"
 local PLUGIN_DIR  = "Resources/Server/TopGear/"
 local CONFIG_PATH = PLUGIN_DIR .. "config.json"
 local COURSES_PATH = PLUGIN_DIR .. "courses.json"   -- saved course library
@@ -4495,6 +4495,12 @@ end
 
 function TG_onUiRequest(pid, data) sendUi(pid, data) end
 
+-- the game's vehicle selector, opened during the dealership: the client shows today's cars at these prices
+function TG_onDealerListReq(pid)
+  if game.phase ~= "dealer" then return end
+  MP.TriggerClientEvent(pid, "tg_dealerlist", Util.JsonEncode({ offers = dealerOffers(playerByPid(pid)) }))
+end
+
 -- window buttons send the same text as the chat commands; permissions are checked the same way
 function TG_onUiCommand(pid, data)
   local cmd = tostring(data or "")
@@ -4544,6 +4550,7 @@ MP.RegisterEvent("tg_report",          "TG_onReport")
 MP.RegisterEvent("tg_diag_reply",      "TG_onDiag")
 MP.RegisterEvent("tg_import_reply",    "TG_onImportReply")
 MP.RegisterEvent("tg_ui_req",          "TG_onUiRequest")
+MP.RegisterEvent("tg_dealerlist_req",  "TG_onDealerListReq")
 MP.RegisterEvent("tg_ui_cmd",          "TG_onUiCommand")
 MP.RegisterEvent("tg_fault_report",    "TG_onFaultReport")
 MP.RegisterEvent("tg_move_report",     "TG_onMoveReport")

@@ -35,7 +35,7 @@ local RESET_ACTIONS = {
 local VEHSEL_ACTIONS = { "vehicle_selector" }
 local PARTS_ACTIONS  = { "parts_selector" }
 
-local VERSION = "0.9.8"
+local VERSION = "0.9.9"
 local recentErrors = {}
 local function warn(msg)
   log("W", "topgear", tostring(msg))
@@ -241,11 +241,111 @@ local function drawTarget()
 end
 
 -- server -> client -----------------------------------------------------------
+-- The dealership in the game's own vehicle selector ---------------------------------------------------------
+-- The selector screen asks core_vehicles.requestList() for its list each time it opens (the game answers with the
+-- 'sendVehicleList' UI hook; career mode swaps in its own list the same way). While the dealership is open we
+-- answer instead: only today's cars, at our prices ("Value"), with "needs N faults" / "over budget" in the name.
+-- Thumbnails, filters and search keep working. Buying is still spawning: the server checks and charges.
+-- Anything going wrong falls back to the game's own list (the server still refuses what isn't for sale).
+local selector = { orig = nil, list = nil }
+local function selFilters(list, ranges)   -- the game's createFilters (not exported): what the filter panel offers
+  local filter = {}
+  for _, item in ipairs(list) do
+    for prop, val in pairs(item.aggregates or {}) do
+      if ranges[prop] and type(val) == "table" and tonumber(val.min) and tonumber(val.max) then
+        local f = filter[prop]
+        if f then f.min, f.max = math.min(f.min, val.min), math.max(f.max, val.max)
+        else filter[prop] = { min = val.min, max = val.max } end
+      elseif type(val) == "table" then
+        filter[prop] = filter[prop] or {}
+        for k in pairs(val) do filter[prop][tostring(k)] = true end
+      end
+    end
+  end
+  return filter
+end
+local function selBuild(offers)
+  local display
+  pcall(function() display = (core_vehicles.getModelList(true) or {}).displayInfo end)
+  local ranges = {}
+  for _, r in ipairs((((display or {}).ranges or {}).all) or { "Years", "Value", "Weight", "Top Speed", "0-100 km/h",
+                       "0-60 mph", "Weight/Power", "Off-Road Score" }) do ranges[r] = true end
+  local models, configs = {}, {}
+  for _, g in ipairs(offers or {}) do
+    local okM, m = pcall(core_vehicles.getModel, g.model)
+    if okM and type(m) == "table" and type(m.model) == "table" then
+      local mine = {}
+      for _, tr in ipairs(g.trims or {}) do
+        local src = (m.configs or {})[tr.config]
+        if type(src) == "table" then
+          local c = {}
+          for k, v in pairs(src) do c[k] = v end
+          c.aggregates = copyTable(src.aggregates or {})
+          c.Value, c.aggregates.Value = tr.price, { min = tr.price, max = tr.price }
+          local note = ""
+          if tr.over then note = " - over budget"
+          elseif (tonumber(tr.needs) or 0) > 0 then note = string.format(" - needs %d fault%s", tr.needs, tr.needs == 1 and "" or "s") end
+          c.Name = string.format("%s (%s%s)%s", tostring(src.Name or tr.name), commas(tr.price), tr.est and ", est." or "", note)
+          configs[#configs + 1] = c
+          mine[#mine + 1] = c
+        end
+      end
+      if #mine > 0 then
+        local mod = {}
+        for k, v in pairs(m.model) do mod[k] = v end
+        mod.aggregates = selFilters(mine, ranges)   -- the model's ranges cover only the trims for sale
+        models[#models + 1] = mod
+      end
+    end
+  end
+  return { models = models, configs = configs, filters = selFilters(models, ranges), displayInfo = display }
+end
+local function selWanted() return state.phase == "dealer" and not state.traffic end
+local function selInstall()
+  if selector.orig or not core_vehicles then return end
+  local orig = core_vehicles.requestList
+  if type(orig) ~= "function" then
+    if not selector.warned then selector.warned = true; warn("vehicle selector: no core_vehicles.requestList on this BeamNG version") end
+    return
+  end
+  selector.orig = orig
+  core_vehicles.requestList = function(...)
+    if not selWanted() then return orig(...) end
+    local ok, err = pcall(function()
+      if selector.list then guihooks.trigger("sendVehicleList", selector.list) end
+      TriggerServerEvent("tg_dealerlist_req", "")   -- the up-to-date list follows (cash and faults change it)
+    end)
+    if not ok then warn("vehicle selector: " .. tostring(err)); return orig(...) end
+  end
+end
+local function selUninstall()
+  if selector.orig and core_vehicles then core_vehicles.requestList = selector.orig end
+  selector.orig, selector.list = nil, nil
+end
+local function onDealerList(data)   -- server -> client: { offers = dealerOffers }
+  local ok, t = pcall(jsonDecode, data)
+  if not ok or type(t) ~= "table" or not selWanted() then return end
+  local okB, list = pcall(selBuild, t.offers)
+  if okB and #list.configs == 0 and #(t.offers or {}) > 0 then okB, list = false, "none of today's cars were found in this game" end
+  if not okB then
+    warn("vehicle selector list: " .. tostring(list))
+    if selector.orig then pcall(selector.orig) end   -- the game's own list instead
+    return
+  end
+  selector.list = list
+  pcall(function() guihooks.trigger("sendVehicleList", list) end)
+end
+function M.openSelector()   -- the Dealership tab's button
+  local ok, err = pcall(function() core_vehicles.openSelectorUI() end)
+  if not ok then warn("couldn't open the vehicle selector: " .. tostring(err)) end
+end
+
 local function onState(data)
   local ok, t = pcall(jsonDecode, data)
   if not ok or type(t) ~= "table" then return end
   state, stateAge = t, 0
   if ui.open then ui.reqTimer = math.min(ui.reqTimer, 0.2) end
+  if selWanted() then selInstall() else selUninstall() end
   applyFilters()
   applyPath(false)
   if state.phase == "idle" and not faults.test then
@@ -1630,6 +1730,10 @@ local function drawDealer(d)
   local busy = ui.busy and (ui.t - ui.busy) < 5
   local canBuy = d.phase == "dealer" and me and not me.hasCar and not busy
   if busy then colored(1, 0.85, 0.3, "Talking to the dealer...") end
+  if canBuy then
+    if im.Button("Browse the cars in the vehicle selector##opensel") then M.openSelector() end
+    colored(0.65, 0.65, 0.65, "Today's cars at today's prices, with pictures and filters - spawning one buys it. Or pick from the list below.")
+  end
   if d.phase == "dealer" and me and me.hasCar and not busy then
     txt("You own the " .. tostring(me.car) .. ".")
     same()
@@ -2505,6 +2609,7 @@ local function tryRegister(dt)
     add("tg_import", onImport)
     add("tg_menu",   onMenu)
     add("tg_ui",     onUi)
+    add("tg_dealerlist", onDealerList)
     add("tg_log",    addLog)
     add("tg_faults", onFaults)
     add("tg_tow",    onTow)
@@ -2868,6 +2973,7 @@ end
 function M.onVehicleSwitched() pathCarId = nil end
 
 function M.onExtensionUnloaded()
+  selUninstall()   -- give the game its own vehicle list back
   state = { phase = "idle" }
   applyFilters()
   trySetPath(nil)

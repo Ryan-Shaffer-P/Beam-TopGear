@@ -34,8 +34,13 @@ open. Tabs:
   **Repair** (workshops only, shows the price), **Tow**, **Unstick** and **Respawn**, with a grey
   line saying what's usable right now. Tow and Respawn need two clicks. Admins also get an
   **Admin controls** dropdown here with Start, Start (unfinished course), Next phase and Stop.
-- **Dealership**: every trim for sale (over-budget ones marked, with no button) with a **Buy**
-  button that spawns it for you, and **Return for a full refund** to swap.
+- **Dealership**: **Browse the cars in the vehicle selector** opens the game's own vehicle selector
+  (the freeroam one: pictures, filters, search, details) showing **only today's cars at today's
+  prices** - the price is in each name and in the Value filter, with "needs N faults" / "over
+  budget" where it applies. Spawning one buys it. The usual vehicle-selector key does the same while
+  the dealership is open; at any other time (and for an admin in traffic mode) it's the game's normal
+  list. Below the button is the same list as text, every trim with a **Buy** button (over-budget ones
+  marked, with no button), and **Return for a full refund** to swap.
 - **Parts** (once you have a car): what fitting each part costs, with **Fit** buttons in workshops.
 - **Admin** (admins only): budget and workshop timer, price import, hitch scan,
   per-player cash, and a course builder (pick an event, drive there, click Set start / Add

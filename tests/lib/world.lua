@@ -247,6 +247,10 @@ function World:loadClient(p)
   sb.set("ui_message", function(msg, ttl, cat) c.messages[#c.messages + 1] = { msg = tostring(msg), cat = cat }; if cat then c.ui[cat] = tostring(msg) end end)
   sb.set("jsonEncode", json.encode)
   sb.set("jsonDecode", json.decode)
+  c.selectorLists = {}   -- every list the vehicle selector screen was sent ('sendVehicleList')
+  sb.set("guihooks", { trigger = function(name, data)
+    if name == "sendVehicleList" then c.selectorLists[#c.selectorLists + 1] = data end
+  end })
   sb.set("vec3", vec3)
   sb.set("quat", quat)
   sb.set("quatFromDir", vecmath.quatFromDir)
@@ -347,7 +351,10 @@ function World:loadClient(p)
       if not m then return nil end
       local configs = {}
       for key, price in pairs(m.configs) do
-        configs[key] = { key = key, Configuration = key, Value = price or nil }
+        configs[key] = { key = key, Configuration = key, Value = price or nil, model_key = model, Name = m.name .. " " .. key,
+                         preview = "/vehicles/" .. model .. "/" .. key .. ".jpg",
+                         aggregates = { Value = price and { min = price, max = price } or nil, Years = (m.info or {}).Years,
+                                        Country = (m.info or {}).Country and { [(m.info or {}).Country] = true } or nil } }
         for k, val in pairs((m.trims or {})[key] or {}) do configs[key][k] = val end
       end
       local info = { key = model, Brand = m.brand, Name = m.name }
@@ -359,6 +366,17 @@ function World:loadClient(p)
       for key, m in pairs(w.models) do models[key] = { key = key, Brand = m.brand, Name = m.name } end
       return { models = models }
     end,
+    -- the vehicle selector screen: opening it asks requestList() for the list, which answers with the
+    -- 'sendVehicleList' UI hook (recorded in p.client.selectorLists); the game's own list = every model
+    requestList = function()
+      local models, configs = {}, {}
+      for key, m in pairs(w.models) do
+        models[#models + 1] = { key = key, Name = m.name, aggregates = {} }
+        for ck in pairs(m.configs) do configs[#configs + 1] = { key = ck, model_key = key, Name = m.name .. " " .. ck, native = true } end
+      end
+      rawget(p.client.sb.env, "guihooks").trigger("sendVehicleList", { models = models, configs = configs, filters = {}, native = true })
+    end,
+    openSelectorUI = function() p.client.selectorOpened = (p.client.selectorOpened or 0) + 1; rawget(p.client.sb.env, "core_vehicles").requestList() end,
   })
   -- c.partsFormat = "tree": the newer parts-tree format (each slot node lists the parts that fit it)
   local function treeOf(v)
