@@ -153,7 +153,10 @@ for the `/tg diag` "Client error" line or the matching `[TopGear]` server-consol
    test's fault, not the mod's.
 5. Real server: `docker compose -f server/compose.yaml restart`, then check `logs` for the
    `[TopGear] ... loaded` line and no `[LUA]` errors. The container mounts the repo's `Resources/`.
-6. Final check is always in-game (Ryan joins via Direct Connect to this Mac, port 30814).
+6. Final check is always in-game (Ryan joins via Direct Connect to this Mac, port 30814). Ryan runs **BeamNG 0.39.4**.
+   If `/tg diag` shows an old *client mod* version after an update: copy `Resources/` again, fully quit BeamNG (a
+   running game keeps the old extension), and if needed delete the cached `mods/multiplayer/topgear.zip` in the
+   BeamNG user folder.
 
 ## Release steps
 
@@ -247,6 +250,7 @@ Parts tab (client `buildCatalogue` / `quote` / `fitPart` / `drawParts`): lists s
 billed; "mirror" always free). Needs in-game confirmation: does the tab list a real car (`/tg partsdiag`)?
 
 ## Confirmed working in game (2026-10-01)
+- Vehicle selector dealership (0.9.11, 2026-10-02, BeamNG 0.39.4): only today's cars, names with prices, the class filter applied.
 - Finish flag: the checkered flag (draw list rects) and the big FINISH text (SetWindowFontScale) draw.
 - Sound bites: audible (`/tg diag` shows which playback method a player's game uses).
 - Unstick: on Ryan's BeamNG an unstick repairs the car, and that repair is now billed.
