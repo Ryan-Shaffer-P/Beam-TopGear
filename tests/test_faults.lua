@@ -9,8 +9,20 @@ local WIN = "Top Gear Challenge"
 -- the draw order is the fault list's order, minus faults already drawn / known not to fit the car
 local ORDER = { "tires", "alignment", "bumpers", "engine", "brakes", "ignition", "cooling", "suspension", "fuelleak", "body",
                 "starter", "clutch", "synchros", "turbo", "brakefade", "abs", "oilleak", "idle", "gearbox" }
-local function pin(w, ids, exclude)
+-- off by default since 0.9.12 (the car condition's mileage wear does the same); allFaults() switches them back on
+local OFF = { clutch = true, idle = true, gearbox = true }
+local function allFaults(cfg)
+  local list = {}
+  for _, f in ipairs(World.new():serverConfig().faults.list) do f.enabled = nil; list[#list + 1] = f end
+  cfg.faults = { list = list }
+  cfg.migrations = { mileageOverlap = true }
+  return cfg
+end
+-- pin the next random draws to these faults. all = the world has every fault on (allFaults); otherwise the ones
+-- that are off by default aren't in the draw. (The oil leak is only in the draw for a Beater or worse.)
+local function pin(w, ids, exclude, all)
   local gone, rolls = {}, {}
+  if not all then for id in pairs(OFF) do gone[id] = true end end
   for _, x in ipairs(exclude or {}) do gone[x] = true end
   for _, id in ipairs(ids) do
     local i = 0
@@ -368,14 +380,14 @@ end)
 
 -- the seven faults added in the second round -----------------------------------------------------
 t.test("starter, clutch, synchros, ABS on a manual car; turbo on a turbo car; ones a car can't take get swapped", function()
-  local w = World.new({ files = F.files(F.twoRaces()) })
+  local w = World.new({ files = F.files(allFaults(F.twoRaces())) })   -- (the clutch is off by default)
   local A, B = w:join("Alice"), w:join("Bob")
   w:chat(A, "/tg start")
   w:buy(A, "covet", "base_M")        -- manual, no turbo
   w:buy(B, "pessima", "base_M")      -- automatic, turbo
-  pin(w, { "starter", "clutch", "synchros", "abs" }); w:chat(A, "/tg fault take 4")
+  pin(w, { "starter", "clutch", "synchros", "abs" }, nil, true); w:chat(A, "/tg fault take 4")
   -- Bob draws a clutch and synchros (no manual gearbox: swapped) and a turbo; the swaps are pinned to brakefade/oilleak
-  pin(w, { "clutch", "synchros", "turbo", "brakefade", "oilleak" })
+  pin(w, { "clutch", "synchros", "turbo", "brakefade", "oilleak" }, nil, true)
   w.chances = { 0.9 }                -- (oil leak: this engine isn't doomed)
   w:chat(B, "/tg fault take 3")
   w:step(15)
@@ -405,8 +417,8 @@ end)
 local function oilCar(w, A, chance)
   w:chat(A, "/tg start")
   w:buy(A, "covet", "base_M")
-  pin(w, { "oilleak" }); w.chances = { chance }
-  w:chat(A, "/tg fault take")
+  pin(w, { "oilleak", "brakes", "starter" }); w.chances = { chance }   -- (an oil leak needs a Beater or worse)
+  w:chat(A, "/tg condition beater")
   w:step(10)
   w:chat(A, "/tg ready")
 end
@@ -471,12 +483,12 @@ t.test("saved configs with the 10 faults get the 9 new ones added", function()
 end)
 
 t.test("rough idle and a worn gearbox (manual or automatic), re-applied after a reset without stacking", function()
-  local w = World.new({ files = F.files(F.twoRaces()) })
+  local w = World.new({ files = F.files(allFaults(F.twoRaces())) })   -- (both off by default: an admin can switch them on)
   local A, B = w:join("Alice"), w:join("Bob")
   w:chat(A, "/tg start")
   w:buy(A, "covet", "base_M"); w:buy(B, "pessima", "base_M")   -- manual / automatic
-  pin(w, { "idle", "gearbox" }); w:chat(A, "/tg fault take 2")
-  pin(w, { "gearbox" }); w:chat(B, "/tg fault take")
+  pin(w, { "idle", "gearbox" }, { "oilleak" }, true); w:chat(A, "/tg fault take 2")   -- (no oil leak below a Beater)
+  pin(w, { "gearbox" }, { "oilleak" }, true); w:chat(B, "/tg fault take")
   w:step(10)
   t.eq(A.current.engine.damageIdleAVReadErrorRangeCoef, 15, "rough idle")
   t.eq(A.current.devices.gearbox.damageFrictionCoef, 3, "worn manual gearbox")
@@ -552,13 +564,13 @@ t.test("mileage wear: kept through resets, back after a respawn, and fixing a pr
   local cfg = F.twoRaces(); cfg.workshopEvery = 1
   local w = World.new({ files = F.files(cfg) })
   local A = w:join("Alice")
-  start(w, A, "covet", { "brakes", "idle" })   -- Needs work: 150,000 km
+  start(w, A, "covet", { "brakes", "ignition" })   -- Needs work: 150,000 km
   t.eq(A.current.odometer, 150000 * 1000)
-  t.eq(A.current.engine.damageIdleAVReadErrorRangeCoef, 15, "the problems go on after the mileage")
+  t.ok(math.abs(A.current.engine.slowIgnitionErrorChance - 0.10) < 1e-9, "the problems go on after the mileage")
   w:resetCar(A); w:step(3)
   t.eq(A.current.odometer, 150000 * 1000, "a reset keeps it (the game's own snapshot)")
   t.eq(A.current.partConditionCalls, 1, "not set again after a reset")
-  t.eq(A.current.engine.damageIdleAVReadErrorRangeCoef, 15, "the rough idle back after the reset, not stacked")
+  t.ok(math.abs(A.current.engine.slowIgnitionErrorChance - 0.10) < 1e-9, "the ignition problem back after the reset")
   w:chat(A, "/tg ready")
   w:drive(A, p(500), 40); w:chat(A, "/tg go")
   w:waitFor(function() return w:state(A).phase == "event" end, 10, "GO")
@@ -576,14 +588,62 @@ end)
 t.test("mileage wear: a car made worse after buying gets the new mileage, and its problems stay right", function()
   local w = World.new({ files = F.files(F.twoRaces()) })
   local A = w:join("Alice")
-  start(w, A, "covet", { "idle" })            -- Used: 60,000 km, rough idle x15
+  start(w, A, "covet", { "ignition" })         -- Used: 60,000 km, misfires +0.10
   t.eq(A.current.odometer, 60000 * 1000)
-  pin(w, { "gearbox", "oilleak" }, { "idle" })   -- (drawn from the problems the car doesn't have yet)
+  pin(w, { "oilleak", "brakes" }, { "ignition" })   -- (drawn from the problems the car doesn't have yet)
   w:chat(A, "/tg condition beater")            -- +2 problems, 300,000 km: the mileage resets the wear values first
   w:step(10)
   t.eq(A.current.odometer, 300000 * 1000)
-  t.eq(A.current.engine.damageIdleAVReadErrorRangeCoef, 15, "rough idle still x15 (not undone, not stacked)")
-  t.eq(A.current.devices.gearbox.damageFrictionCoef, 3, "worn gearbox x3")
-  t.ok(math.abs(A.current.engine.damageFrictionCoef - 1.5) < 1e-9, "oil leak x1.5")
+  t.ok(math.abs(A.current.engine.slowIgnitionErrorChance - 0.10) < 1e-9, "misfires still +0.10 (not undone, not stacked)")
+  t.ok(math.abs(A.current.engine.damageFrictionCoef - 1.5) < 1e-9, "oil leak x1.5 on top of the new mileage")
+  t.eq(A.current.wheels[0].brakeTorque, 900, "worn brakes")
   w:assertClean()
+end)
+
+-- 0.9.12: the problems mileage wear already covers are off; the oil leak only for a Beater or worse
+local function drawn(w, name)   -- the problems the server gave a player's car (from the saved challenge)
+  local json = require("json")
+  w:step(6)
+  return json.decode(w.files["Resources/Server/TopGear/session.json"]).game.players[name].faults
+end
+local function has(list, id) for _, x in ipairs(list) do if x == id then return true end end return false end
+
+t.test("rough idle, worn gearbox and slipping clutch are out of the draw; the oil leak only for Beaters and Death Traps", function()
+  local w = World.new({ files = F.files(F.twoRaces()) })
+  local A, B, C = w:join("Alice"), w:join("Bob"), w:join("Carol")
+  w:chat(A, "/tg start")
+  w:buy(A, "covet", "base_M"); w:buy(B, "covet", "base_M"); w:buy(C, "covet", "base_M")
+  -- Needs work: 15 problems in the draw (19 - idle, gearbox, clutch - the oil leak); 15 = the last one, ABS
+  w.rolls = { 15, 14 }; w:chat(A, "/tg condition needs work")
+  local a = drawn(w, "Alice")
+  t.ok(has(a, "abs") and has(a, "brakefade") and not has(a, "oilleak"), "no oil leak for a Needs work car: " .. table.concat(a, ","))
+  -- Beater: the oil leak joins the draw (16 candidates, the oil leak is the 16th)
+  w.rolls = { 16, 1, 1 }; w:chat(B, "/tg condition beater")
+  t.ok(has(drawn(w, "Bob"), "oilleak"), "a Beater can have an oil leak")
+  -- a Used car made a Beater afterwards: from then on its draws can include the oil leak
+  w.rolls = { 1 }; w:chat(C, "/tg condition used")
+  -- (Carol has tires, and Bob's draw taught the server this Covet can't take an alignment fault: oil leak = 14th)
+  w.rolls = { 14, 1 }; w:chat(C, "/tg condition beater")
+  local cl = drawn(w, "Carol")
+  t.ok(has(cl, "oilleak"))
+  for _, id in ipairs({ "idle", "gearbox", "clutch" }) do
+    for _, pl in ipairs({ "Alice", "Bob", "Carol" }) do t.ok(not has(drawn(w, pl), id), id .. " is off") end
+  end
+  w:assertClean()
+end)
+
+t.test("saved configs: the three overlapping problems switched off and the oil leak limited, once", function()
+  local list = World.new():serverConfig().faults.list
+  for _, f in ipairs(list) do f.enabled = nil; f.minCondition = nil end   -- a config saved before 0.9.12
+  local cfg = F.twoRaces(); cfg.faults = { list = list }
+  local sc = World.new({ files = F.files(cfg) }):serverConfig()
+  for _, f in ipairs(sc.faults.list) do
+    if f.id == "idle" or f.id == "gearbox" or f.id == "clutch" then t.eq(f.enabled, false, f.id) end
+    if f.id == "oilleak" then t.eq(f.minCondition, 3) end
+    if f.id == "brakes" then t.eq(f.enabled, nil, "the others untouched") end
+  end
+  local again = allFaults(F.twoRaces())   -- an admin switched them back on after the update: left on
+  for _, f in ipairs(World.new({ files = F.files(again) }):serverConfig().faults.list) do
+    if f.id == "idle" then t.eq(f.enabled, nil, "an admin's choice is kept") end
+  end
 end)

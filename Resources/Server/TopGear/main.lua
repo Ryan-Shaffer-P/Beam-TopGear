@@ -84,15 +84,17 @@ local DEFAULT_CONFIG = {
       { id = "fuelleak",   name = "Fuel leak",                                factor = 0.5 },   -- litres per minute
       { id = "body",       name = "Accident damage (dents, broken lights)",  factor = 3000 },  -- damage it starts with
       { id = "starter",    name = "Weak starter (slow to start)",            factor = 0.35 },  -- starter torque x this
-      { id = "clutch",     name = "Slipping clutch" },                                         -- manual gearboxes
+      { id = "clutch",     name = "Slipping clutch", enabled = false },                        -- manuals; off: mileage wears the clutch
       { id = "synchros",   name = "Worn gearbox synchros (gears grind)",     factor = 0.8 },   -- synchro wear (1 = gone); manuals
       { id = "turbo",      name = "Damaged turbo (low boost)",               factor = 0.02 },  -- turbo damage; turbo cars
       { id = "brakefade",  name = "Glazed brake pads (squeal, fade when hot)", factor = 1 },   -- pad glazing (1 = fully glazed)
       { id = "abs",        name = "ABS failure (wheels lock)" },
       { id = "oilleak",    name = "Oil leak (runs hot - might blow the engine)", factor = 0.5, -- engine friction +50%
-        blowChance = 0.2, blowMin = 60, blowMax = 600 },   -- chance the engine is doomed; seconds of hard driving until it goes
-      { id = "idle",       name = "Rough idle (hunts and stalls)",           factor = 15 },    -- idle-speed error x this (worn engines go to 30)
-      { id = "gearbox",    name = "Worn gearbox (power lost to friction)",   factor = 3 },     -- gearbox friction x this
+        blowChance = 0.2, blowMin = 60, blowMax = 600,     -- chance the engine is doomed; seconds of hard driving until it goes
+        minCondition = 3 },                                -- only Beaters and Death Traps (a Used car's engine doesn't blow)
+      { id = "idle",       name = "Rough idle (hunts and stalls)",           factor = 15, enabled = false },   -- idle-speed error x this
+      { id = "gearbox",    name = "Worn gearbox (power lost to friction)",   factor = 3, enabled = false },    -- gearbox friction x this
+      -- (idle, gearbox and clutch are off by default since 0.9.12: the car condition's mileage wear does the same)
     },
   },
 
@@ -359,6 +361,13 @@ local function loadConfig()
         if not have[f.id] then cfg.faults.list[#cfg.faults.list + 1] = deepcopy(f) end
       end
     end
+    if not cfg.migrations.mileageOverlap then   -- 0.9.12: mileage wear replaces rough idle / worn gearbox / slipping clutch;
+      cfg.migrations.mileageOverlap, changed = true, true   -- the oil leak only for Beaters and worse
+      for _, f in ipairs((cfg.faults or {}).list or {}) do
+        if f.id == "idle" or f.id == "gearbox" or f.id == "clutch" then f.enabled = false end
+        if f.id == "oilleak" and f.minCondition == nil then f.minCondition = 3 end
+      end
+    end
     if not cfg.migrations.faults4 then   -- 0.8.8: up to 4 faults per car (was 3)
       cfg.migrations.faults4, changed = true, true
       if cfg.faults and cfg.faults.maxPerCar == 3 then cfg.faults.maxPerCar = 4 end
@@ -576,7 +585,8 @@ end
 local function rollFault(p)
   local caps, tried, cands = capsFor(p), p.faultTried or {}, {}
   for _, f in ipairs(cfg.faults.list or {}) do
-    if f.enabled ~= false and not hasFault(p, f.id) and not caps.no[f.id] and not tried[f.id] then cands[#cands + 1] = f.id end
+    local tooNew = tonumber(f.minCondition) and CONDITION.level(p) < tonumber(f.minCondition)   -- e.g. oil leak: Beaters and worse
+    if f.enabled ~= false and not tooNew and not hasFault(p, f.id) and not caps.no[f.id] and not tried[f.id] then cands[#cands + 1] = f.id end
   end
   if #cands == 0 then return nil end
   return cands[math.random(#cands)]

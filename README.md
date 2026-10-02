@@ -517,6 +517,8 @@ afford a better car. The cash moves as the slider moves.
   gearbox and clutch friction, a less steady idle) and **faded paint** (career's paint-age scale). It stays
   for the whole challenge - resets, repairs and fixing problems don't make the car newer.
   `config.json`: `faults.mileageKm` and `faults.paintWear` (one value per condition, New first).
+  Because mileage already wears the engine idle, gearbox and clutch, the **Rough idle, Worn gearbox and
+  Slipping clutch** problems are switched off by default (`"enabled": true` in `faults.list` brings one back).
   `/tg diag` shows it ("Car wear (mileage): 150,000 km, paint 0.9 - ok").
 
 The problems (the code and config.json call them *faults*):
@@ -534,14 +536,14 @@ The problems (the code and config.json call them *faults*):
 | fuelleak | Fuel leak | 0.5 litres a minute drains from the tank on the road (it matters in the economy run) |
 | body | Accident damage | the car starts with 3,000 damage (repair costs, drivability) and some broken lights and glass; fixing the fault removes the dents |
 | starter | Weak starter | the starter motor has a third of its strength: slow cranking before the engine catches (nasty with the ignition fault) |
-| clutch | Slipping clutch | the clutch's own "permanently overheated" state: drive slips away under hard acceleration (manual gearboxes) |
+| clutch | Slipping clutch | **off by default** (mileage wear already wears the clutch). The clutch's own "permanently overheated" state: drive slips away under hard acceleration (manual gearboxes) |
 | synchros | Worn gearbox synchros | every gear's synchro 80% worn: gears grind and fight you on quick shifts (manual gearboxes) |
 | turbo | Damaged turbo | the turbo's own damage: less boost, less power (turbo cars) |
 | brakefade | Glazed brake pads | fully glazed pads: the brakes squeal, are weaker and fade more as they heat up |
 | abs | ABS failure | ABS switched off: the wheels lock under hard braking |
-| oilleak | Oil leak | the engine runs hot with more friction and a little less power - and there's a **20% chance it's doomed**: a doomed engine lets go (seizes) after 1-10 minutes of hard driving (above ~54 km/h), on a leg, in an event or on the final leg. That's a tow; the leak stays, but that engine can't blow again. Nobody knows whether theirs is doomed - the workshop just says "oil leak" - and fixing it removes the risk. |
-| idle | Rough idle | the engine's idle-speed error turned way up (what engine wear does): it hunts at idle and can stall at junctions or on the start line |
-| gearbox | Worn gearbox | three times the gearbox friction (any gearbox type): a little less power at the wheels |
+| oilleak | Oil leak | **only on a Beater or Death Trap** (`minCondition` 3 - a lightly used car's engine doesn't blow). The engine runs hot with more friction and a little less power - and there's a **20% chance it's doomed**: a doomed engine lets go (seizes) after 1-10 minutes of hard driving (above ~54 km/h), on a leg, in an event or on the final leg. That's a tow; the leak stays, but that engine can't blow again. Nobody knows whether theirs is doomed - the workshop just says "oil leak" - and fixing it removes the risk. |
+| idle | Rough idle | **off by default** (mileage wear already makes the idle hunt). The engine's idle-speed error turned way up (what engine wear does): it hunts at idle and can stall at junctions or on the start line |
+| gearbox | Worn gearbox | **off by default** (mileage wear already adds gearbox friction). Three times the gearbox friction (any gearbox type): a little less power at the wheels |
 
 **Every car is different.** If a drawn fault can't be applied to your car (no adjustable alignment,
 an electric car with no fuel tank...), it's quietly swapped for another - nothing to hand back - and
