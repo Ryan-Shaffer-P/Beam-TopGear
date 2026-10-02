@@ -54,7 +54,7 @@ t.test("car condition: chosen before buying, it sets every car's price (career's
   local A, B = w:join("Alice"), w:join("Bob")
   w:chat(A, "/tg start")
   w:chat(A, "/tg condition needs work")
-  t.ok(w:chatHas(A, "Car condition: Needs work (100,000 km) - every car is 20% off."))
+  t.ok(w:chatHas(A, "Car condition: Needs work (100,000 km) - cars up to 20% off (fast ones hold their value)."))
   t.eq(w:state(A).cash, 10000, "no cash bonus: the prices drop instead")
   w:chat(A, "/tg dealer covet")
   t.ok(w:chatHas(A, "  $3,600  Ibishu Covet"), "$4,500 x 0.8")
@@ -266,7 +266,8 @@ t.test("the Dealership tab: a Car Condition slider (New .. Death Trap, no number
   end
   local s = A.client.im.textOf(WIN)
   t.match(s, "CAR CONDITION\n<New>")
-  t.match(s, "A more worn car is cheaper on the market: Used 10%% off, Needs work 20%% off, Beater 45%% off, Death Trap 70%% off%.")
+  t.match(s, "A more worn car is cheaper on the market: Used up to 10%% off, Needs work up to 20%% off, Beater up to 45%% off, Death Trap up to 70%% off%.")
+  t.match(s, "Fast cars hold their value: the quicker a car, the smaller its discount%.")
   t.match(s, "Choose before you buy %- it's locked in with the car%.")
   t.match(s, "%$4,500  Ibishu Covet")
   t.ok(not s:find("Problem cars", 1, true) and not A.client.im.hasButton("Take 1 fault (+$2,500)"), "no dropdown, no Take buttons")
@@ -277,7 +278,7 @@ t.test("the Dealership tab: a Car Condition slider (New .. Death Trap, no number
   s = A.client.im.textOf(WIN)
   t.match(s, "%$2,500  Ibishu Covet", "...the prices do: $4,500 x 0.55")
   t.match(s, "<Beater>")
-  t.match(s, "Beater %(200,000 km%): every car below is 45%% off%.")
+  t.match(s, "Beater %(200,000 km%): the prices below are up to 45%% off%.")
   t.ok(not slider().text:find("%d"), "no number on the slider: " .. slider().text)
   A.client.im.setInt("##condition", 1)
   w:step(2.5)
@@ -722,4 +723,24 @@ t.test("glazed pads stay glazed through a hard stop (the game scrubs glazing off
   for _ = 1, 6 do wh.padGlazingFactor = math.max(0, wh.padGlazingFactor - 0.4); w:step(0.5) end   -- 3 s of hard braking
   t.ok(wh.padGlazingFactor >= 0.6, "topped up every 0.5 s: " .. wh.padGlazingFactor)
   w:assertClean()
+end)
+
+t.test("fast cars hold their value: the condition discount shrinks with the 0-100 km/h time", function()
+  local w = World.new({ files = F.files(F.twoRaces()) })
+  local cfg = w:serverConfig()   -- (the defaults: full discount at 10 s or slower, 30% of it at 4 s or quicker)
+  t.eq(cfg.faults.perfFastSeconds, 4); t.eq(cfg.faults.perfSlowSeconds, 10); t.eq(cfg.faults.perfMinShare, 0.3)
+  -- worked by hand for a $64,700 car as a Death Trap (career price 30%: a 70% discount)
+  -- share = 0.3 + 0.7 x (acc - 4) / 6, clamped; price = 64,700 x (1 - 0.7 x share), to the nearest $100
+  local cases = { { 12, 19400 }, { 10, 19400 }, { 7, 35300 }, { 4.4, 49000 }, { 3, 51100 } }
+  for _, c in ipairs(cases) do
+    local acc, want = c[1], c[2]
+    local list = { etkx = { m = { name = "ETK x", price = 64700, attrs = { Type = "Car", ["0-100 km/h"] = acc } } } }
+    local w2 = World.new({ files = F.files(F.config(F.twoRaces().events, { dealer = { useGamePrices = true, importedAll = true,
+      catalogue = "import", gamePrices = list } })) })
+    local B = w2:join("Alice")   -- (the admin)
+    w2:chat(B, "/tg budget 100000"); w2:chat(B, "/tg start"); w2:chat(B, "/tg condition death trap")
+    w2:chat(B, "/tg dealer etkx")
+    t.ok(w2:chatHas(B, string.format("  $%s  ETK x", ({ [19400] = "19,400", [35300] = "35,300", [49000] = "49,000", [51100] = "51,100" })[want])),
+      string.format("0-100 in %s s -> $%d", acc, want))
+  end
 end)

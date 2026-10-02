@@ -232,8 +232,10 @@ Death Trap = 0..4), one fault is "a problem". Dealership tab = `drawCondition` s
 config keys and admin tools still say fault.
 Condition PRICING (0.9.12, Ryan: "a luxury car that's been beat up should match a newer low-end car"): career's
 `valueCalculator.getAdjustedVehicleBaseValue` without age: price x (max(0, 1 - lossPerKm x km) + scrapValue) =
-`CONDITION.price(n, newPrice)` (nearest $100; +1e-9 for float halves). Used/NW/Beater/DT = 60k/100k/200k/300k km =
-90/80/55/30%. No cash payout any more: `dealerOffers` shows prices in the player's chosen condition (`t.newPrice`,
+`CONDITION.price(n, newPrice, acc)` (nearest $100; +1e-9 for float halves). Used/NW/Beater/DT = 60k/100k/200k/300k km =
+90/80/55/30% for slow cars; FAST CARS HOLD THEIR VALUE (Ryan drove a 4.4 s Death Trap ETK for $19,400 and it destroyed
+cheap cars): the discount x `CONDITION.perfShare(acc)` = 1 at >= perfSlowSeconds (10) .. perfMinShare (0.3) at <=
+perfFastSeconds (4), acc = the trim's 0-100 from gamePrices attrs (`CONDITION.accel`; unknown = full discount). No cash payout any more: `dealerOffers` shows prices in the player's chosen condition (`t.newPrice`,
 `t.cond`/`t.condPrice` = the condition that makes it affordable, `CONDITION.needed`); purchase `setCar` stores
 `boughtCondition` (locked; `refundCar` clears), `carNewPrice`, `conditionSaving`. Fix = `fixCost(p)` = 5% of the new
 price, min $500. `playerBudget` = startingCash. Migration `conditionPricing` (old unreleased mileage defaults).

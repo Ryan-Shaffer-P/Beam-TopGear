@@ -520,8 +520,11 @@ formula (price x (1 - 0.25% per 1,000 km) + 5% scrap value, without career's age
 | Beater | 200,000 km | 55% |
 | Death Trap | 300,000 km | **30%** |
 
-So **a beaten-up luxury car costs what a new cheap one does**: a Death Trap ETK 800 ($34,000 new) is
-$10,200, about a new Pigeon ($10,000) - while a Death Trap supercar ($180,000) is still $54,000. Prices
+**Fast cars hold their value**: the discount above is for ordinary cars (0-100 km/h in 10 s or slower); the
+quicker a car, the smaller its share of it, down to 30% of the discount at 4 s or quicker. So a Death Trap ETK
+844 (8.5 s, $34,000 new) is $14,400 - about a new Covet - but a Death Trap ETK 856ttx 340 (4.4 s, $64,700) is
+still $49,000, not $19,400. (`perfFastSeconds` 4, `perfSlowSeconds` 10, `perfMinShare` 0.3 in `config.json`
+under `faults`; a car with no 0-100 time gets the full discount.) Prices
 are rounded to $100. The Dealership tab, `/tg dealer` and the vehicle selector all show the prices for
 the condition you've picked, and say what an out-of-budget car would cost in the condition that makes
 it affordable ("$10,200 as a Death Trap").

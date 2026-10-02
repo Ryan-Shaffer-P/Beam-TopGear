@@ -1973,10 +1973,11 @@ local function drawCondition(d, fl)
       sendCmd("condition " .. ptr[0])   -- every price in the list follows straight away
     end
     local offs = {}
-    for n = 1, max do offs[#offs + 1] = string.format("%s %d%% off", name(n), off(n)) end
+    for n = 1, max do offs[#offs + 1] = string.format("%s up to %d%% off", name(n), off(n)) end
     txt("A more worn car is cheaper on the market: " .. table.concat(offs, ", ") .. ".")
+    txt("Fast cars hold their value: the quicker a car, the smaller its discount.")
     if count > 0 then
-      colored(0.4, 1, 0.4, string.format("%s (%s): every car below is %d%% off.", name(count), km(count), off(count)))
+      colored(0.4, 1, 0.4, string.format("%s (%s): the prices below are up to %d%% off.", name(count), km(count), off(count)))
     else
       txt("New: full price.")
     end
