@@ -153,6 +153,8 @@ end)
 t.test("sound test falls back to another way of playing, and 'next' cycles through them", function()
   local w = World.new()
   local A = w:join("Alice")
+  w:chat(A, "/tg diag")   -- nothing has played yet this session: says so, not an error
+  t.ok(w:chatHas(A, "Sounds play via: no clip played yet this session"))
   A.client.audioBroken = true   -- this game has no Engine.Audio
   w:chat(A, "/tg soundtest happy-yes")
   t.eq(A.client.sounds[1].via, "js", "fell back to UI audio")
