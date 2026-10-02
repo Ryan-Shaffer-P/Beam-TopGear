@@ -71,10 +71,10 @@ local DEFAULT_CONFIG = {
     fixMin = 500,                 -- ...but at least this
     inspectionPenaltyPoints = 3,  -- points lost per fault still unfixed at the end (its own penalty)
     -- Mileage wear by car condition (New, Used, Needs work, Beater, Death Trap): BeamNG's own part-condition
-    -- system, as career mode's used-car dealership uses it - odometer (engine/gearbox/clutch wear, rough idle)
-    -- and paint wear (1 = like new). Applied when the car spawns; it stays (resets, repairs, problem fixes).
+    -- system, as career mode's used-car dealership uses it - odometer (engine/gearbox/clutch wear, rough idle).
+    -- Applied when the car spawns; it stays (resets, repairs, problem fixes). No paint aging: the game does it by
+    -- locking every body mesh's colour, which stops repaints from showing (and only the owner would see it).
     mileageKm = { 0, 60000, 100000, 200000, 300000 },
-    paintWear = { 1, 0.945, 0.925, 0.88, 0.862 },   -- career's paint age for that mileage
     list = {                      -- factor = severity (see README)
       { id = "tires",      name = "Worn, underinflated tires",               factor = 0.3 },   -- pressure = 30% of normal
       { id = "alignment",  name = "Knocked-out wheel alignment",             factor = 1.4 },   -- front toe to its limit + rear 40%
@@ -369,7 +369,6 @@ local function loadConfig()
       cfg.migrations.conditionPricing, changed = true, true
       local f = cfg.faults or {}
       if type(f.mileageKm) == "table" and f.mileageKm[5] == 500000 and f.mileageKm[3] == 150000 then f.mileageKm = deepcopy(DEFAULT_CONFIG.faults.mileageKm) end
-      if type(f.paintWear) == "table" and f.paintWear[5] == 0.82 then f.paintWear = deepcopy(DEFAULT_CONFIG.faults.paintWear) end
     end
     if not cfg.migrations.mileageOverlap then   -- 0.9.12: mileage wear replaces rough idle / worn gearbox / slipping clutch;
       cfg.migrations.mileageOverlap, changed = true, true   -- the oil leak only for Beaters and worse
@@ -586,8 +585,7 @@ function CONDITION.mileage(p)   -- { m = odometer in metres, v = paint visual va
   local fresh = {}   -- parts bought new since: they start at 0 km
   for _, part in pairs(p.freshParts or {}) do fresh[#fresh + 1] = part end
   table.sort(fresh)
-  return { m = math.floor(km * 1000), v = tonumber(((cfg.faults or {}).paintWear or {})[n + 1]) or 1,
-           fresh = #fresh > 0 and fresh or nil }
+  return { m = math.floor(km * 1000), fresh = #fresh > 0 and fresh or nil }
 end
 -- Replacing a part replaces its problems (0.9.12): which problems live in which part, by the slot's own name.
 -- A replaced part that had problems is scrap - no trade-in: the new part is billed at its full value.

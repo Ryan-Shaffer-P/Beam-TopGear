@@ -680,16 +680,21 @@ function World:freshPhysics(p, v)
   sb.set("powertrain", { getDevice = function(name) return v.devices[name] end, getDevices = function() return v.devices end })
   -- BeamNG's part conditions (career's used cars): mileage + paint wear. Like the game, setting them puts the
   -- engine/gearbox/clutch integrity values back to new, and a reset restores the conditions from their snapshot.
-  v.odometer, v.paintVisual, v.partConditionCalls = 0, 1, 0
+  v.odometer, v.paintLocked, v.partConditionCalls = 0, nil, 0
   sb.set("partCondition", { initConditions = function(perPart, odo, _, visual)
-    v.odometer, v.paintVisual = odo or 0, visual or 1
+    v.odometer = odo or 0
+    -- a NUMBER visual value ages the paint the game's way: by locking each mesh's colour (repaints stop showing)
+    if type(visual) == "number" then v.paintLocked = true end
     v.partOdometer = {}   -- part name -> odometer, for the parts given their own condition (new parts: 0)
-    for partId, c in pairs(perPart or {}) do v.partOdometer[v.parts[partId] or partId] = c.odometer end
+    for partId, c in pairs(perPart or {}) do
+      v.partOdometer[v.parts[partId] or partId] = c.odometer
+      if type(c.visualValue) == "number" and not c.visualState then v.paintLocked = true end
+    end
     v.engine.damageFrictionCoef, v.engine.damageIdleAVReadErrorRangeCoef = 1, 1
     v.engine.slowIgnitionErrorChance, v.engine.fastIgnitionErrorChance = 0, 0
     if v.devices.gearbox then v.devices.gearbox.damageFrictionCoef = 1 end
     if v.devices.clutch then v.devices.clutch.clutchPermanentlyDamaged = false end
-    v.partSnapshot = { odo = v.odometer, visual = v.paintVisual }
+    v.partSnapshot = { odo = v.odometer }
     v.partConditionCalls = v.partConditionCalls + 1
   end })
   sb.set("wheels", { wheels = v.wheels,
@@ -726,7 +731,7 @@ function World:vehicleReset(p, v)
   for _, wd in pairs(v.wheels) do wd.padGlazingFactor = 0 end
   for _, wd in pairs(v.wheels) do wd.brakeTorque = BRAKE_TORQUE end
   if v.partSnapshot then   -- the game re-applies the part conditions' snapshot (mileage + "new" integrity values)
-    v.odometer, v.paintVisual = v.partSnapshot.odo, v.partSnapshot.visual
+    v.odometer = v.partSnapshot.odo
     v.engine.slowIgnitionErrorChance, v.engine.fastIgnitionErrorChance = 0, 0
   end
   self:serverEvent("onVehicleReset", p.pid, v.vid, "{}")

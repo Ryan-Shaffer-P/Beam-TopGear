@@ -535,8 +535,8 @@ local function onDiag()
               sound = sound.method }
   pcall(function() r.selector = selDiag() end)
   if faults.mileage then
-    r.mileage = string.format("%s km, paint %s - %s", (commas(math.floor(faults.mileage.m / 1000)):gsub("^%$", "")),
-      tostring(faults.mileage.v), faults.mileageStatus or "not applied yet")
+    r.mileage = string.format("%s km - %s", (commas(math.floor(faults.mileage.m / 1000)):gsub("^%$", "")),
+      faults.mileageStatus or "not applied yet")
   end
   local t = state.target
   if t then r.target = string.format("%s at (%.0f, %.0f, %.0f)", tostring(t.label), t.x, t.y, t.z) end
@@ -631,10 +631,11 @@ if mileage and tgFaults.mileage ~= mileageKey then
     if next(fresh) and v and v.data and type(v.data.activeParts) == "table" then
       perPart = {}
       for partId, name in pairs(v.data.activeParts) do
-        if fresh[name] then perPart[partId] = { odometer = 0, integrityValue = 1, visualValue = 1 }; nFresh = nFresh + 1 end
+        if fresh[name] then perPart[partId] = { odometer = 0, integrityValue = 1, visualState = {} }; nFresh = nFresh + 1 end
       end
     end
-    local ok, err = pcall(pc.initConditions, perPart, mileage.m, nil, mileage.v)
+    -- (visual = {}: no paint aging - the game does it by locking each mesh's colour, which stops repaints showing)
+    local ok, err = pcall(pc.initConditions, perPart, mileage.m, nil, {})
     if ok then
       tgFaults.mileage, out._mileage, wearFresh = mileageKey, nFresh > 0 and ("ok, " .. nFresh .. " new part(s) at 0 km") or "ok", true
       tgFaults.ignOrig = nil   -- (the misfire chances have a new base)
@@ -846,7 +847,7 @@ local function runPhysicsFaults(afterReset)
   if type(m) == "table" and tonumber(m.m) then
     local fresh = {}
     for _, name in ipairs(type(m.fresh) == "table" and m.fresh or {}) do fresh[#fresh + 1] = string.format("%q", tostring(name)) end
-    mileage = string.format("{m=%d,v=%s,fresh={%s}}", math.floor(m.m), tostring(tonumber(m.v) or 1), table.concat(fresh, ","))
+    mileage = string.format("{m=%d,fresh={%s}}", math.floor(m.m), table.concat(fresh, ","))
   end
   local code = string.format(VLUA, "{" .. table.concat(items, ",") .. "}", afterReset and "true" or "false", mileage)
   car:queueLuaCommand(code)

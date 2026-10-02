@@ -548,11 +548,12 @@ it affordable ("$10,200 as a Death Trap").
 - **A worn car also has the mileage to match**, using BeamNG's own part-condition system - the same one
   career mode's used-car dealership uses: the odometer shows the mileage above, with the wear the game
   gives it (a little more engine, gearbox and clutch friction, a less steady idle, slower automatic
-  shifts) and **faded paint** (career's paint-age scale). It stays for the whole challenge - resets,
+  shifts). The paint is left alone: the game ages paint by locking each body panel's colour, which stops
+  repaints from showing (and only the owner would see it). It stays for the whole challenge - resets,
   repairs and fixing problems don't make the car newer. `/tg diag` shows it ("Car wear (mileage):
-  200,000 km, paint 0.88 - ok"). Because mileage already wears the idle, gearbox and clutch, the
+  200,000 km - ok"). Because mileage already wears the idle, gearbox and clutch, the
   **Rough idle, Worn gearbox and Slipping clutch** problems are switched off by default.
-- Everything is in `config.json` under `faults`: `mileageKm` and `paintWear` (one value per condition,
+- Everything is in `config.json` under `faults`: `mileageKm` (one value per condition,
   New first), `lossPerKm` (0.0000025), `scrapValue` (0.05), `fixPercent` (0.05), `fixMin` (500).
 
 The problems (the code and config.json call them *faults*):

@@ -540,7 +540,7 @@ t.test("the mod's own part changes (a fault taking a part off, a fix putting it 
 end)
 
 -- Mileage wear (0.9.12): BeamNG's part conditions, as career's used-car dealership sets them, by car condition
-t.test("mileage wear: each condition sets the car's odometer and paint wear through the game's part conditions", function()
+t.test("mileage wear: each condition sets the car's odometer through the game's part conditions (paint left alone)", function()
   local w = World.new({ files = F.files(F.twoRaces()) })
   local A, B, C = w:join("Alice"), w:join("Bob"), w:join("Carol")
   w:chat(A, "/tg start")
@@ -548,11 +548,11 @@ t.test("mileage wear: each condition sets the car's odometer and paint wear thro
   w:buy(A, "covet", "base_M"); w:buy(B, "covet", "base_M"); w:buy(C, "pessima", "base_M")
   w:step(10)
   t.eq(A.current.partConditionCalls, 0, "a New car is left alone")
-  t.eq(B.current.odometer, 60000 * 1000); t.eq(B.current.paintVisual, 0.945)
-  t.eq(C.current.odometer, 300000 * 1000); t.eq(C.current.paintVisual, 0.862)
+  t.eq(B.current.odometer, 60000 * 1000); t.eq(C.current.odometer, 300000 * 1000)
+  t.ok(not B.current.paintLocked and not C.current.paintLocked, "no paint aging: it would lock the mesh colours (no repaints)")
   w:chat(C, "/tg diag")
   w:step(1)
-  t.ok(w:chatHas(C, "Car wear (mileage): 300,000 km, paint 0.862 - ok"))
+  t.ok(w:chatHas(C, "Car wear (mileage): 300,000 km - ok"))
   w:assertClean()
 end)
 
@@ -655,7 +655,8 @@ t.test("a new engine sorts the engine's problems; the old one is scrap, so the n
   t.eq(A.current.partOdometer.covet_engine_turbo, 0, "the new engine starts at 0 km...")
   t.eq(A.current.odometer, 200000 * 1000, "...the rest of the car keeps a Beater's mileage")
   w:chat(A, "/tg diag"); w:step(1)
-  t.ok(w:chatHas(A, "Car wear (mileage): 200,000 km, paint 0.88 - ok, 1 new part(s) at 0 km"))
+  t.ok(w:chatHas(A, "Car wear (mileage): 200,000 km - ok, 1 new part(s) at 0 km"))
+  t.ok(not A.current.paintLocked, "a new part doesn't lock the paint either")
   w:resetCar(A); w:step(3)
   t.ok(math.abs(A.current.engine.damageFrictionCoef - 1) < 1e-9, "the sorted problems don't come back after a reset")
   t.eq(A.current.wheels[0].brakeTorque, 900)

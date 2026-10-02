@@ -241,8 +241,11 @@ Replacing parts (0.9.12): the client's `tg_rebuild` lists `changes` {slot, from,
 clears those problems and, if any, adds the old part's value back to the bill (scrap: no trade-in). Every changed slot
 goes in `p.freshParts` (slot -> part name; reset at purchase/refund) -> `mileage.fresh` -> VLUA `initConditions(perPart,
 ...)` with 0 km for parts found by NAME in `v.data.activeParts` (key `tgFaults.mileage` = m|fresh list).
+NO PAINT AGING (Ryan, in game: invisible at our mileages, and it broke repaints): the game ages paint via
+`setMeshColor` on every flexbody, which overrides later repaints - so the visual arg is `{}` (a table without `.paint`
+skips `setPaintCondition`); per-part entries use `visualState = {}`. Harness fake: a number visual sets `v.paintLocked`.
 Mileage wear (0.9.12): `CONDITION.mileage(p)` (by `CONDITION.level` = condition bought, fixes don't lower it) goes in
-`tg_faults` as `mileage = {m = metres, v = paint}`; VLUA calls `partCondition.initConditions(nil, m, nil, v)` (career's
+`tg_faults` as `mileage = {m = metres, fresh}`; VLUA calls `partCondition.initConditions(perPart, m, nil, {})` (career's
 `vehicleShopping` call) once per vehicle-Lua state (`tgFaults.mileage`) BEFORE the faults - it resets the engine/gearbox
 damage coefs and ignition chances, so it sets `wearFresh` (oil/idle/gearbox rescale from 1, ignition re-reads its base).
 The game re-applies its own snapshot on reset. Result -> `out._mileage` -> `/tg diag` "Car wear". NOT yet tried in game.
