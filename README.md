@@ -127,8 +127,8 @@ Race / Time trial**) or with `/tg setmode <n> race|trial`. The table shows each 
   you didn't reach before the time limit cost 50 each (none at all = DNF). Damage is NOT
   repaired afterwards. With several bays, raise the time limit (`/tg settime <n> <seconds>`
   or the course builder's Time limit box - available for every event).
-- **Fragile delivery:** once the results are in, every car that took part gets a free full
-  repair where it stands (upgrades and unfixed problems stay, like a tow).
+- **Fragile delivery:** damage costs time *and* stays on the car - there's no free repair
+  afterwards, so the dents count at the next inspection unless you pay for a repair at a workshop.
 - **Economy:** the least **energy** used wins - read from each player's own car: what's left in its
   fuel tanks *and* batteries, so petrol, diesel and electric cars compare fairly (an electric car is
   naturally efficient). Results show litres for fuel cars and kWh for electric ones, with the

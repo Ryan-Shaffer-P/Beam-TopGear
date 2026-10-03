@@ -2118,16 +2118,7 @@ finishEvent = function()
     sayAll(string.format("--   %s - %s", p.name, st))
     if p.run.status ~= "dsq" then playSound("out", p) end   -- towed/respawned drivers heard it at the time
   end
-  cleanupEventVehicles()
-  if e.type == "fragile" then
-    for _, p in pairs(game.players) do
-      if racing(p) and p.run.status ~= "dns" then
-        p.repairPending, p.damage = now(), 0
-        MP.TriggerClientEvent(p.pid, "tg_repair", "")
-      end
-    end
-    sayAll("The cars from the fragile delivery have been repaired, free of charge.")
-  end
+  cleanupEventVehicles()   -- (no free repair after a fragile delivery since 0.9.12: the dents are yours to pay for)
   game.solo, game.closeAt = nil, nil
   local n = game.stage
   local every = tonumber(cfg.workshopEvery) or 2
