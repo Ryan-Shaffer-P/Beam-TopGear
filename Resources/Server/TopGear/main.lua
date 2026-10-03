@@ -83,7 +83,8 @@ local DEFAULT_CONFIG = {
     mileageKm = { 0, 60000, 100000, 200000, 300000 },
     list = {                      -- factor = severity (see README)
       { id = "tires",      name = "Worn, underinflated tires",               factor = 0.3 },   -- pressure = 30% of normal
-      { id = "alignment",  name = "Knocked-out wheel alignment",             factor = 1.4 },   -- front toe to its limit + rear 40%
+      { id = "alignment",  name = "Knocked-out wheel alignment",             factor = 1.4,     -- front toe to its limit + rear 40%
+        pull = 0.015 },   -- and it pulls to one side (random per car): straight ahead moved this share of full steering
       { id = "bumpers",    name = "Missing bumpers" },
       { id = "engine",     name = "Tired engine (about -20% power)",         factor = 0.8 },
       { id = "brakes",     name = "Worn brakes (about -40% braking)",        factor = 0.6 },
@@ -380,6 +381,12 @@ local function loadConfig()
         if f.id == "starter" and f.factor == 0.35 then f.factor = 0.6 end
         if f.id == "fuelleak" and f.factor == 0.5 then f.factor = 1.0 end
         if f.id == "brakefade" and f.refresh == nil then f.refresh = 0.5 end
+      end
+    end
+    if not cfg.migrations.alignmentPull then   -- 0.9.12, Ryan: a knocked-out alignment that pulls to one side
+      cfg.migrations.alignmentPull, changed = true, true
+      for _, f in ipairs((cfg.faults or {}).list or {}) do
+        if f.id == "alignment" and f.pull == nil then f.pull = 0.015 end
       end
     end
     if not cfg.migrations.championTheme then   -- 0.9.12, Ryan: the Top Gear theme when the winner is announced
@@ -688,6 +695,9 @@ function CONDITION.problemName(p, id)   -- the name, with its "-20%" made to fit
     local left = CONDITION.scaled(f, CONDITION.severity(p))
     return (f.name:gsub("%-%d+%%", "-" .. math.floor((1 - left) * 100 + 0.5) .. "%%"))
   end
+  if id == "alignment" and p and p.alignSide and tonumber(f.pull) and f.pull > 0 then
+    return f.name .. (p.alignSide < 0 and " (pulls to the left)" or " (pulls to the right)")
+  end
   return f.name
 end
 function CONDITION.parse(text)   -- "3", "beater", "needs work" -> 3
@@ -779,7 +789,12 @@ local function sendFaults(p, test)
   for _, id in ipairs(p.faults or {}) do
     local f = faultDef(id)
     if f then
-      list[#list + 1] = { id = f.id, factor = CONDITION.scaled(f, sev), refresh = f.refresh,
+      local pull = tonumber(f.pull)
+      if f.id == "alignment" and pull and pull > 0 then   -- which way it pulls: picked once per car (kept through fixes)
+        if not p.alignSide then p.alignSide = math.random() < 0.5 and -1 or 1 end
+        pull = pull * sev * p.alignSide
+      else pull = nil end
+      list[#list + 1] = { id = f.id, factor = CONDITION.scaled(f, sev), refresh = f.refresh, pull = pull,
                           cutoutMin = f.cutoutMin and f.cutoutMin / calmer, cutoutMax = f.cutoutMax and f.cutoutMax / calmer,
                           blowMin = f.blowMin, blowMax = f.blowMax,
                           doomed = (f.id == "oilleak" and p.oilDoomed and not p.oilBlown) or nil }
@@ -1147,6 +1162,7 @@ local function refundCar(p)
   p.dealerParts = 0
   p.carVid, p.carModel, p.carConfig, p.carName, p.carPrice = nil, nil, nil, nil, 0
   p.boughtCondition, p.carNewPrice, p.conditionSaving, p.freshParts = nil, nil, nil, nil   -- (the condition can be changed again)
+  p.alignSide = nil   -- (the next car pulls whichever way it pulls)
   p.ready = false
 end
 
@@ -3210,6 +3226,7 @@ function TG_onDiag(pid, data)
   say(pid, "Sounds play via: " .. tostring(t.sound or "no clip played yet this session (one plays at the next GO, or try /tg soundtest)") .. (soundsOff[MP.GetPlayerName(pid)] and " - your sounds are OFF" or ""))
   if t.selector then say(pid, "Vehicle selector: " .. tostring(t.selector)) end
   if t.mileage then say(pid, "Car wear (mileage): " .. tostring(t.mileage)) end
+  if t.pull then say(pid, "Alignment pull: " .. tostring(t.pull)) end
   for _, e in ipairs(t.errors or {}) do say(pid, "Client error: " .. tostring(e)) end
 end
 
@@ -3265,6 +3282,7 @@ PLAYER_CMDS.fault = function(pid, name, args)
       for _, f in ipairs(cfg.faults.list) do
         if id == "" or id == f.id then
           list[#list + 1] = { id = f.id, factor = f.factor, cutoutMin = f.cutoutMin, cutoutMax = f.cutoutMax, refresh = f.refresh,
+                              pull = f.pull,   -- (a test alignment pulls right)
                               doomed = (f.id == "oilleak") or nil }   -- a test oil leak always blows (soon), so it can be seen
         end
       end

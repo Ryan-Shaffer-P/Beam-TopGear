@@ -697,6 +697,16 @@ function World:freshPhysics(p, v)
     v.partSnapshot = { odo = v.odometer }
     v.partConditionCalls = v.partConditionCalls + 1
   end })
+  -- BeamNG's steering rack (vehicle Lua hydros.lua): one hydro per tie rod, mirrored (inputFactor +1 / -1); the
+  -- mapping from steering input to beam length (cOut/cIn, multOut/multIn) is worked out once at spawn
+  v.hydros = {}
+  if not traits.noSteering then
+    for _, fac in ipairs({ 1, -1 }) do
+      v.hydros[#v.hydros + 1] = { inputSource = "steering_input", inputFactor = fac, inputCenter = 0, center = 1,
+                                  cOut = 1, cIn = 1, multOut = 0.1, multIn = 0.1 }
+    end
+  end
+  sb.set("hydros", { hydros = v.hydros })
   sb.set("wheels", { wheels = v.wheels,
     setABSBehavior = function(b) v.abs = b end, resetABSBehavior = function() v.abs = "realistic" end })
   sb.set("energyStorage", { getStorages = function()
@@ -743,6 +753,19 @@ function World:runVehicleLua(p, v, code)
   local c = p.client
   if c then c.vlua[#c.vlua + 1] = { gid = v.gid, code = code } end
   self.queue[#self.queue + 1] = { to = "vlua", pid = p.pid, vid = v.vid, gid = v.gid, code = code }
+end
+
+-- where the car's steering points with the wheel held straight, as a share of full steering (- left, + right):
+-- each steering hydro's command for input 0, turned back into steering input (they should all agree)
+function World:steerOffset(p)
+  local out
+  for _, h in ipairs(p.current.hydros or {}) do
+    local cmd = h.cOut   -- input 0 x inputFactor = 0 >= inputCenter: cOut + 0 x multOut
+    local d = (cmd - h.center) / h.multOut / h.inputFactor
+    if out and math.abs(out - d) > 1e-9 then error("steering hydros disagree: " .. out .. " vs " .. d) end
+    out = d
+  end
+  return out
 end
 
 -- a player gets round the reset lock (R / Insert): the game resets the car

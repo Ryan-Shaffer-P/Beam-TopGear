@@ -538,6 +538,7 @@ local function onDiag()
     r.mileage = string.format("%s km - %s", (commas(math.floor(faults.mileage.m / 1000)):gsub("^%$", "")),
       faults.mileageStatus or "not applied yet")
   end
+  if faults.pullStatus then r.pull = faults.pullStatus end
   local t = state.target
   if t then r.target = string.format("%s at (%.0f, %.0f, %.0f)", tostring(t.label), t.x, t.y, t.z) end
   pcall(function()
@@ -818,6 +819,28 @@ run("gearbox", function(f)   -- a worn gearbox: more friction in whatever gearbo
   tgFaults.gearbox = f
   out.gearbox = f and "ok" or "removed"
 end)
+-- the alignment pulls to one side: the steering rack's "straight ahead" moved by `d` of full steering (- left,
+-- + right). BeamNG works out each steering hydro's mapping (cOut/cIn) once at spawn - a reset keeps it - so the
+-- originals are kept per hydro and the offset is always applied to them (never twice).
+run("pull", function(d)
+  local hs = rawget(_G, "hydros") and hydros.hydros
+  if type(hs) ~= "table" then out.pull = "unavailable"; return end
+  tgFaults.pullOrig = tgFaults.pullOrig or setmetatable({}, { __mode = "k" })
+  local n = 0
+  for _, h in pairs(hs) do
+    if type(h) == "table" and h.inputSource == "steering_input" and type(h.cOut) == "number" and type(h.cIn) == "number"
+       and type(h.multOut) == "number" and type(h.multIn) == "number" and type(h.inputFactor) == "number" then
+      local o = tgFaults.pullOrig[h]
+      if not o then o = { cOut = h.cOut, cIn = h.cIn }; tgFaults.pullOrig[h] = o end
+      local shift = (d or 0) * h.inputFactor   -- what the steering input d would add to this hydro's command
+      h.cOut, h.cIn = o.cOut + shift * h.multOut, o.cIn + shift * h.multIn
+      n = n + 1
+    end
+  end
+  tgFaults.pull = d
+  if n == 0 then out.pull = "unavailable"; return end
+  out.pull = d and string.format("ok, %%+.3f on %%d steering hydro(s)", d, n) or "removed"
+end)
 local parts = {}
 for k, v in pairs(out) do parts[#parts + 1] = '"' .. k .. '":"' .. tostring(v):gsub('[%%c"\\%%]%%[]', ' ') .. '"' end
 obj:queueGameEngineLua("extensions.topgear.onVehicleFaultReport([[{" .. table.concat(parts, ",") .. "}]])")
@@ -842,6 +865,8 @@ local function runPhysicsFaults(afterReset)
   for id, f in pairs(faults.want) do
     if PHYSICS[id] then items[#items + 1] = string.format("[%q]=%s", id, tostring(tonumber(f.factor) or 1)) end
   end
+  local al = faults.want.alignment   -- (alignment is a setup fault - toe - that also pulls: that part is physics)
+  if al and tonumber(al.pull) and tonumber(al.pull) ~= 0 then items[#items + 1] = string.format("pull=%.5f", tonumber(al.pull)) end
   local m = faults.mileage
   local mileage = "nil"
   if type(m) == "table" and tonumber(m.m) then
@@ -862,6 +887,10 @@ function M.onVehicleFaultReport(js)
       if id == "_mileage" then
         faults.mileageStatus = tostring(st)
         if not tostring(st):find("^ok") then warn("mileage wear: " .. tostring(st)) end
+      elseif id == "pull" then   -- part of the alignment fault: it counts as applied if either the toe or the pull is
+        faults.pullStatus = tostring(st)
+        if tostring(st):find("^error") then warn("alignment pull: " .. tostring(st)) end
+        if faults.want.alignment and tostring(st):find("^ok") and faults.results.alignment ~= "ok" then faults.results.alignment = "ok" end
       else
       faults.results[id] = st
       -- "unavailable" is normal (the server swaps it for another fault); only a real error is worth a warning

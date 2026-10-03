@@ -584,7 +584,7 @@ The problems (the code and config.json call them *faults*):
 | id | Problem | What it does in the game |
 |---|---|---|
 | tires | Worn, underinflated tires | tire pressures set to 30% of normal (`$tirepressure_*`), never below the car's minimum |
-| alignment | Knocked-out alignment | front toe pushed to its limit, rear toe 40% of the way (`$toe_*`) |
+| alignment | Knocked-out alignment | **pulls to the left or right** (picked per car; the name says which): the steering's straight ahead is moved 1.5% of full steering (`pull`; Used half that, Death Trap x1.3) - hold a little opposite lock. Also front toe pushed to its limit, rear toe 40% of the way (`$toe_*`, cars that have it). `/tg diag`: "Alignment pull" |
 | bumpers | Missing bumpers | front/rear bumper slots emptied |
 | engine | Tired engine | engine output x0.8 |
 | brakes | Worn brakes | brake torque x0.6 |

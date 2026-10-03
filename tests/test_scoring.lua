@@ -86,7 +86,7 @@ t.test("each unfixed fault costs 3 points on its own line - not capped by a zero
   local A = w:join("Alice")
   w:chat(A, "/tg start")
   w:chat(A, "/tg fault take 2")
-  w.rolls = { 1, 2 }; w:buy(A, "covet", "base_M")   -- worn tyres, then (alignment won't fit: swapped)...
+  w.rolls = { 1, 2 }; w:buy(A, "covet", "base_M")   -- worn tyres, then a knocked-out alignment (it pulls)
   w:step(10)
   w:chat(A, "/tg ready")
   raceTo(w, A, 500, 900)

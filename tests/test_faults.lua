@@ -807,3 +807,57 @@ t.test("ignition cut-outs: a Used car every 4-8 minutes, a Death Trap closer tog
   t.ok(B.current.stalls >= 1, "a Death Trap has cut out within about 3 minutes")
   w2:assertClean()
 end)
+
+t.test("knocked-out alignment pulls to one side: steering's straight ahead moved, kept through resets, gone when fixed", function()
+  local cfg = F.twoRaces(); cfg.workshopEvery = 1
+  local w = World.new({ files = F.files(cfg) })
+  local A = w:join("Alice")
+  start(w, A, "covet", { "alignment" })
+  local d = w:steerOffset(A)
+  t.ok(math.abs(math.abs(d) - 0.015) < 1e-9, "1.5% of full steering, either way: " .. tostring(d))
+  local side = d < 0 and "left" or "right"
+  w:chat(A, "/tg diag"); w:step(3)
+  t.ok(w:chatHas(A, "Alignment pull: ok"), "/tg diag shows the pull")
+  w:chat(A, "/tg ready")
+  w:step(20)
+  w:resetCar(A); w:step(3)
+  t.ok(math.abs(w:steerOffset(A) - d) < 1e-9, "the same after a reset (applied to the originals, never twice)")
+  w:chat(A, "/tg tow"); w:step(5)
+  t.ok(math.abs(w:steerOffset(A) - d) < 1e-9, "and after a tow (a new car: applied again)")
+  w:chat(A, "/tg go")
+  w:waitFor(function() return w:state(A).phase == "event" end, 10, "GO")
+  w:drive(A, p(900), 40)
+  w:waitFor(function() return w:state(A).phase == "workshop" end, 10, "the workshop")
+  t.ok(w:chatHas(A, "Knocked-out wheel alignment (pulls to the " .. side .. ") (/tg fix alignment)"), "the name says which way")
+  w:chat(A, "/tg fix alignment"); w:step(5)
+  t.ok(math.abs(w:steerOffset(A)) < 1e-9, "fixed: straight ahead is straight again")
+  w:resetCar(A); w:step(3)
+  t.ok(math.abs(w:steerOffset(A)) < 1e-9, "and stays fixed")
+  w:assertClean()
+end)
+
+t.test("alignment pull: half as strong on a Used car; a car without steering hydros can't take it", function()
+  local base = F.twoRaces(); base.faults = nil   -- (the real severities)
+  local w = World.new({ files = F.files(base) })
+  local A, B = w:join("Alice"), w:join("Bob")
+  w:chat(A, "/tg start"); w:chat(A, "/tg condition used")
+  pin(w, { "alignment" }); w:buy(A, "covet", "base_M"); w:step(10)
+  t.ok(math.abs(math.abs(w:steerOffset(A)) - 0.0075) < 1e-9, "Used: 0.75%: " .. tostring(w:steerOffset(A)))
+  w.models.pessima.noSteering = true   -- (no toe settings in the test cars either)
+  w:chat(B, "/tg condition used")
+  pin(w, { "alignment", "brakes" }); w:buy(B, "pessima", "base_M"); w:step(10)
+  t.ok(B.current.wheels[0].brakeTorque < 1800, "swapped for worn brakes")
+  w:chat(A, "/tg fault caps")
+  t.ok(w:chatHas(A, "can't take alignment"), "remembered for that car")
+  w:assertClean()
+end)
+
+t.test("saved configs get the alignment pull once", function()
+  local list = World.new():serverConfig().faults.list
+  for _, f in ipairs(list) do if f.id == "alignment" then f.pull = nil end end
+  local cfg = F.twoRaces(); cfg.faults = { list = list }
+  cfg.migrations = { mileageOverlap = true, conditionPricing = true, faultTuning2 = true }
+  for _, f in ipairs(World.new({ files = F.files(cfg) }):serverConfig().faults.list) do
+    if f.id == "alignment" then t.eq(f.pull, 0.015) end
+  end
+end)
