@@ -85,7 +85,7 @@ local DEFAULT_CONFIG = {
     list = {                      -- factor = severity (see README)
       { id = "tires",      name = "Worn, underinflated tires",               factor = 0.3 },   -- pressure = 30% of normal
       { id = "alignment",  name = "Knocked-out wheel alignment",             factor = 1.4,     -- front toe to its limit + rear 40%
-        pull = 0.015 },   -- and it pulls to one side (random per car): straight ahead moved this share of full steering
+        pull = 0.018 },   -- and it pulls to one side (random per car): straight ahead moved this share of full steering
       { id = "bumpers",    name = "Missing bumpers" },
       { id = "engine",     name = "Tired engine (about -20% power)",         factor = 0.8 },
       { id = "brakes",     name = "Worn brakes (about -40% braking)",        factor = 0.6 },
@@ -388,6 +388,12 @@ local function loadConfig()
       cfg.migrations.alignmentPull, changed = true, true
       for _, f in ipairs((cfg.faults or {}).list or {}) do
         if f.id == "alignment" and f.pull == nil then f.pull = 0.015 end
+      end
+    end
+    if not cfg.migrations.alignmentPull2 then   -- 0.9.12, Ryan couldn't feel it on a Death Trap: +20% everywhere
+      cfg.migrations.alignmentPull2, changed = true, true
+      for _, f in ipairs((cfg.faults or {}).list or {}) do
+        if f.id == "alignment" and f.pull == 0.015 then f.pull = 0.018 end
       end
     end
     if not cfg.migrations.championTheme then   -- 0.9.12, Ryan: the Top Gear theme when the winner is announced

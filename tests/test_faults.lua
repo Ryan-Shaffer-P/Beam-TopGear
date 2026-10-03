@@ -814,7 +814,7 @@ t.test("knocked-out alignment pulls to one side: steering's straight ahead moved
   local A = w:join("Alice")
   start(w, A, "covet", { "alignment" })
   local d = w:steerOffset(A)
-  t.ok(math.abs(math.abs(d) - 0.015) < 1e-9, "1.5% of full steering, either way: " .. tostring(d))
+  t.ok(math.abs(math.abs(d) - 0.018) < 1e-9, "1.8% of full steering, either way: " .. tostring(d))
   local side = d < 0 and "left" or "right"
   w:chat(A, "/tg diag"); w:step(3)
   t.ok(w:chatHas(A, "Alignment pull: ok"), "/tg diag shows the pull")
@@ -842,7 +842,7 @@ t.test("alignment pull: half as strong on a Used car; a car without steering hyd
   local A, B = w:join("Alice"), w:join("Bob")
   w:chat(A, "/tg start"); w:chat(A, "/tg condition used")
   pin(w, { "alignment" }); w:buy(A, "covet", "base_M"); w:step(10)
-  t.ok(math.abs(math.abs(w:steerOffset(A)) - 0.0075) < 1e-9, "Used: 0.75%: " .. tostring(w:steerOffset(A)))
+  t.ok(math.abs(math.abs(w:steerOffset(A)) - 0.009) < 1e-9, "Used: 0.9%: " .. tostring(w:steerOffset(A)))
   w.models.pessima.noSteering = true   -- (no toe settings in the test cars either)
   w:chat(B, "/tg condition used")
   pin(w, { "alignment", "brakes" }); w:buy(B, "pessima", "base_M"); w:step(10)
@@ -858,7 +858,7 @@ t.test("saved configs get the alignment pull once", function()
   local cfg = F.twoRaces(); cfg.faults = { list = list }
   cfg.migrations = { mileageOverlap = true, conditionPricing = true, faultTuning2 = true }
   for _, f in ipairs(World.new({ files = F.files(cfg) }):serverConfig().faults.list) do
-    if f.id == "alignment" then t.eq(f.pull, 0.015) end
+    if f.id == "alignment" then t.eq(f.pull, 0.018, "(0.015, then +20%)") end
   end
 end)
 
@@ -889,5 +889,15 @@ t.test("worn synchros on a Death Trap: 90% (never 100%, where BeamNG breaks the 
   g = A.current.devices.gearbox
   t.eq(g.synchroWear[2], 0, "fixed: new synchros")
   t.eq(g.synchroWearCoef[2], 5e-6, "and the game's own wear is back")
+  w:assertClean()
+end)
+
+t.test("alignment pull on a Death Trap: 2.34% of full steering (Ryan: +20%)", function()
+  local base = F.twoRaces(); base.faults = nil
+  local w = World.new({ files = F.files(base) })
+  local A = w:join("Alice")
+  w:chat(A, "/tg start"); w:chat(A, "/tg condition death trap")
+  pin(w, { "alignment", "bumpers", "abs", "body" }); w:buy(A, "covet", "base_M"); w:step(10)
+  t.ok(math.abs(math.abs(w:steerOffset(A)) - 0.0234) < 1e-9, "Death Trap: " .. tostring(w:steerOffset(A)))
   w:assertClean()
 end)
