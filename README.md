@@ -330,7 +330,7 @@ Player commands: `/tg menu`, `/tg go`, `/tg unstick`, `/tg tow`, `/tg respawn`, 
   countdown. If on your BeamNG version the move repairs the car (with or without a reset), that
   roadside repair is billed once; the unstick itself stays free and costs no points.
 - **`/tg respawn`** (Status tab button, click twice) respawns your car where it is: free at the
-  dealership, the normal repair price in a workshop, otherwise the roadside repair + $500
+  dealership, the workshop repair price (15% off) in a workshop, otherwise the roadside repair + $500
   (`economy.respawnFee`) and -2 points.
   Mid-run it's a DSQ from that event; on the final leg it means 0 at the finale inspection. If your car has
   been lost or deleted, Respawn brings it back (that counts as a tow). Respawns are counted
@@ -387,7 +387,7 @@ Player commands: `/tg menu`, `/tg go`, `/tg unstick`, `/tg tow`, `/tg respawn`, 
     downforce or weight - and every performance part. Decided by the part's slot.
   - **Repairs:** changing parts rebuilds the car in BeamNG, which repairs it. Whenever a car's
     damage drops to near zero in a workshop (for any reason), that repair is billed at the
-    normal repair price. Paint never changes damage, so it's never billed.
+    workshop repair price (15% off). Paint never changes damage, so it's never billed.
   - **Resets are never fined in a workshop.** Parts, paint and tuning changes outside a
     workshop are refused.
   - Every workshop edit, rebuild and reset is logged in the server console (`[TopGear] edit by ...`),
