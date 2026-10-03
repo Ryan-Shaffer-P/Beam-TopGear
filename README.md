@@ -596,7 +596,7 @@ The problems (the code and config.json call them *faults*):
 | body | Accident damage | the car starts with 3,000 damage (repair costs, drivability) and some broken lights and glass; fixing the fault removes the dents |
 | starter | Weak starter | the starter motor at 60% of its strength: slow, labouring cranking before the engine catches (nasty with the ignition fault) |
 | clutch | Slipping clutch | **off by default** (mileage wear already wears the clutch). The clutch's own "permanently overheated" state: drive slips away under hard acceleration (manual gearboxes) |
-| synchros | Worn gearbox synchros | every gear's synchro 80% worn: gears grind and fight you on quick shifts (manual gearboxes) |
+| synchros | Worn gearbox synchros | every gear's synchro 80% worn (Used 40%, Death Trap 90% - never 100%, where BeamNG breaks the gear): gears grind and fight you on quick shifts, but grinding adds no more wear while the problem is there, so a gear never dies (manual gearboxes) |
 | turbo | Damaged turbo | the turbo's own damage: less boost, less power (turbo cars) |
 | brakefade | Glazed brake pads | fully glazed pads, kept glazed (re-glazed every 0.5 s - hard braking would otherwise scrub it off): the brakes squeal and lose up to 20% when hot (that's BeamNG's own glazing effect, at its maximum) |
 | abs | ABS failure | ABS switched off: the wheels lock under hard braking |

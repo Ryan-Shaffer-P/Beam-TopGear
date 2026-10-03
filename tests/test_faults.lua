@@ -392,7 +392,7 @@ t.test("starter, clutch, synchros, ABS on a manual car; turbo on a turbo car; on
   local a, b = A.current, B.current
   t.ok(math.abs(a.engine.starterTorque - 60) < 1e-9, "weak starter: x0.6 (it still starts)")
   t.eq(a.devices.clutch.clutchPermanentlyDamaged, true, "slipping clutch")
-  t.eq(a.devices.gearbox.synchroWear[2], 0.8, "worn synchros")
+  t.eq(a.devices.gearbox.synchroWear[2], 0.8, "worn synchros"); t.eq(a.devices.gearbox.synchroWearCoef[2], 0, "grinding adds no wear")
   t.eq(a.abs, "off", "no ABS")
   t.ok(math.abs(b.turboDamage - 0.02) < 1e-9, "damaged turbo")
   t.eq(b.wheels[0].padGlazingFactor, 1, "glazed pads")
@@ -860,4 +860,34 @@ t.test("saved configs get the alignment pull once", function()
   for _, f in ipairs(World.new({ files = F.files(cfg) }):serverConfig().faults.list) do
     if f.id == "alignment" then t.eq(f.pull, 0.015) end
   end
+end)
+
+t.test("worn synchros on a Death Trap: 90% (never 100%, where BeamNG breaks the gear), and grinding adds no wear", function()
+  local base = F.twoRaces(); base.faults = nil; base.workshopEvery = 1   -- (the real severities)
+  local w = World.new({ files = F.files(base) })
+  local A = w:join("Alice")
+  w:chat(A, "/tg start"); w:chat(A, "/tg condition death trap")
+  pin(w, { "synchros", "bumpers", "alignment", "abs" }); w:buy(A, "covet", "base_M"); w:step(10)   -- (manual)
+  local g = A.current.devices.gearbox
+  for i = 1, 4 do
+    t.ok(math.abs(g.synchroWear[i] - 0.9) < 1e-9, "gear " .. i .. ": 90% worn, not 1.04 or 1: " .. tostring(g.synchroWear[i]))
+    t.eq(g.synchroWearCoef[i], 0, "gear " .. i .. ": grinding adds no wear")
+    t.ok(g.gearRatios[i] ~= 0, "gear " .. i .. " still drives")
+  end
+  w:chat(A, "/tg ready")
+  w:step(20)
+  w:resetCar(A); w:step(3)
+  t.ok(math.abs(A.current.devices.gearbox.synchroWear[2] - 0.9) < 1e-9, "back after a reset")
+  t.eq(A.current.devices.gearbox.synchroWearCoef[2], 0)
+  w:chat(A, "/tg tow"); w:step(5)
+  w:chat(A, "/tg go")
+  w:waitFor(function() return w:state(A).phase == "event" end, 10, "GO")
+  w:drive(A, p(900), 40)
+  w:waitFor(function() return w:state(A).phase == "workshop" end, 10, "the workshop")
+  w:chat(A, "/tg setcash Alice 50000")
+  w:chat(A, "/tg fix synchros"); w:step(5)
+  g = A.current.devices.gearbox
+  t.eq(g.synchroWear[2], 0, "fixed: new synchros")
+  t.eq(g.synchroWearCoef[2], 5e-6, "and the game's own wear is back")
+  w:assertClean()
 end)

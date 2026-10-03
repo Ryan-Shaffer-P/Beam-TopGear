@@ -97,7 +97,7 @@ local DEFAULT_CONFIG = {
       { id = "body",       name = "Accident damage (dents, broken lights)",  factor = 3000 },  -- damage it starts with
       { id = "starter",    name = "Weak starter (slow to start)",            factor = 0.6 },   -- starter torque x this
       { id = "clutch",     name = "Slipping clutch", enabled = false },                        -- manuals; off: mileage wears the clutch
-      { id = "synchros",   name = "Worn gearbox synchros (gears grind)",     factor = 0.8 },   -- synchro wear (1 = gone); manuals
+      { id = "synchros",   name = "Worn gearbox synchros (gears grind)",     factor = 0.8 },   -- synchro wear (1 = gears break); manuals
       { id = "turbo",      name = "Damaged turbo (low boost)",               factor = 0.02 },  -- turbo damage; turbo cars
       { id = "brakefade",  name = "Glazed brake pads (squeal, fade when hot)", factor = 1,     -- pad glazing (1 = fully glazed:
         refresh = 0.5 },   -- the game's brakes x0.8 + squeal); re-glazed every `refresh` s - hard braking scrubs glazing off
@@ -672,7 +672,7 @@ CONDITION.SCALE = {
   tires = { "loss", floor = 0.15 }, engine = { "loss", floor = 0.5 }, brakes = { "loss", floor = 0.3 },
   starter = { "loss", noWorse = true },
   ignition = { "add" }, cooling = { "add" }, fuelleak = { "add" }, body = { "add" }, turbo = { "add" }, oilleak = { "add" },
-  synchros = { "add", cap = 1 }, brakefade = { "add", cap = 1 },
+  synchros = { "add", cap = 0.9 }, brakefade = { "add", cap = 1 },   -- (synchros: at 1 BeamNG breaks the gear - Ryan's Death Trap had no 2nd/3rd)
   idle = { "mult" }, gearbox = { "mult" },
 }
 function CONDITION.severity(p)

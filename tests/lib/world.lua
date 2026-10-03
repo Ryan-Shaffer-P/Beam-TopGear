@@ -653,7 +653,8 @@ function World:freshPhysics(p, v)
   if traits.manual then
     v.devices.clutch = { type = "frictionClutch", clutchPermanentlyDamaged = false }
     v.devices.gearbox = { type = "manualGearbox", gearRatios = { [-1] = -3.5, [0] = 0, [1] = 3.5, [2] = 2.1, [3] = 1.4, [4] = 1.0 },
-                          synchroWear = { [-1] = 0, [0] = 0, [1] = 0, [2] = 0, [3] = 0, [4] = 0 }, damageFrictionCoef = 1 }
+                          synchroWear = { [-1] = 0, [0] = 0, [1] = 0, [2] = 0, [3] = 0, [4] = 0 }, damageFrictionCoef = 1,
+                          synchroWearCoef = { [-1] = 5e-6, [0] = 5e-6, [1] = 5e-6, [2] = 5e-6, [3] = 5e-6, [4] = 5e-6 } }
   else
     v.devices.gearbox = { type = "automaticGearbox", damageFrictionCoef = 1 }
   end

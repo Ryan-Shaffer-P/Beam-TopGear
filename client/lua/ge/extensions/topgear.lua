@@ -750,13 +750,31 @@ run("clutch", function(on)   -- the clutch's own "permanently overheated" state:
   tgFaults.clutch = on
   out.clutch = on and "ok" or "removed"
 end)
-run("synchros", function(wear)   -- worn synchros grind on quick shifts (manual gearboxes)
+-- worn synchros grind on quick shifts (manual gearboxes). Grind, never break: BeamNG adds wear while a shift grinds
+-- (synchroWearCoef per gear) and at 100%% sets that gear's ratio to 0 - a gear with no drive. While the fault is on,
+-- the wear coefficients are 0, so the wear stays at the fault's level; the originals come back when it's fixed.
+run("synchros", function(wear)
   local n = 0
+  tgFaults.syncCoef = tgFaults.syncCoef or setmetatable({}, { __mode = "k" })
   for _, d in ipairs(devicesOfType("manualGearbox")) do
     if type(d.synchroWear) == "table" and type(d.gearRatios) == "table" then
-      for i in pairs(d.gearRatios) do
-        if wear then d.synchroWear[i] = math.max(d.synchroWear[i] or 0, wear) else d.synchroWear[i] = 0 end
+      local coef = type(d.synchroWearCoef) == "table" and d.synchroWearCoef or nil
+      local orig = coef and tgFaults.syncCoef[d]
+      if coef and wear and not orig then
+        orig = {}
+        for i, c in pairs(coef) do orig[i] = c end
+        tgFaults.syncCoef[d] = orig
       end
+      for i in pairs(d.gearRatios) do
+        if wear then
+          d.synchroWear[i] = math.max(d.synchroWear[i] or 0, math.min(wear, 0.95))
+          if coef then coef[i] = 0 end
+        else
+          d.synchroWear[i] = 0
+          if coef and orig and orig[i] ~= nil then coef[i] = orig[i] end
+        end
+      end
+      if not wear and coef then tgFaults.syncCoef[d] = nil end
       n = n + 1
     end
   end
