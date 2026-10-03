@@ -32,6 +32,7 @@ local DEFAULT_CONFIG = {
     repairCostPerDamage = 0.5,   -- $ per unit of BeamNG damage (calibrate with /tg status)
     repairCap           = 6000,
     repairMinDamage     = 50,
+    workshopDiscount    = 0.15,  -- a workshop repair costs this much less than the repair price (roadside help pays it all)
     -- Roadside help repairs the car too, so it costs the repair price x roadsideMarkup plus a service fee:
     -- tow = that + towFee (and delivery to the next start), respawn = that + respawnFee. The workshop is cheapest.
     roadsideMarkup      = 1.25,
@@ -1369,10 +1370,14 @@ local function pushIdle(pid) MP.TriggerClientEvent(pid, "tg_state", Util.JsonEnc
 ---------------------------------------------------------------------------
 -- Money helpers
 ---------------------------------------------------------------------------
-local function repairQuote(p)
-  local ec, d = cfg.economy, p.damage or 0
+-- the repair price for damage d: in a workshop (the discount), or full = the price roadside help is based on
+local function repairQuote(p, full, d)
+  local ec = cfg.economy
+  d = d or p.damage or 0
   if d < (ec.repairMinDamage or 50) then return 0 end
-  return math.floor(ec.repairBaseFee + math.min(d * ec.repairCostPerDamage, ec.repairCap) + 0.5)
+  local price = math.floor(ec.repairBaseFee + math.min(d * ec.repairCostPerDamage, ec.repairCap) + 0.5)
+  if full then return price end
+  return math.floor(price * (1 - (tonumber(ec.workshopDiscount) or 0)) + 0.5)
 end
 -- Scoring helpers (one table: main.lua is near Lua's 200-local limit) -------------------
 local Score = {}
@@ -1416,7 +1421,7 @@ local function pts(n) n = tonumber(n) or 0; return string.format("%g pt%s", n, n
 
 -- a repair done at the roadside (tow, respawn, an unstick that repaired the car): the workshop price x markup
 local function roadsideRepair(p)
-  return math.floor(repairQuote(p) * (tonumber(cfg.economy.roadsideMarkup) or 1.25) + 0.5)
+  return math.floor(repairQuote(p, true) * (tonumber(cfg.economy.roadsideMarkup) or 1.25) + 0.5)
 end
 -- kind = "tow" | "respawn": total, service fee, repair part
 local function roadsideCost(p, kind)
@@ -2510,7 +2515,7 @@ end
 -- charge = true: the owner pays the car's repair price (its damage when it was lost).
 function Save.restoreCar(p, charge, pos, dir)
   if not (p.pid and p.carModel) or p.carVid then return end
-  local cost = charge and repairQuote(p) or 0
+  local cost = charge and repairQuote(p, true) or 0
   p.restoring = { pos = pos, dir = dir, cost = cost }
   p.restoreAt, p.restoreTries = now() + 3, 0   -- (sent from the tick: the client mod may still be loading)
 end
@@ -2959,7 +2964,7 @@ function TG_onReport(pid, data)
     elseif (game.phase == "workshop" or rebuiltOutside) and not paidRecently and before >= (cfg.economy.repairMinDamage or 50)
        and nowDmg < before * 0.2 then
       -- the car got repaired (a part change rebuilds it, or a reset): bill what the repair would have cost
-      local cost = math.floor(cfg.economy.repairBaseFee + math.min(before * cfg.economy.repairCostPerDamage, cfg.economy.repairCap) + 0.5)
+      local cost = repairQuote(p, game.phase ~= "workshop", before)   -- (the workshop discount in a workshop)
       p.cash = p.cash - cost
       spend(p, "repairs", cost)
       say(p.pid, string.format("Your car was rebuilt%s, which repaired its damage - billed as a repair: -%s.",

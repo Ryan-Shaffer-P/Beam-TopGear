@@ -76,8 +76,8 @@ t.test("full session: five events, two workshops, faults, tow, reset fine, final
   -- workshop 1: a paid repair and a fault fix ---------------------------------------------
   w:damage(A, 2000)
   w:step(2.5)                          -- damage report reaches the server
-  w:chat(A, "/tg repair")              -- $250 + 2000 x 0.5 = $1,250
-  t.ok(w:chatHas(A, "Alice paid $1,250 to have their Ibishu Covet repaired."))
+  w:chat(A, "/tg repair")              -- ($250 + 2000 x 0.5) x 0.85 workshop discount = $1,063
+  t.ok(w:chatHas(A, "Alice paid $1,063 to have their Ibishu Covet repaired."))
   t.ok(w:chatHas(B, "The mechanics have looked your car over and found: Worn, underinflated tires (/tg fix tires)."), "diagnosed")
   w:chat(B, "/tg fix tires")           -- 5% of the Pessima's $5,000 new price = $250 -> the $500 minimum
   w:step(10)
@@ -115,8 +115,8 @@ t.test("full session: five events, two workshops, faults, tow, reset fine, final
 
   -- workshop 2: Alice is inspected with her dents, then pays to have them fixed ------------
   t.ok(w:chatHas(A, "Workshop inspection: damage 3000 -> 17.0/20"))
-  w:chat(A, "/tg repair")              -- $250 + 3000 x 0.5 = $1,750
-  t.ok(w:chatHas(A, "Alice paid $1,750 to have their Ibishu Covet repaired."))
+  w:chat(A, "/tg repair")              -- ($250 + 3000 x 0.5) x 0.85 = $1,488
+  t.ok(w:chatHas(A, "Alice paid $1,488 to have their Ibishu Covet repaired."))
   w:step(2)
   t.eq(A.current.damage, 0, "Alice's car repaired in game")
   w:chat(A, "/tg next")
@@ -143,14 +143,14 @@ t.test("full session: five events, two workshops, faults, tow, reset fine, final
   t.ok(w:chatHas(A, "Carol loses 5 pts: 1 tow/respawn (-2), 1 problem left unfixed (-3)."))
 
   -- the tally ----------------------------------------------------------------------------------
-  -- Alice: 10000 - 4500 car + 5 x 500 arrivals + prizes (6000 + 1500 + 3000 + 1500 + 6000) - 1250 - 1750 repairs = 23000
+  -- Alice: 10000 - 4500 car + 5 x 500 arrivals + prizes (6000 + 1500 + 3000 + 1500 + 6000) - 1063 - 1488 repairs = 23449
   --        points 10 + 3 + 6 + 3 + 10 + 19 drivability (20, 17, 20 averaged) = 51
   -- Bob:   10000 - 4500 Used car + 5 x 250 + (3000 + 6000 + 1500 + 6000 + 1500) - 500 fix - 1000 fine = 23250
   --        points 6 + 10 + 3 + 10 + 3 + 20 drivability - 2 illegal reset = 50
   -- Carol: 10000 - 6800 Used car + 0 arrivals + (1500 + 3000 + 6000 + 3000 + 3000) - 1000 tow = 18700
   --        (her car was undamaged when towed: 0 repair x 1.25 + $1,000 fee)
   --        points 3 + 6 + 10 + 6 + 6 + 16.7 drivability (20, 20, 10 averaged) - 2 tow - 3 unfixed fault = 42.7
-  t.eq(cash(A), 23000, "Alice's cash"); t.eq(cash(B), 23250, "Bob's cash"); t.eq(cash(C), 18700, "Carol's cash")
+  t.eq(cash(A), 23449, "Alice's cash"); t.eq(cash(B), 23250, "Bob's cash"); t.eq(cash(C), 18700, "Carol's cash")
   t.eq(w:state(A).points, 51, "Alice's points"); t.eq(w:state(B).points, 50, "Bob's points")
   t.ok(math.abs(w:state(C).points - 42.7) < 1e-9, "Carol's points: " .. tostring(w:state(C).points))
   t.ok(w:chatHas(A, "Alice and the Ibishu Covet win!"))
@@ -167,7 +167,7 @@ t.test("full session: five events, two workshops, faults, tow, reset fine, final
   local rows = {}
   for _, r in ipairs(s.rows) do rows[r.name] = r end
   t.eq(rows.Alice.place, 1); t.eq(rows.Bob.place, 2); t.eq(rows.Carol.place, 3)
-  t.eq(rows.Alice.repairs, 3000)
+  t.eq(rows.Alice.repairs, 2551)
   t.eq(rows.Bob.faultFixes, 500); t.eq(rows.Bob.condition, 1); t.eq(rows.Bob.conditionSaving, 500); t.eq(rows.Bob.resets, 1); t.eq(rows.Bob.fines, 1000)
   t.eq(rows.Carol.tows, 1); t.eq(rows.Carol.towCost, 1000); t.eq(rows.Carol.penalty, 5); t.eq(#rows.Carol.inspections, 3); t.eq(rows.Carol.faultsLeft[1], "Tired engine (about -20% power)")
   t.eq(rows.Carol.places[3], "1st (180 km/h)", "speed trap cell")

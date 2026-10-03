@@ -20,7 +20,7 @@ t.test("tow: repair x 1.25 + $1,000; the Status button shows the live price", fu
   local A = w:join("Alice")
   onTheRoad(w, A)
   t.eq(w:state(A).cash, 5500)   -- (the window is already open: /tg start opens it)
-  dent(w, A, 2000)   -- workshop price 250 + 1000 = 1250 -> roadside 1562.5 -> $1,563, + $1,000 fee = $2,563
+  dent(w, A, 2000)   -- full repair price 250 + 1000 = 1250 -> roadside 1562.5 -> $1,563, + $1,000 fee = $2,563
   w:step(2.5)
   t.ok(A.client.im.hasButton("Tow ($2,563)"), "the button shows the price")
   w:chat(A, "/tg tow")
@@ -49,7 +49,7 @@ t.test("the workshop is the cheapest repair", function()
   onTheRoad(w, A)
   dent(w, A, 2000)
   w:chat(A, "/tg quote")
-  t.ok(w:chatHas(A, "Repair: $1,250 (damage 2000)"), "workshop price $1,250 vs $1,563 at the roadside")
+  t.ok(w:chatHas(A, "Repair: $1,063 (damage 2000)"), "workshop price $1,250 - 15% = $1,063 vs $1,563 at the roadside")
   w:assertClean()
 end)
 
@@ -182,20 +182,20 @@ t.test("repairs, tows and respawns can go as deep into the red as they need; par
   local cash = w:state(A).cash
   t.eq(cash, -10876 + 6000)
   dent(w, A, 8000)
-  w:chat(A, "/tg repair")                  -- 250 + 4000 = $4,250, far past the limit: allowed
-  t.ok(w:chatHas(A, "Alice paid $4,250 to have their Ibishu Covet repaired."))
-  t.eq(w:state(A).cash, cash - 4250)
-  t.ok(w:chatHas(A, "You're overdrawn: -$9,126. Prize money pays it off. (Parts and problem fixes stop at -$1,500 overdrawn.)"))
+  w:chat(A, "/tg repair")                  -- (250 + 4000) x 0.85 = $3,613, far past the limit: allowed
+  t.ok(w:chatHas(A, "Alice paid $3,613 to have their Ibishu Covet repaired."))
+  t.eq(w:state(A).cash, cash - 3613)
+  t.ok(w:chatHas(A, "You're overdrawn: -$8,489. Prize money pays it off. (Parts and problem fixes stop at -$1,500 overdrawn.)"))
   w:chat(A, "/tg fix brakes")              -- $3,750: refused, way past -$1,500
-  t.ok(w:chatHas(A, "Fixing that costs $500 - you have -$9,126 (at most $1,500 overdrawn)."))
+  t.ok(w:chatHas(A, "Fixing that costs $500 - you have -$8,489 (at most $1,500 overdrawn)."))
   -- a part fitted with the game's own parts menu: refused by the server, taken back off the car
   local parts = {}
   for k, v in pairs(A.current.parts) do parts[k] = v end
   parts["/covet_engine/"] = "covet_engine_turbo"
   A.client.sb.env.core_vehicle_partmgmt.setPartsConfig(parts, true)
   w:pump(); w:step(4)
-  t.ok(w:chatHas(A, "You can't afford that: it costs $1,500 and you have -$9,126 (at most $1,500 overdrawn). Taking the parts back off."))
+  t.ok(w:chatHas(A, "You can't afford that: it costs $1,500 and you have -$8,489 (at most $1,500 overdrawn). Taking the parts back off."))
   t.eq(A.current.parts["/covet_engine/"], "covet_engine", "the part came back off")
-  t.eq(w:state(A).cash, -9126, "nothing charged")
+  t.eq(w:state(A).cash, -8489, "nothing charged")
   w:assertClean()
 end)

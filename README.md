@@ -285,8 +285,8 @@ where it was.
   car when they rejoin.
 - **One player drops and rejoins** (same name): their car comes back automatically where they left it,
   with its upgrades. During an event they were in, they're out of it (DNF), as before.
-- **Either way, the driver pays their car's repair price** for any damage it had - like a workshop
-  repair - but **no tow fee and no points lost**.
+- **Either way, the driver pays their car's repair price** for any damage it had (the full price,
+  without the workshop discount) - but **no tow fee and no points lost**.
 - Finished challenges keep their Results tab after a restart. `/tg stop` clears the save.
 
 ### Adding traffic (admins)
@@ -314,16 +314,17 @@ Player commands: `/tg menu`, `/tg go`, `/tg unstick`, `/tg tow`, `/tg respawn`, 
   editor) because BeamNG's own resets and rewinds all repair the car. Anyone who gets round
   the lock is fined $1,000 and loses 2 points.
 - **Roadside help costs the repair too.** Tow, respawn and an unstick that repairs the car all fix
-  it, so they all charge the **roadside repair** = the workshop repair price x 1.25
-  (`economy.roadsideMarkup`) - the workshop is always the cheapest place to get repaired. Tows and
+  it, so they all charge the **roadside repair** = the full repair price x 1.25
+  (`economy.roadsideMarkup`) - the workshop is always the cheapest place to get repaired: it takes 15% off
+  the full price (`economy.workshopDiscount`). Tows and
   respawns add a service fee on top and cost **2 points each** at the final standings
   (`scoring.towPenaltyPoints`). The Status tab buttons show the current price. Examples:
 
   | Damage | Workshop repair | Respawn | Tow |
   |---|---|---|---|
   | 0 (just stuck) | $0 | $500 | $1,000 |
-  | 2,000 (dented) | $1,250 | $2,063 | $2,563 |
-  | 10,000 (wrecked) | $5,250 | $7,063 | $7,563 |
+  | 2,000 (dented) | $1,063 | $2,063 | $2,563 |
+  | 10,000 (wrecked) | $4,463 | $7,063 | $7,563 |
 - **Stuck? `/tg unstick`** (or the Status tab button) is free: it sets the car upright in place
   and keeps all damage and problems. Only when (nearly) stopped, 15 s cooldown, not in a
   countdown. If on your BeamNG version the move repairs the car (with or without a reset), that
