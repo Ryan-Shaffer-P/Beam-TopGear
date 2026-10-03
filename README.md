@@ -267,7 +267,7 @@ Top Gear clips play at key moments. Who hears each one:
   driver it's about, `others` = everyone but them, `near` = within `nearRadius` metres) and `clips`;
   `crashDamage` sets what counts as a crash, and `"enabled": false` switches all sounds off.
 - **Adding clips:** put the `.mp3` in `MP3s/`, run `tools/convert-sounds.sh` (converts them to `.ogg`
-  in the client mod with matched loudness, using Docker), add the clip's name to `sounds.clips`, and
+  in the client mod, all at the same loud level (-9 LUFS), using Docker), add the clip's name to `sounds.clips`, and
   rebuild the client zip. The name is the file name without `.mp3` and any `_XXXXXXX` download tag.
 
 ### Server crashes and dropped connections
