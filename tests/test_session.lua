@@ -154,6 +154,10 @@ t.test("full session: five events, two workshops, faults, tow, reset fine, final
   t.eq(w:state(A).points, 51, "Alice's points"); t.eq(w:state(B).points, 50, "Bob's points")
   t.ok(math.abs(w:state(C).points - 42.7) < 1e-9, "Carol's points: " .. tostring(w:state(C).points))
   t.ok(w:chatHas(A, "Alice and the Ibishu Covet win!"))
+  for _, pl in ipairs({ A, B, C }) do   -- the Top Gear theme for everyone as the winner is announced
+    local heard = w:heard(pl)
+    t.eq(heard[#heard], "top-gear-theme-intro", pl.name .. " heard the theme last")
+  end
 
   -- the results window -----------------------------------------------------------------------
   w:step(3)

@@ -130,7 +130,7 @@ local DEFAULT_CONFIG = {
       crash      = { to = "near",   clips = { "oh-cock-james-may", "clarkson-poop-shot-out" } },
       trapRecord = { to = "all",    clips = { "poweeerr-jeremy-clarkson" } },                      -- fastest through the trap so far
       workshop   = { to = "all",    clips = { "james-may-says-cheese" } },                         -- workshop opens
-      champion   = { to = "all",    clips = { "clarksooon", "jeremy-clarkson-yeeeeeesss" } },      -- final results
+      champion   = { to = "all",    clips = { "top-gear-theme-intro" } },                          -- the overall winner is announced
     },
   },
 
@@ -380,6 +380,14 @@ local function loadConfig()
         if f.id == "starter" and f.factor == 0.35 then f.factor = 0.6 end
         if f.id == "fuelleak" and f.factor == 0.5 then f.factor = 1.0 end
         if f.id == "brakefade" and f.refresh == nil then f.refresh = 0.5 end
+      end
+    end
+    if not cfg.migrations.championTheme then   -- 0.9.12, Ryan: the Top Gear theme when the winner is announced
+      cfg.migrations.championTheme, changed = true, true   -- (only the old default clips; an admin's own choice is kept)
+      local ch = ((cfg.sounds or {}).events or {}).champion
+      if type(ch) == "table" and type(ch.clips) == "table" and #ch.clips == 2
+         and ch.clips[1] == "clarksooon" and ch.clips[2] == "jeremy-clarkson-yeeeeeesss" then
+        ch.clips = { "top-gear-theme-intro" }
       end
     end
     if not cfg.migrations.ignitionCutouts then   -- 0.9.12, Ryan's 2nd drive: cut-outs too rare; a Used car's every 4-8 min

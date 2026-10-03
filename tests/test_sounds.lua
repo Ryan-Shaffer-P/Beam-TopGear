@@ -194,3 +194,15 @@ t.test("sound config: moments and clips can be changed or switched off in config
   t.eq(#w2:heard(A2), 0, "all sounds off")
   w:assertClean(); w2:assertClean()
 end)
+
+t.test("saved configs with the old champion clips move to the theme once (an admin's own choice kept)", function()
+  local function load(clips)
+    local cfg = oneRace(); cfg.sounds = World.new():serverConfig().sounds
+    cfg.sounds.events.champion.clips = clips
+    return World.new({ files = F.files(cfg) }):serverConfig().sounds.events.champion.clips
+  end
+  local c = load({ "clarksooon", "jeremy-clarkson-yeeeeeesss" })
+  t.eq(#c, 1); t.eq(c[1], "top-gear-theme-intro")
+  c = load({ "baby-jesus" })
+  t.eq(#c, 1); t.eq(c[1], "baby-jesus", "a custom clip isn't touched")
+end)

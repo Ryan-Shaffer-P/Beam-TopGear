@@ -255,7 +255,7 @@ Top Gear clips play at key moments. Who hears each one:
 | A crash (1,500+ damage at once) | oh-cock-james-may, clarkson-poop-shot-out | players within 100 m |
 | Fastest through the speed trap so far | poweeerr-jeremy-clarkson | everyone |
 | Workshop opens | james-may-says-cheese | everyone |
-| Final results | clarksooon, jeremy-clarkson-yeeeeeesss | everyone |
+| The overall winner is announced | top-gear-theme-intro | everyone |
 
 - **`/tg sounds off`** / **`on`** (or the **Sounds** button in the Settings tab) mutes them for you.
 - **`/tg soundtest [clip]`** plays one to you (even when muted) and says which way your game played it.
