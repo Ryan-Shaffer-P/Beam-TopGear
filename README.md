@@ -563,8 +563,8 @@ it affordable ("$10,200 as a Death Trap").
   Beater's; a Used car's are half as bad, Needs work x0.75, a Death Trap's x1.3. A tired engine is -10% power on a
   Used car, -26% on a Death Trap; worn brakes -20% / -52%; a fuel leak 0.5 / 1.3 litres a minute; and a Death
   Trap's oil leak is likelier to be the doomed kind. Never past sane limits (tyres at least 15% pressure, at
-  least half the engine, 30% of the brakes), and the weak starter and ignition cut-outs never get harsher than
-  listed - a less worn car just cranks easier and cuts out less often. The names say how bad yours is ("Tired
+  least half the engine, 30% of the brakes), and the weak starter never gets harsher than listed - a less worn car
+  just cranks easier. Ignition cut-outs come further apart on a less worn car and closer together on a Death Trap. The names say how bad yours is ("Tired
   engine (about -26% power)"). `config.json`: `faults.severity` (Used, Needs work, Beater, Death Trap).
 - **Every problem still there at the end costs 3 points** (a penalty of its own).
 - They come back after a tow, a respawn or a reset until they're fixed or replaced.
@@ -588,7 +588,7 @@ The problems (the code and config.json call them *faults*):
 | bumpers | Missing bumpers | front/rear bumper slots emptied |
 | engine | Tired engine | engine output x0.8 |
 | brakes | Worn brakes | brake torque x0.6 |
-| ignition | Ignition problems | BeamNG's own misfire chances raised a little (+0.05: the engine stumbles), and every 3-8 minutes on the road the engine dies - **restart it yourself** (never during a countdown) |
+| ignition | Ignition problems | BeamNG's own misfire chances raised a little (+0.05: the engine stumbles), and every 2-4 minutes on the road (a Beater; Used 4-8, Death Trap about 1.5-3) the engine dies - **restart it yourself** (never during a countdown) |
 | cooling | Cooling problems | the radiator is damaged like in a front-end crash: coolant leaks and the engine overheats when pushed |
 | suspension | Worn-out suspension | springs and dampers at their softest; on cars without adjustable suspension the anti-roll bars come off |
 | fuelleak | Fuel leak | 1 litre a minute drains from the tank on the road (it matters in the economy run) |

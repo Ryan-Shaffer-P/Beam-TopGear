@@ -120,7 +120,7 @@ t.test("ignition: misfires raised, and the engine dies now and then on the road 
   w:step(300)
   t.eq(A.current.stalls, 0, "no cut-outs at the dealership")
   w:chat(A, "/tg ready")
-  w:step(490)                     -- a cut-out comes every 180-480 s (halved from 90-240 s after Ryan's drive)
+  w:step(250)                     -- a cut-out comes every 120-240 s (a Beater's; test fixtures pin severity 1)
   t.ok(A.current.stalls >= 1, "the engine died on the road")
   t.eq(A.current.ignition, 0, "and stays off until the player restarts it")
   t.ok(w:sawMessage(A, "Your engine just died! Restart it."))
@@ -708,10 +708,22 @@ t.test("Ryan's fault tuning: saved configs move to the new values once (custom v
   local cfg = F.twoRaces(); cfg.faults = { list = list }; cfg.migrations = { mileageOverlap = true, conditionPricing = true }
   local by = {}
   for _, f in ipairs(World.new({ files = F.files(cfg) }):serverConfig().faults.list) do by[f.id] = f end
-  t.eq(by.ignition.factor, 0.05); t.eq(by.ignition.cutoutMin, 180); t.eq(by.ignition.cutoutMax, 480)
+  t.eq(by.ignition.factor, 0.05); t.eq(by.ignition.cutoutMin, 120); t.eq(by.ignition.cutoutMax, 240)   -- (then 0.9.12's 2nd tuning)
   t.eq(by.starter.factor, 0.6)
   t.eq(by.fuelleak.factor, 0.7, "a custom value isn't touched")
   t.eq(by.brakefade.refresh, 0.5)
+end)
+
+t.test("ignition cut-outs: saved configs at 180-480 s move to 120-240 s once (custom values kept)", function()
+  local function load(min, max)
+    local list = World.new():serverConfig().faults.list
+    for _, f in ipairs(list) do if f.id == "ignition" then f.cutoutMin, f.cutoutMax = min, max end end
+    local cfg = F.twoRaces(); cfg.faults = { list = list }
+    cfg.migrations = { mileageOverlap = true, conditionPricing = true, faultTuning2 = true }
+    for _, f in ipairs(World.new({ files = F.files(cfg) }):serverConfig().faults.list) do if f.id == "ignition" then return f end end
+  end
+  local f = load(180, 480); t.eq(f.cutoutMin, 120); t.eq(f.cutoutMax, 240)
+  f = load(100, 200); t.eq(f.cutoutMin, 100, "a custom value isn't touched"); t.eq(f.cutoutMax, 200)
 end)
 
 t.test("glazed pads stay glazed through a hard stop (the game scrubs glazing off as you brake)", function()
@@ -774,16 +786,24 @@ t.test("more worn cars have worse problems: each problem's strength scales with 
   w:assertClean()
 end)
 
-t.test("ignition cut-outs come less often on a less worn car, never more often than listed", function()
+t.test("ignition cut-outs: a Used car every 4-8 minutes, a Death Trap closer together than listed", function()
   local base = F.twoRaces(); base.faults = nil
   local w = World.new({ files = F.files(base) })
   local A = w:join("Alice")
   w:chat(A, "/tg start"); w:chat(A, "/tg condition used")
   pin(w, { "ignition" }); w:buy(A, "covet", "base_M"); w:step(10)
   w:chat(A, "/tg ready")
-  w:step(355)   -- a Used car's cut-outs: 360-960 s (180-480 / 0.5)
-  t.eq(A.current.stalls, 0, "none in the first 6 minutes")
-  w:step(610)
-  t.ok(A.current.stalls >= 1, "but one by 16 minutes")
+  w:step(235)   -- a Used car's cut-outs: 240-480 s (120-240 / 0.5) - Ryan: "every 4-8 mins"
+  t.eq(A.current.stalls, 0, "none in the first 4 minutes")
+  w:step(250)
+  t.ok(A.current.stalls >= 1, "but one by 8 minutes")
   w:assertClean()
+  local w2 = World.new({ files = F.files(base) })
+  local B = w2:join("Alice")   -- (the admin)
+  w2:chat(B, "/tg start"); w2:chat(B, "/tg condition death trap")
+  pin(w2, { "ignition", "bumpers", "alignment", "abs" }); w2:buy(B, "covet", "base_M"); w2:step(10)   -- (a Death Trap has 4)
+  w2:chat(B, "/tg ready")
+  w2:step(190)  -- a Death Trap's: about 92-185 s (/ 1.3)
+  t.ok(B.current.stalls >= 1, "a Death Trap has cut out within about 3 minutes")
+  w2:assertClean()
 end)

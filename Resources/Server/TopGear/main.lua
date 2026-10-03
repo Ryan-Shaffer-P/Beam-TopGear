@@ -88,7 +88,7 @@ local DEFAULT_CONFIG = {
       { id = "engine",     name = "Tired engine (about -20% power)",         factor = 0.8 },
       { id = "brakes",     name = "Worn brakes (about -40% braking)",        factor = 0.6 },
       { id = "ignition",   name = "Ignition problems (misfires, cuts out)",  factor = 0.05,    -- extra misfire chance
-        cutoutMin = 180, cutoutMax = 480 },                                                   -- seconds between cut-outs
+        cutoutMin = 120, cutoutMax = 240 },   -- seconds between cut-outs (a Beater's; / severity: Used 4-8 min)
       { id = "cooling",    name = "Cooling problems (leaking radiator)",     factor = 0.05 },  -- radiator damage (0.1 = wrecked)
       { id = "suspension", name = "Worn-out suspension (soft and bouncy)" },                   -- softest springs/dampers, or no anti-roll bars
       { id = "fuelleak",   name = "Fuel leak",                                factor = 1.0 },   -- litres per minute
@@ -380,6 +380,12 @@ local function loadConfig()
         if f.id == "starter" and f.factor == 0.35 then f.factor = 0.6 end
         if f.id == "fuelleak" and f.factor == 0.5 then f.factor = 1.0 end
         if f.id == "brakefade" and f.refresh == nil then f.refresh = 0.5 end
+      end
+    end
+    if not cfg.migrations.ignitionCutouts then   -- 0.9.12, Ryan's 2nd drive: cut-outs too rare; a Used car's every 4-8 min
+      cfg.migrations.ignitionCutouts, changed = true, true   -- (120-240 s / severity 0.5); only the old default
+      for _, f in ipairs((cfg.faults or {}).list or {}) do
+        if f.id == "ignition" and f.cutoutMin == 180 and f.cutoutMax == 480 then f.cutoutMin, f.cutoutMax = 120, 240 end
       end
     end
     if not cfg.migrations.conditionPricing then   -- 0.9.12: condition pricing; mileage 60k/100k/200k/300k km
@@ -761,7 +767,7 @@ local function sendFaults(p, test)
   if not p.pid then return end
   local list, setup = {}, false
   local sev = CONDITION.severity(p)   -- more worn, worse problems
-  local calmer = sev < 1 and sev or 1   -- (ignition cut-outs: further apart on a less worn car, never closer than listed)
+  local calmer = sev > 0 and sev or 1   -- (ignition cut-outs: further apart on a less worn car, closer on a Death Trap)
   for _, id in ipairs(p.faults or {}) do
     local f = faultDef(id)
     if f then
