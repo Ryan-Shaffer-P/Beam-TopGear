@@ -839,7 +839,7 @@ t.test("knocked-out alignment pulls to one side: steering's straight ahead moved
   local A = w:join("Alice")
   start(w, A, "covet", { "alignment" })
   local d = w:steerOffset(A)
-  t.ok(math.abs(math.abs(d) - 0.018) < 1e-9, "1.8% of full steering, either way: " .. tostring(d))
+  t.ok(math.abs(math.abs(d) - 0.028) < 1e-9, "2.8% of full steering, either way: " .. tostring(d))
   local side = d < 0 and "left" or "right"
   w:chat(A, "/tg diag"); w:step(3)
   t.ok(w:chatHas(A, "Alignment pull: ok"), "/tg diag shows the pull")
@@ -867,7 +867,7 @@ t.test("alignment pull: half as strong on a Used car; a car without steering hyd
   local A, B = w:join("Alice"), w:join("Bob")
   w:chat(A, "/tg start"); w:chat(A, "/tg condition used")
   pin(w, { "alignment" }); w:buy(A, "covet", "base_M"); w:step(10)
-  t.ok(math.abs(math.abs(w:steerOffset(A)) - 0.009) < 1e-9, "Used: 0.9%: " .. tostring(w:steerOffset(A)))
+  t.ok(math.abs(math.abs(w:steerOffset(A)) - 0.014) < 1e-9, "Used: 1.4%: " .. tostring(w:steerOffset(A)))
   w.models.pessima.noSteering = true   -- (no toe settings in the test cars either)
   w:chat(B, "/tg condition used")
   pin(w, { "alignment", "brakes" }); w:buy(B, "pessima", "base_M"); w:step(10)
@@ -883,7 +883,7 @@ t.test("saved configs get the alignment pull once", function()
   local cfg = F.twoRaces(); cfg.faults = { list = list }
   cfg.migrations = { mileageOverlap = true, conditionPricing = true, faultTuning2 = true }
   for _, f in ipairs(World.new({ files = F.files(cfg) }):serverConfig().faults.list) do
-    if f.id == "alignment" then t.eq(f.pull, 0.018, "(0.015, then +20%)") end
+    if f.id == "alignment" then t.eq(f.pull, 0.028, "(0.015, then +20%, then +1 point)") end
   end
 end)
 
@@ -917,13 +917,13 @@ t.test("worn synchros on a Death Trap: 90% (never 100%, where BeamNG breaks the 
   w:assertClean()
 end)
 
-t.test("alignment pull on a Death Trap: 2.34% of full steering (Ryan: +20%)", function()
+t.test("alignment pull on a Death Trap: 3.64% of full steering (Ryan: +20%, then +1 point)", function()
   local base = F.twoRaces(); base.faults = nil
   local w = World.new({ files = F.files(base) })
   local A = w:join("Alice")
   w:chat(A, "/tg start"); w:chat(A, "/tg condition death trap")
   pin(w, { "alignment", "brakefade", "abs", "body" }); w:buy(A, "covet", "base_M"); w:step(10)
-  t.ok(math.abs(math.abs(w:steerOffset(A)) - 0.0234) < 1e-9, "Death Trap: " .. tostring(w:steerOffset(A)))
+  t.ok(math.abs(math.abs(w:steerOffset(A)) - 0.0364) < 1e-9, "Death Trap: " .. tostring(w:steerOffset(A)))
   w:assertClean()
 end)
 
@@ -937,7 +937,7 @@ t.test("admin fault test 'as' a condition: the same strengths as a car bought th
   t.ok(math.abs(A.current.engine.outputTorqueState - 0.9) < 1e-9, "Used: -10% power, not the listed -20%")
   w:chat(A, "/tg fault testoff"); w:step(3)
   w:chat(A, "/tg fault test alignment as death trap"); w:step(3)
-  t.ok(math.abs(w:steerOffset(A) - 0.0234) < 1e-9, "Death Trap: a 2.34% pull (to the right): " .. tostring(w:steerOffset(A)))
+  t.ok(math.abs(w:steerOffset(A) - 0.0364) < 1e-9, "Death Trap: a 3.64% pull (to the right): " .. tostring(w:steerOffset(A)))
   w:chat(A, "/tg fault testoff"); w:step(3)
   w:chat(A, "/tg fault test engine"); w:step(3)
   t.ok(w:chatHas(A, "(listed strengths)"), "no condition: as listed")
@@ -1037,4 +1037,16 @@ t.test("saved configs: the slipping clutch gets its grip factor once (switched o
   for _, f in ipairs(World.new({ files = F.files(cfg) }):serverConfig().faults.list) do
     if f.id == "clutch" then t.eq(f.factor, 0.6); t.eq(f.enabled, false) end
   end
+end)
+
+t.test("saved configs at the 1.8% alignment pull move to 2.8% once (custom values kept)", function()
+  local function load(pull)
+    local list = World.new():serverConfig().faults.list
+    for _, f in ipairs(list) do if f.id == "alignment" then f.pull = pull end end
+    local cfg = F.twoRaces(); cfg.faults = { list = list }
+    cfg.migrations = { mileageOverlap = true, conditionPricing = true, faultTuning2 = true, alignmentPull = true, alignmentPull2 = true }
+    for _, f in ipairs(World.new({ files = F.files(cfg) }):serverConfig().faults.list) do if f.id == "alignment" then return f.pull end end
+  end
+  t.eq(load(0.018), 0.028)
+  t.eq(load(0.025), 0.025, "a custom value isn't touched")
 end)

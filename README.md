@@ -613,7 +613,7 @@ The problems (the code and config.json call them *faults*):
 | id | Problem | What it does in the game |
 |---|---|---|
 | tires | Worn, underinflated tires | tire pressures set to 30% of normal (`$tirepressure_*`), never below the car's minimum |
-| alignment | Knocked-out alignment | **pulls to the left or right** (picked per car; the name says which): the steering's straight ahead is moved 1.8% of full steering (`pull`; Used half that, Death Trap x1.3 = 2.3%) - hold a little opposite lock. Also front toe pushed to its limit, rear toe 40% of the way (`$toe_*`, cars that have it). `/tg diag`: "Alignment pull" |
+| alignment | Knocked-out alignment | **pulls to the left or right** (picked per car; the name says which): the steering's straight ahead is moved 2.8% of full steering (`pull`; Used half that, Death Trap x1.3 = 3.64%) - hold a little opposite lock. Also front toe pushed to its limit, rear toe 40% of the way (`$toe_*`, cars that have it). `/tg diag`: "Alignment pull" |
 | engine | Tired engine | engine output x0.8 |
 | brakes | Worn brakes | brake torque x0.6 |
 | ignition | Ignition problems (misfires, cuts out, slow to start) | BeamNG's own misfire chances raised a little (+0.05: the engine stumbles), every 2-4 minutes on the road (a Beater; Used 4-8, Death Trap about 1.5-3) the engine dies - **restart it yourself** (never during a countdown) - and a **weak starter**: the starter motor at 60% of its strength (`starter`; Used 80%, never weaker than listed), slow, labouring cranking before the engine catches. (Until 0.9.13 the weak starter was a problem of its own; saved configs and challenges move over by themselves, a custom starter strength included.) |
