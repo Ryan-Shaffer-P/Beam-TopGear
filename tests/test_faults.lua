@@ -8,7 +8,7 @@ local WIN = "Top Gear Challenge"
 
 -- the draw order is the fault list's order, minus faults already drawn / known not to fit the car
 local ORDER = { "tires", "alignment", "engine", "brakes", "ignition", "cooling", "suspension", "fuelleak", "body",
-                "starter", "clutch", "synchros", "turbo", "brakefade", "abs", "oilleak", "idle", "gearbox" }
+                "clutch", "synchros", "turbo", "brakefade", "abs", "oilleak", "idle", "gearbox" }
 -- off by default since 0.9.12 (the car condition's mileage wear does the same); allFaults() switches them back on
 local OFF = { clutch = true, idle = true, gearbox = true }
 local function allFaults(cfg)
@@ -269,7 +269,7 @@ t.test("saved configs with the old 5-fault menu get every fault; custom severiti
     { id = "brakes", name = "Brakes", payout = 3600, factor = 0.6 } } }
   local w = World.new({ files = F.files(F.config({}, { faults = old })) })
   local fl = w:serverConfig().faults
-  t.eq(#fl.list, 18)
+  t.eq(#fl.list, 17)
   t.eq(fl.maxPerCar, 4, "the old limit of 3 becomes 4")
   local byId = {}
   for _, f in ipairs(fl.list) do byId[f.id] = f end
@@ -374,9 +374,9 @@ t.test("admin fault test: a button per fault, and the timed faults act outside a
   local A = w:join("Alice")
   w:chat(A, "/tg menu"); w:step(2.5)
   for _, name in ipairs({ "Worn, underinflated tires", "Knocked-out wheel alignment", "Tired engine (about -20% power)",
-      "Worn brakes (about -40% braking)", "Ignition problems (misfires, cuts out)", "Cooling problems (leaking radiator)",
+      "Worn brakes (about -40% braking)", "Ignition problems (misfires, cuts out, slow to start)", "Cooling problems (leaking radiator)",
       "Worn-out suspension (soft and bouncy)", "Fuel leak", "Accident damage (missing bumpers, dents, broken lights)",
-      "Weak starter (slow to start)", "Slipping clutch", "Worn gearbox synchros (gears grind)", "Damaged turbo (low boost)",
+      "Slipping clutch", "Worn gearbox synchros (gears grind)", "Damaged turbo (low boost)",
       "Glazed brake pads (squeal, fade when hot)", "ABS failure (wheels lock)", "Oil leak (runs hot - might blow the engine)",
       "Rough idle (hunts and stalls)", "Worn gearbox (power lost to friction)" }) do
     t.ok(A.client.im.hasButton("Test: " .. name), "Test button for " .. name)
@@ -390,7 +390,7 @@ t.test("admin fault test: a button per fault, and the timed faults act outside a
   w:step(30)
   t.ok(A.current.fuel < f0, "the test leak leaks")
 
-  A.client.im.click("Test: Ignition problems (misfires, cuts out)##ft1_ignition")
+  A.client.im.click("Test: Ignition problems (misfires, cuts out, slow to start)##ft1_ignition")
   w:step(3)
   t.ok(w:chatHas(A, "Fault test - fuelleak: removed"), "the previous test fault comes off")
   t.ok(w:chatHas(A, "Fault test - ignition: ok"))
@@ -405,7 +405,7 @@ t.test("starter, clutch, synchros, ABS on a manual car; turbo on a turbo car; on
   local A, B = w:join("Alice"), w:join("Bob")
   w:chat(A, "/tg start")
   w:chat(A, "/tg fault take 4"); w:chat(B, "/tg fault take 3")
-  pin(w, { "starter", "clutch", "synchros", "abs" }, nil, true)
+  pin(w, { "ignition", "clutch", "synchros", "abs" }, nil, true)
   w:buy(A, "covet", "base_M")        -- manual, no turbo
   -- Bob draws a clutch and synchros (no manual gearbox: swapped) and a turbo; the swaps are pinned to brakefade/oilleak
   pin(w, { "clutch", "synchros", "turbo", "brakefade", "oilleak" }, nil, true)
@@ -413,7 +413,7 @@ t.test("starter, clutch, synchros, ABS on a manual car; turbo on a turbo car; on
   w:buy(B, "pessima", "base_M")      -- automatic, turbo
   w:step(15)
   local a, b = A.current, B.current
-  t.ok(math.abs(a.engine.starterTorque - 60) < 1e-9, "weak starter: x0.6 (it still starts)")
+  t.ok(math.abs(a.engine.starterTorque - 60) < 1e-9, "ignition problems include a weak starter: x0.6 (it still starts)")
   t.eq(a.devices.clutch.clutchPermanentlyDamaged, true, "slipping clutch")
   t.eq(a.devices.gearbox.synchroWear[2], 0.8, "worn synchros"); t.eq(a.devices.gearbox.synchroWearCoef[2], 0, "grinding adds no wear")
   t.eq(a.abs, "off", "no ABS")
@@ -438,7 +438,7 @@ end)
 local function oilCar(w, A, chance)
   w:chat(A, "/tg start")
   w:chat(A, "/tg condition beater")    -- (an oil leak needs a Beater or worse)
-  pin(w, { "oilleak", "brakes", "starter" }); w.chances = { chance }
+  pin(w, { "oilleak", "brakes", "cooling" }); w.chances = { chance }
   w:buy(A, "covet", "base_M")
   w:step(10)
   w:chat(A, "/tg ready")
@@ -498,9 +498,9 @@ t.test("saved configs with the 10 faults get the 9 new ones added", function()
   end
   local w = World.new({ files = F.files(F.config({}, { faults = { list = ten }, migrations = { faults10 = true, tires30 = true } })) })
   local fl = w:serverConfig().faults.list
-  t.eq(#fl, 18, "(missing bumpers is part of accident damage since 0.9.13)")
+  t.eq(#fl, 17, "(missing bumpers and the weak starter merged into others since 0.9.13)")
   t.eq(fl[1].factor, 0.5, "existing faults untouched")
-  t.eq(fl[16].id, "oilleak"); t.eq(fl[16].blowChance, 0.2)
+  t.eq(fl[15].id, "oilleak"); t.eq(fl[15].blowChance, 0.2)
 end)
 
 t.test("rough idle and a worn gearbox (manual or automatic), re-applied after a reset without stacking", function()
@@ -669,7 +669,7 @@ t.test("a new engine sorts the engine's problems; the old one is scrap, so the n
   t.ok(math.abs(e.damageFrictionCoef - 1.5) < 1e-9 and math.abs(e.slowIgnitionErrorChance - 0.05) < 1e-9, "oil leak + misfires")
   local before = w:state(A).cash
   fit(w, A, "/covet_engine/", "covet_engine_turbo")   -- stock $2,000 -> turbo $3,200
-  t.ok(w:chatHas(A, "The new part sorted: Ignition problems (misfires, cuts out), Oil leak (runs hot - might blow the engine). The old one was scrap - no trade-in."))
+  t.ok(w:chatHas(A, "The new part sorted: Ignition problems (misfires, cuts out, slow to start), Oil leak (runs hot - might blow the engine). The old one was scrap - no trade-in."))
   t.eq(before - w:state(A).cash, 3200 + 300, "the turbo engine's full $3,200 (not the $1,200 difference) + labour")
   w:step(10)
   e = A.current.engine
@@ -724,15 +724,16 @@ t.test("Ryan's fault tuning: saved configs move to the new values once (custom v
   local list = World.new():serverConfig().faults.list
   for _, f in ipairs(list) do
     if f.id == "ignition" then f.factor, f.cutoutMin, f.cutoutMax = 0.1, 90, 240 end
-    if f.id == "starter" then f.factor = 0.35 end
     if f.id == "fuelleak" then f.factor = 0.7 end   -- an admin's own value: kept
     if f.id == "brakefade" then f.refresh = nil end
   end
+  for _, f in ipairs(list) do if f.id == "ignition" then f.starter = nil end end   -- (as a 0.9.12 config: a starter fault of its own)
+  list[#list + 1] = { id = "starter", name = "Weak starter (slow to start)", factor = 0.35 }
   local cfg = F.twoRaces(); cfg.faults = { list = list }; cfg.migrations = { mileageOverlap = true, conditionPricing = true }
   local by = {}
   for _, f in ipairs(World.new({ files = F.files(cfg) }):serverConfig().faults.list) do by[f.id] = f end
   t.eq(by.ignition.factor, 0.05); t.eq(by.ignition.cutoutMin, 120); t.eq(by.ignition.cutoutMax, 240)   -- (then 0.9.12's 2nd tuning)
-  t.eq(by.starter.factor, 0.6)
+  t.eq(by.ignition.starter, 0.6, "0.35 -> 0.6, then into the ignition problems (0.9.13)"); t.eq(by.starter, nil)
   t.eq(by.fuelleak.factor, 0.7, "a custom value isn't touched")
   t.eq(by.brakefade.refresh, 0.5)
 end)
@@ -793,7 +794,7 @@ t.test("more worn cars have worse problems: each problem's strength scales with 
   -- worked by hand: engine 0.8 -> loss 20% x s; brakes 0.6 -> loss 40% x s; fuel leak 1 L/min x s
   local _, U = car("used", { "engine" })
   t.ok(math.abs(U.current.engine.outputTorqueState - 0.9) < 1e-9, "Used: -10% power")
-  local _, D = car("death trap", { "engine", "brakes", "starter", "ignition" })
+  local _, D = car("death trap", { "engine", "brakes", "cooling", "ignition" })
   t.ok(math.abs(D.current.engine.outputTorqueState - 0.74) < 1e-9, "Death Trap: -26% power")
   t.ok(math.abs(D.current.wheels[0].brakeTorque - 1500 * 0.48) < 1e-6, "Death Trap: -52% braking")
   t.ok(math.abs(D.current.engine.starterTorque - 60) < 1e-9, "the starter never gets weaker than listed (it must still start)")
@@ -824,7 +825,7 @@ t.test("ignition cut-outs: a Used car every 4-8 minutes, a Death Trap closer tog
   local w2 = World.new({ files = F.files(base) })
   local B = w2:join("Alice")   -- (the admin)
   w2:chat(B, "/tg start"); w2:chat(B, "/tg condition death trap")
-  pin(w2, { "ignition", "starter", "alignment", "abs" }); w2:buy(B, "covet", "base_M"); w2:step(10)   -- (a Death Trap has 4)
+  pin(w2, { "ignition", "brakefade", "alignment", "abs" }); w2:buy(B, "covet", "base_M"); w2:step(10)   -- (a Death Trap has 4)
   w2:chat(B, "/tg ready")
   w2:step(190)  -- a Death Trap's: about 92-185 s (/ 1.3)
   t.ok(B.current.stalls >= 1, "a Death Trap has cut out within about 3 minutes")
@@ -890,7 +891,7 @@ t.test("worn synchros on a Death Trap: 90% (never 100%, where BeamNG breaks the 
   local w = World.new({ files = F.files(base) })
   local A = w:join("Alice")
   w:chat(A, "/tg start"); w:chat(A, "/tg condition death trap")
-  pin(w, { "synchros", "starter", "alignment", "abs" }); w:buy(A, "covet", "base_M"); w:step(10)   -- (manual)
+  pin(w, { "synchros", "brakefade", "alignment", "abs" }); w:buy(A, "covet", "base_M"); w:step(10)   -- (manual)
   local g = A.current.devices.gearbox
   for i = 1, 4 do
     t.ok(math.abs(g.synchroWear[i] - 0.9) < 1e-9, "gear " .. i .. ": 90% worn, not 1.04 or 1: " .. tostring(g.synchroWear[i]))
@@ -920,7 +921,7 @@ t.test("alignment pull on a Death Trap: 2.34% of full steering (Ryan: +20%)", fu
   local w = World.new({ files = F.files(base) })
   local A = w:join("Alice")
   w:chat(A, "/tg start"); w:chat(A, "/tg condition death trap")
-  pin(w, { "alignment", "starter", "abs", "body" }); w:buy(A, "covet", "base_M"); w:step(10)
+  pin(w, { "alignment", "brakefade", "abs", "body" }); w:buy(A, "covet", "base_M"); w:step(10)
   t.ok(math.abs(math.abs(w:steerOffset(A)) - 0.0234) < 1e-9, "Death Trap: " .. tostring(w:steerOffset(A)))
   w:assertClean()
 end)
@@ -964,7 +965,7 @@ t.test("missing bumpers merged into accident damage: saved configs and a saved c
   local sc = w:serverConfig()
   local ids, body = {}, nil
   for _, f in ipairs(sc.faults.list) do ids[#ids + 1] = f.id; if f.id == "body" then body = f end end
-  t.eq(#ids, 18); t.ok(not table.concat(ids, ","):find("bumpers"), "no bumpers fault")
+  t.eq(#ids, 17); t.ok(not table.concat(ids, ","):find("bumpers"), "no bumpers fault")
   t.eq(body.name, "Accident damage (missing bumpers, dents, broken lights)")
   t.eq(sc.faultCaps["covet/base_M"].ok.bumpers, nil, "learnt caps tidied")
   -- a challenge saved mid-way with the old fault: it's accident damage now (never twice)
@@ -985,4 +986,30 @@ t.test("missing bumpers merged into accident damage: saved configs and a saved c
   t.eq(A2.current.parts["/bumper_F/"], "", "the saved bumpers fault became accident damage: no bumpers...")
   t.eq(A2.current.damage, 1500, "...and its dents (a Used car: 3,000 x 0.5 - this config has the real severities)")
   t.eq(A2.current.vars["$tirepressure_F"], 30, "(the tyres were never the problem)")
+end)
+
+t.test("the weak starter merged into the ignition problems: one fault, both parts, scaled; saved data moves over", function()
+  local base = F.twoRaces(); base.faults = nil   -- (the real severities)
+  local w = World.new({ files = F.files(base) })
+  local A = w:join("Alice")
+  w:chat(A, "/tg start"); w:chat(A, "/tg condition used")
+  pin(w, { "ignition" }); w:buy(A, "covet", "base_M"); w:step(10)
+  local e = A.current.engine
+  t.ok(math.abs(e.slowIgnitionErrorChance - 0.025) < 1e-9, "misfires +0.05 x 0.5")
+  t.ok(math.abs(e.starterTorque - 80) < 1e-9, "a Used car's starter: -40% x 0.5 = x0.8")
+  for _, f in ipairs(w:serverConfig().faults.list) do t.ok(f.id ~= "starter", "no starter fault of its own") end
+  -- a 0.9.12 config with a custom starter strength: kept, inside the ignition problems
+  local list = World.new():serverConfig().faults.list
+  for _, f in ipairs(list) do if f.id == "ignition" then f.starter, f.name = nil, "Ignition problems (misfires, cuts out)" end end
+  list[#list + 1] = { id = "starter", name = "Weak starter (slow to start)", factor = 0.7 }
+  local cfg = F.twoRaces(); cfg.faults = { list = list }
+  cfg.migrations = { mileageOverlap = true, conditionPricing = true, faultTuning2 = true, combineBumpers = true }
+  for _, f in ipairs(World.new({ files = F.files(cfg) }):serverConfig().faults.list) do
+    t.ok(f.id ~= "starter")
+    if f.id == "ignition" then
+      t.eq(f.starter, 0.7, "the admin's own starter strength")
+      t.eq(f.name, "Ignition problems (misfires, cuts out, slow to start)")
+    end
+  end
+  w:assertClean()
 end)

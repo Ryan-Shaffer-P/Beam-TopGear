@@ -903,6 +903,8 @@ local function runPhysicsFaults(afterReset)
   for id, f in pairs(faults.want) do
     if PHYSICS[id] then items[#items + 1] = string.format("[%q]=%s", id, tostring(tonumber(f.factor) or 1)) end
   end
+  local ig = faults.want.ignition   -- (the ignition problems include a weak starter - 0.9.13: was its own fault)
+  if ig and tonumber(ig.starter) then items[#items + 1] = string.format("starter=%.4f", tonumber(ig.starter)) end
   local al = faults.want.alignment   -- (alignment is a setup fault - toe - that also pulls: that part is physics)
   if al and tonumber(al.pull) and tonumber(al.pull) ~= 0 then items[#items + 1] = string.format("pull=%.5f", tonumber(al.pull)) end
   local m = faults.mileage
@@ -927,6 +929,9 @@ function M.onVehicleFaultReport(js)
         if not tostring(st):find("^ok") then warn("mileage wear: " .. tostring(st)) end
       elseif id == "body" and st == "unavailable" and faults.want.body and faults.bumperStatus == "ok" then
         faults.results.body = "ok"   -- (no dents on this version, but the bumpers came off: it's applied)
+      elseif id == "starter" then   -- part of the ignition problems: it counts as applied if either part is
+        faults.starterStatus = tostring(st)
+        if tostring(st):find("^error") then warn("weak starter: " .. tostring(st)) end
       elseif id == "pull" then   -- part of the alignment fault: it counts as applied if either the toe or the pull is
         faults.pullStatus = tostring(st)
         if tostring(st):find("^error") then warn("alignment pull: " .. tostring(st)) end
@@ -937,6 +942,10 @@ function M.onVehicleFaultReport(js)
       if tostring(st):find("^error") then warn("fault " .. id .. ": " .. tostring(st)) end
       end
     end
+  end
+  -- (after the loop: the car reports both parts in no particular order)
+  if faults.want.ignition and tostring(faults.starterStatus):find("^ok") and faults.results.ignition == "unavailable" then
+    faults.results.ignition = "ok"
   end
   sendFaultReport()
 end

@@ -568,13 +568,13 @@ it affordable ("$10,200 as a Death Trap").
 - **Fixing one costs 5% of the car's new price** (at least $500) in a workshop: `/tg fix <id>` or the
   Status tab. A luxury car is dear to keep running: a Pigeon's fix is $500, an ETK 800's $1,700.
 - **Or replace the part.** Fitting a different part in a workshop (the Dealership tab's Parts box) takes that part's problems
-  with it - a new engine sorts the tired engine, oil leak, ignition and weak starter. **A part with
+  with it - a new engine sorts the tired engine, oil leak and ignition problems. **A part with
   problems is scrap**: there's no trade-in, so the new part costs its **full price** (not the usual
   difference) plus labour. Healthy parts are still traded in as before. Which part holds which problems:
 
   | Part replaced | Sorts |
   |---|---|
-  | Engine | tired engine, oil leak (and its doomed-engine risk), ignition, weak starter (rough idle) |
+  | Engine | tired engine, oil leak (and its doomed-engine risk), ignition problems (incl. the weak starter) (rough idle) |
   | Radiator | cooling |
   | Turbo | damaged turbo |
   | Gearbox / transmission | worn synchros (worn gearbox) |
@@ -616,12 +616,11 @@ The problems (the code and config.json call them *faults*):
 | alignment | Knocked-out alignment | **pulls to the left or right** (picked per car; the name says which): the steering's straight ahead is moved 1.8% of full steering (`pull`; Used half that, Death Trap x1.3 = 2.3%) - hold a little opposite lock. Also front toe pushed to its limit, rear toe 40% of the way (`$toe_*`, cars that have it). `/tg diag`: "Alignment pull" |
 | engine | Tired engine | engine output x0.8 |
 | brakes | Worn brakes | brake torque x0.6 |
-| ignition | Ignition problems | BeamNG's own misfire chances raised a little (+0.05: the engine stumbles), and every 2-4 minutes on the road (a Beater; Used 4-8, Death Trap about 1.5-3) the engine dies - **restart it yourself** (never during a countdown) |
+| ignition | Ignition problems (misfires, cuts out, slow to start) | BeamNG's own misfire chances raised a little (+0.05: the engine stumbles), every 2-4 minutes on the road (a Beater; Used 4-8, Death Trap about 1.5-3) the engine dies - **restart it yourself** (never during a countdown) - and a **weak starter**: the starter motor at 60% of its strength (`starter`; Used 80%, never weaker than listed), slow, labouring cranking before the engine catches. (Until 0.9.13 the weak starter was a problem of its own; saved configs and challenges move over by themselves, a custom starter strength included.) |
 | cooling | Cooling problems | the radiator is damaged like in a front-end crash: coolant leaks and the engine overheats when pushed |
 | suspension | Worn-out suspension | springs and dampers at their softest; on cars without adjustable suspension the anti-roll bars come off |
 | fuelleak | Fuel leak | 1 litre a minute drains from the tank on the road (it matters in the economy run) |
 | body | Accident damage (missing bumpers, dents, broken lights) | the front and rear bumpers are gone, and the car starts with 3,000 damage (repair costs, drivability) and some broken lights and glass. Fixing it puts the bumpers back and removes its dents - any other crash damage that goes with them is billed as a repair. (Until 0.9.13 missing bumpers was a problem of its own; saved configs and challenges move over by themselves.) |
-| starter | Weak starter | the starter motor at 60% of its strength: slow, labouring cranking before the engine catches (nasty with the ignition fault) |
 | clutch | Slipping clutch | **off by default** (mileage wear already wears the clutch). The clutch's own "permanently overheated" state: drive slips away under hard acceleration (manual gearboxes) |
 | synchros | Worn gearbox synchros | every gear's synchro 80% worn (Used 40%, Death Trap 90% - never 100%, where BeamNG breaks the gear): gears grind and fight you on quick shifts, but grinding adds no more wear while the problem is there, so a gear never dies (manual gearboxes) |
 | turbo | Damaged turbo | the turbo's own damage: less boost, less power (turbo cars) |
@@ -640,7 +639,7 @@ the server remembers it for that car, so it isn't drawn for it again. Admins: `/
 Per problem, in `config.json` under `faults`: `maxPerCar`, `inspectionPenaltyPoints`, and per fault `factor` (severity), `enabled` (false leaves it out of the
 draw), for ignition `cutoutMin`/`cutoutMax` (seconds between cut-outs) and for the oil leak
 `blowChance` (0.2) and `blowMin`/`blowMax` (seconds of hard driving before a doomed engine goes). Saved configs from before
-0.8.8 get every fault automatically (custom severities and switched-off faults are kept) - eighteen since 0.9.13.
+0.8.8 get every fault automatically (custom severities and switched-off faults are kept) - seventeen since 0.9.13.
 Setup faults (tires, alignment, accident damage's bumpers, suspension) respawn the car when applied or fixed; the
 others run inside the car and are re-applied after every reset or respawn. Putting bumpers back or
 re-inflating tires via the parts/tuning menus doesn't work - the faults go straight back on.

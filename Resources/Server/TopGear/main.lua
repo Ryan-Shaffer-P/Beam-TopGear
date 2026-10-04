@@ -88,14 +88,14 @@ local DEFAULT_CONFIG = {
         pull = 0.018 },   -- and it pulls to one side (random per car): straight ahead moved this share of full steering
       { id = "engine",     name = "Tired engine (about -20% power)",         factor = 0.8 },
       { id = "brakes",     name = "Worn brakes (about -40% braking)",        factor = 0.6 },
-      { id = "ignition",   name = "Ignition problems (misfires, cuts out)",  factor = 0.05,    -- extra misfire chance
-        cutoutMin = 120, cutoutMax = 240 },   -- seconds between cut-outs (a Beater's; / severity: Used 4-8 min)
+      { id = "ignition",   name = "Ignition problems (misfires, cuts out, slow to start)", factor = 0.05,   -- extra misfire chance
+        cutoutMin = 120, cutoutMax = 240,     -- seconds between cut-outs (a Beater's; / severity: Used 4-8 min)
+        starter = 0.6 },                      -- and a weak starter: its torque x this (0.9.13: was its own fault)
       { id = "cooling",    name = "Cooling problems (leaking radiator)",     factor = 0.05 },  -- radiator damage (0.1 = wrecked)
       { id = "suspension", name = "Worn-out suspension (soft and bouncy)" },                   -- softest springs/dampers, or no anti-roll bars
       { id = "fuelleak",   name = "Fuel leak",                                factor = 1.0 },   -- litres per minute
       { id = "body",       name = "Accident damage (missing bumpers, dents, broken lights)", factor = 3000 },   -- damage it
                                                        -- starts with, plus no front/rear bumper (0.9.13: was its own fault)
-      { id = "starter",    name = "Weak starter (slow to start)",            factor = 0.6 },   -- starter torque x this
       { id = "clutch",     name = "Slipping clutch", enabled = false },                        -- manuals; off: mileage wears the clutch
       { id = "synchros",   name = "Worn gearbox synchros (gears grind)",     factor = 0.8 },   -- synchro wear (1 = gears break); manuals
       { id = "turbo",      name = "Damaged turbo (low boost)",               factor = 0.02 },  -- turbo damage; turbo cars
@@ -426,6 +426,24 @@ local function loadConfig()
         ch.clips = { "top-gear-theme-intro" }
       end
     end
+    if not cfg.migrations.combineStarter then   -- 0.9.13, Ryan: the weak starter is part of the ignition problems now
+      cfg.migrations.combineStarter, changed = true, true
+      local list = (cfg.faults or {}).list or {}
+      local starter
+      for i = #list, 1, -1 do if list[i].id == "starter" then starter = table.remove(list, i) end end
+      for _, f in ipairs(list) do
+        if f.id == "ignition" then
+          if f.starter == nil then f.starter = tonumber(starter and starter.factor) or 0.6 end   -- (an admin's own strength kept)
+          if f.name == "Ignition problems (misfires, cuts out)" then f.name = "Ignition problems (misfires, cuts out, slow to start)" end
+        end
+      end
+      for _, c in pairs(cfg.faultCaps or {}) do
+        if type(c) == "table" then
+          if c.ok then c.ok.starter = nil end
+          if c.no then c.no.starter = nil end
+        end
+      end
+    end
     if not cfg.migrations.ignitionCutouts then   -- 0.9.12, Ryan's 2nd drive: cut-outs too rare; a Used car's every 4-8 min
       cfg.migrations.ignitionCutouts, changed = true, true   -- (120-240 s / severity 0.5); only the old default
       for _, f in ipairs((cfg.faults or {}).list or {}) do
@@ -673,7 +691,7 @@ end
 -- A replaced part that had problems is scrap - no trade-in: the new part is billed at its full value.
 CONDITION.SYSTEMS = {
   { name = "engine",     words = { "engine" }, not_ = { "mount", "cover", "bay" },
-    faults = { "engine", "oilleak", "ignition", "starter", "idle" } },
+    faults = { "engine", "oilleak", "ignition", "idle" } },
   { name = "radiator",   words = { "radiator" },                 faults = { "cooling" } },
   { name = "turbo",      words = { "turbo" },                    faults = { "turbo" } },
   { name = "gearbox",    words = { "transmission", "gearbox" },  faults = { "synchros", "gearbox" } },
@@ -714,7 +732,8 @@ function CONDITION.payload(f, sev, side, doomed)
   local calmer = sev > 0 and sev or 1
   local pull = tonumber(f.pull)
   if f.id == "alignment" and pull and pull > 0 then pull = pull * sev * (side or 1) else pull = nil end
-  return { id = f.id, factor = CONDITION.scaled(f, sev), refresh = f.refresh, pull = pull,
+  local starter = (f.id == "ignition" and tonumber(f.starter)) and CONDITION.scaled({ id = "starter", factor = f.starter }, sev) or nil
+  return { id = f.id, factor = CONDITION.scaled(f, sev), refresh = f.refresh, pull = pull, starter = starter,
            cutoutMin = f.cutoutMin and f.cutoutMin / calmer, cutoutMax = f.cutoutMax and f.cutoutMax / calmer,
            blowMin = f.blowMin, blowMax = f.blowMax, doomed = doomed or nil }
 end
@@ -2658,12 +2677,11 @@ function Save.load()
   for _, p in pairs(g.players) do
     p.run = p.run or newRun(); p.leg = p.leg or { via = 1, arrived = false }
     p.results, p.faults, p.spent = p.results or {}, p.faults or {}, p.spent or {}
-    local hadBody, list = false, {}   -- (0.9.13: missing bumpers became part of accident damage)
-    for _, id in ipairs(p.faults) do if id == "body" then hadBody = true end end
+    -- (0.9.13: missing bumpers became part of accident damage, the weak starter part of the ignition problems)
+    local MERGED, have, list = { bumpers = "body", starter = "ignition" }, {}, {}
     for _, id in ipairs(p.faults) do
-      if id == "bumpers" then
-        if not hadBody then list[#list + 1] = "body"; hadBody = true end
-      else list[#list + 1] = id end
+      local into = MERGED[id] or id
+      if not have[into] then have[into] = true; list[#list + 1] = into end
     end
     p.faults = list
   end
