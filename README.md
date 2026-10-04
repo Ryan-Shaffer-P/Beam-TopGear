@@ -652,10 +652,15 @@ that repair is now billed automatically (the same price as `/tg repair`).
 **Test on your game version first:** admin `/tg fault test` (or the Admin tab's fault test)
 applies every fault to the car you're in, no money involved, and reports ok / unavailable /
 error for each. `/tg fault testoff` removes them. Drive it and check each fault is felt.
+**Test as a condition:** problems get worse on more worn cars, so the test can use a condition's strengths -
+`/tg fault test ignition as used` (or `as needs work`, `as beater`, `as death trap`), or the **Test as**
+dropdown above the Test buttons in the Admin tab (Tools; Beater by default, shown with its strength,
+e.g. "Death Trap (x1.3)"). Without "as" the listed values are used (a Beater's). A test alignment always
+pulls right; a test oil leak always blows.
 
 Commands: `/tg condition` (yours) / `/tg condition <New|Used|Needs work|Beater|Death Trap>` (dealership;
 `/tg fault take [n]` still works: n steps worse), `/tg faults` (the rules and your car), `/tg fix <id>`
-(workshop, once it's found the problem). Admins: `/tg fault test [id]`, `/tg fault testoff`, `/tg fault caps`.
+(workshop, once it's found the problem). Admins: `/tg fault test [id] [as <condition>]`, `/tg fault testoff`, `/tg fault caps`.
 
 **Check the new faults on your game version:** everything after the first five uses BeamNG
 functions that couldn't be tried outside the game. `/tg fault test <id>` on your own car

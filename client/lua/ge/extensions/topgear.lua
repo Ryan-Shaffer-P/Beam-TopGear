@@ -2357,9 +2357,21 @@ local function drawAdmin(d)
     end
     if d.faults and header("Problem-car fault test##ftest") then
       txt("Applies faults to the car you're in right now (no money involved) and reports what worked.")
-      button("Test all faults on my car", "fault test"); same(); button("Remove test faults", "fault testoff")
+      -- as which condition: the same strengths as a car bought that way (more worn, worse problems)
+      ui.testCond = ui.testCond or 3
+      local levels, items = d.faults.levels or {}, {}
+      local function lname(n) return ((levels[n + 1] or {}).name or CONDITION_NAMES[n] or tostring(n)) end
+      for n = 1, 4 do
+        items[#items + 1] = { string.format("%s (x%g)", lname(n), (levels[n + 1] or {}).sev or 1), n, n == ui.testCond }
+      end
+      txt("Test as:"); same()
+      local pick = Tabs.combo("ftestcond", string.format("%s (x%g)", lname(ui.testCond), (levels[ui.testCond + 1] or {}).sev or 1), items)
+      if pick then ui.testCond = pick end
+      Tabs.help("Each problem's strength scales with the car's condition, as on a bought car: x1 = the listed values.")
+      local as = " as " .. ui.testCond
+      button("Test all faults on my car", "fault test" .. as); same(); button("Remove test faults", "fault testoff")
       for _, f in ipairs(d.faults.all or {}) do
-        button("Test: " .. f.name .. "##ft1_" .. f.id, "fault test " .. f.id)
+        button("Test: " .. f.name .. "##ft1_" .. f.id, "fault test " .. f.id .. as)
       end
       button("Which cars take which faults##fcaps", "fault caps")
     end

@@ -191,7 +191,7 @@ importprices [listed|builtin|models] | gameprices | setprice | class list/use/ne
 course list/save/load/new/delete | addevent/delevent/enable/moveevent |
 setstart/addcp/undocp/clearcp/settrap/addbay/undobay/clearbays/addvia/undovia/clearvia/setfinale |
 settype/setmode/setlaps/setrpc/settime/rename | addworkshop/undoworkshop/clearworkshops/importgas |
-trailersave/trailercones/trailertest | fault test/testoff/caps`. The ImGui window exposes all of these.
+trailersave/trailercones/trailertest | fault test [id] [as <condition>]/testoff/caps`. The ImGui window exposes all of these.
 
 ## Roadmap - Ryan's next issues (one session each, any order)
 

@@ -688,10 +688,20 @@ CONDITION.SCALE = {
   synchros = { "add", cap = 0.9 }, brakefade = { "add", cap = 1 },   -- (synchros: at 1 BeamNG breaks the gear - Ryan's Death Trap had no 2nd/3rd)
   idle = { "mult" }, gearbox = { "mult" },
 }
-function CONDITION.severity(p)
-  local n = CONDITION.level(p)
-  if n <= 0 then return 1 end
+function CONDITION.sevOf(n)   -- condition 1..4 -> how bad its problems are (faults.severity); New: as listed
+  if not n or n <= 0 then return 1 end
   return tonumber(((cfg.faults or {}).severity or {})[n]) or 1
+end
+function CONDITION.severity(p) return CONDITION.sevOf(CONDITION.level(p)) end
+-- what the client gets for one problem at severity sev (a bought car's, or an admin's fault test "as" a condition):
+-- the factor scaled, ignition cut-outs further apart / closer, the alignment pull x sev on `side` (-1 left, +1 right)
+function CONDITION.payload(f, sev, side, doomed)
+  local calmer = sev > 0 and sev or 1
+  local pull = tonumber(f.pull)
+  if f.id == "alignment" and pull and pull > 0 then pull = pull * sev * (side or 1) else pull = nil end
+  return { id = f.id, factor = CONDITION.scaled(f, sev), refresh = f.refresh, pull = pull,
+           cutoutMin = f.cutoutMin and f.cutoutMin / calmer, cutoutMax = f.cutoutMax and f.cutoutMax / calmer,
+           blowMin = f.blowMin, blowMax = f.blowMax, doomed = doomed or nil }
 end
 function CONDITION.scaled(f, s)   -- a problem's factor for a car of severity s
   local how, fac = CONDITION.SCALE[f.id], tonumber(f.factor)
@@ -799,19 +809,13 @@ local function sendFaults(p, test)
   if not p.pid then return end
   local list, setup = {}, false
   local sev = CONDITION.severity(p)   -- more worn, worse problems
-  local calmer = sev > 0 and sev or 1   -- (ignition cut-outs: further apart on a less worn car, closer on a Death Trap)
   for _, id in ipairs(p.faults or {}) do
     local f = faultDef(id)
     if f then
-      local pull = tonumber(f.pull)
-      if f.id == "alignment" and pull and pull > 0 then   -- which way it pulls: picked once per car (kept through fixes)
-        if not p.alignSide then p.alignSide = math.random() < 0.5 and -1 or 1 end
-        pull = pull * sev * p.alignSide
-      else pull = nil end
-      list[#list + 1] = { id = f.id, factor = CONDITION.scaled(f, sev), refresh = f.refresh, pull = pull,
-                          cutoutMin = f.cutoutMin and f.cutoutMin / calmer, cutoutMax = f.cutoutMax and f.cutoutMax / calmer,
-                          blowMin = f.blowMin, blowMax = f.blowMax,
-                          doomed = (f.id == "oilleak" and p.oilDoomed and not p.oilBlown) or nil }
+      if f.id == "alignment" and tonumber(f.pull) and not p.alignSide then   -- which way it pulls: once per car (kept through fixes)
+        p.alignSide = math.random() < 0.5 and -1 or 1
+      end
+      list[#list + 1] = CONDITION.payload(f, sev, p.alignSide, f.id == "oilleak" and p.oilDoomed and not p.oilBlown)
       setup = setup or SETUP_FAULTS[f.id] or false
     end
   end
@@ -3440,16 +3444,27 @@ PLAYER_CMDS.fault = function(pid, name, args)
   if sub == "test" or sub == "testoff" then
     if not isAdmin(name) then say(pid, "That's an admin command."); return end
     local list = {}
+    -- "/tg fault test [id] [as <condition>]": strengths as on a car bought in that condition (none: as listed)
+    local cond
+    for i = 3, #args do
+      if (args[i] or ""):lower() == "as" then
+        cond = CONDITION.parse(table.concat(args, " ", i + 1))
+        if not cond or cond < 1 or cond > 4 then say(pid, "Test as: used, needs work, beater or death trap."); return end
+        if i == 4 then id = "" end
+        break
+      end
+    end
+    local sev = cond and CONDITION.sevOf(cond) or 1
     if sub == "test" then
       for _, f in ipairs(cfg.faults.list) do
         if id == "" or id == f.id then
-          list[#list + 1] = { id = f.id, factor = f.factor, cutoutMin = f.cutoutMin, cutoutMax = f.cutoutMax, refresh = f.refresh,
-                              pull = f.pull,   -- (a test alignment pulls right)
-                              doomed = (f.id == "oilleak") or nil }   -- a test oil leak always blows (soon), so it can be seen
+          -- (a test alignment pulls right; a test oil leak always blows - soon - so it can be seen)
+          list[#list + 1] = CONDITION.payload(f, sev, 1, f.id == "oilleak")
         end
       end
     end
-    say(pid, sub == "test" and ("Applying " .. #list .. " test fault(s) to your current car...") or "Removing test faults...")
+    say(pid, sub == "test" and string.format("Applying %d test fault(s) to your current car%s...", #list,
+      cond and string.format(" as a %s (x%g)", CONDITION.name(cond), sev) or " (listed strengths)") or "Removing test faults...")
     MP.TriggerClientEvent(pid, "tg_faults", Util.JsonEncode({ faults = list, restore = testRestore[pid] or {}, test = true }))
     return
   end
@@ -4855,7 +4870,7 @@ local function buildUi(pid)
       for _, id in ipairs(p.faults or {}) do mine[#mine + 1] = { id = id, name = CONDITION.problemName(p, id) } end
     end
     local levels = {}
-    for n = 0, 4 do levels[n + 1] = { name = CONDITION[n], km = CONDITION.km(n), off = CONDITION.percentOff(n) } end
+    for n = 0, 4 do levels[n + 1] = { name = CONDITION[n], km = CONDITION.km(n), off = CONDITION.percentOff(n), sev = CONDITION.sevOf(n) } end
     d.faults = { all = all, max = math.min(cfg.faults.maxPerCar or 4, 4), count = CONDITION.level(p), levels = levels,
                  fixPercent = tonumber(cfg.faults.fixPercent) or 0.05, fixMin = tonumber(cfg.faults.fixMin) or 500,
                  names = { CONDITION[0], CONDITION[1], CONDITION[2], CONDITION[3], CONDITION[4] },
