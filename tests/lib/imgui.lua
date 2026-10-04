@@ -52,7 +52,8 @@ function M.new()
   local function takeClick(label)
     local v = visible(label)
     for i, c in ipairs(clicks) do
-      if c == label or c == v then table.remove(clicks, i); return true end
+      local byId = c:sub(1, 2) == "##" and tostring(label):sub(-#c) == c   -- (click("##id"): by the id alone)
+      if c == label or c == v or byId then table.remove(clicks, i); return true end
     end
     return false
   end

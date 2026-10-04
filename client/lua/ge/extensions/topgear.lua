@@ -2730,13 +2730,18 @@ end
 -- A box: a collapsible section (ImGui's own header - its arrow folds it) with a rounded border round the header and
 -- its contents. Every tab is a short stack of these. closed = starts folded. If the border can't be drawn on this
 -- BeamNG version it's left off (plain headers), never breaking the window.
-Tabs.box = function(title, id, fn, closed)
+Tabs.box = function(title, id, fn, closed, fixed)   -- fixed = can't be folded: a heading instead of a header
   local okP, at = pcall(function() return im.GetCursorScreenPos() end)
   local okW, avail = pcall(function() return im.GetContentRegionAvail() end)
-  local hdr = im.CollapsingHeader1 or im.CollapsingHeader
-  local label = title .. "##box_" .. id
-  local okH, open = pcall(hdr, label, closed and 0 or (tonumber(imGet("TreeNodeFlags_DefaultOpen")) or 32))
-  if not okH then open = hdr(label) end
+  local open = true
+  if fixed then heading(title)
+  else
+    local hdr = im.CollapsingHeader1 or im.CollapsingHeader
+    local label = title .. "##box_" .. id
+    local okH
+    okH, open = pcall(hdr, label, closed and 0 or (tonumber(imGet("TreeNodeFlags_DefaultOpen")) or 32))
+    if not okH then open = hdr(label) end
+  end
   if open then
     local indent = imGet("Indent") ~= nil
     if indent then pcall(im.Indent, 8) end
@@ -2755,6 +2760,24 @@ Tabs.box = function(title, id, fn, closed)
   pcall(im.Dummy, im.ImVec2(1, 8))   -- a gap before the next box
 end
 
+-- a multi-line label with every line centred (ImGui centres the block but starts each line at its left): shorter
+-- lines get leading spaces - measured with CalcTextSize where this ImGui has it, else by character count
+Tabs.centred = function(label)
+  if not label:find("\n") then return label end
+  local lines = {}
+  for line in (label .. "\n"):gmatch("(.-)\n") do lines[#lines + 1] = line end
+  local function width(t)
+    local ok, v = pcall(function() return im.CalcTextSize(t) end)
+    if ok and type(v) == "table" and tonumber(v.x) then return v.x end
+    return #t
+  end
+  local sp = math.max(1e-6, width(" "))
+  local widths, most = {}, 0
+  for i, line in ipairs(lines) do widths[i] = width(line); most = math.max(most, widths[i]) end
+  for i, line in ipairs(lines) do lines[i] = string.rep(" ", math.floor((most - widths[i]) / 2 / sp + 0.5)) .. line end
+  return table.concat(lines, "\n")
+end
+
 -- A row of big buttons sharing the width: items = { { label, id, cmd = "..." or fn = function, confirm = bool,
 -- off = bool (greyed, ignores clicks) } }; extra = room kept at the end of the row (for an input after it). Labels may
 -- have "\n" (two lines). Confirm buttons need a second click within 3 s, like confirmButton.
@@ -2767,7 +2790,7 @@ Tabs.bigButtons = function(items, height, extra)
   for i, it in ipairs(items) do
     if i > 1 then same() end
     local armed = it.confirm and ui.confirm[it.id] and (ui.t - ui.confirm[it.id]) < 3
-    local label = (armed and ("Really?\n" .. it.label:gsub("\n", " ")) or it.label) .. "##big_" .. it.id
+    local label = Tabs.centred(armed and ("Really?\n" .. it.label:gsub("\n", " ")) or it.label) .. "##big_" .. it.id
     local rec = { c = 0 }
     if it.off then local g = { 0.30, 0.32, 0.34, 1 }; pcall(pushColors, { Button = g, ButtonHovered = g, ButtonActive = g, Text = { 0.55, 0.57, 0.60, 1 } }, rec) end
     local okB, clicked = pcall(im.Button, label, im.ImVec2(w, height or 44))
@@ -2810,10 +2833,9 @@ Tabs.courseBuilder = function(c)
     end
   end)
 
-  Tabs.box("Events", "cevents", function()
+  Tabs.box("Events", "cevents", function()   -- (always open: this is where you are in the builder)
     txt("Pick the one to edit:")
-    Tabs.help("Drive to the spot, then press a button below - positions come from the car you're in.\n" ..
-      "The route buttons place waypoints on the drive TO the event (the arrows follow them).")
+    Tabs.help("Drive to the spot, then press a button below - positions come from the car you're in.")
     for _, ev in ipairs(c.events) do
       if im.Button(((ui.sel == ev.n) and "> " or "") .. ev.n .. "##ev" .. ev.n) then ui.sel = ev.n end
       same()
@@ -2831,7 +2853,8 @@ Tabs.courseBuilder = function(c)
     if im.Button(((ui.sel == "finale") and "> " or "") .. "F##evf") then ui.sel = "finale" end
     same()
     txt(string.format("%s  finish:%s  route:%d", c.finale.name, c.finale.pos and "yes" or "NO", c.finale.via))
-  end)
+    if e and c.idle then confirmButton("Delete event " .. target, "delev", "delevent " .. target) end
+  end, false, true)
 
   -- the place-it buttons, big, under the Events box
   if not e then
@@ -2862,15 +2885,21 @@ Tabs.courseBuilder = function(c)
       end
     end
   end
-  Tabs.bigButtons({ { label = "Add route\nwaypoint", id = "addvia", cmd = "addvia " .. target },
-                    { label = "Undo route\nwaypoint", id = "undovia", cmd = "undovia " .. target },
-                    { label = "Clear\nroute", id = "clearvia", cmd = "clearvia " .. target, confirm = true } }, 36)
   if e and e.type == "parking" then Tabs.help("Park in each spot facing the way the bay should face. Bays are parked in the order you add them.") end
   if e and (e.type == "circuit" or e.type == "rpc") then
     Tabs.help("Checkpoints round the lap, in order. The start is the start/finish line - each lap ends by crossing it.")
   elseif e and e.type == "slalom" then Tabs.help("Gates in order - the last one is the finish.")
   elseif e and e.type ~= "speedtrap" and e.type ~= "parking" then Tabs.help("Checkpoints in order - the last one is the finish.") end
   pcall(im.Dummy, im.ImVec2(1, 6))
+
+  Tabs.box("Waypoints", "cvia", function()
+    txt(e and string.format("The drive to %s: %d waypoint%s", tostring(e.name), e.via or 0, (e.via or 0) == 1 and "" or "s")
+          or string.format("The drive to the finale: %d waypoint%s", c.finale.via or 0, (c.finale.via or 0) == 1 and "" or "s"))
+    Tabs.help("Waypoints make the arrows take a route on the drive TO this event (in order). Drive to each spot and add it.")
+    Tabs.bigButtons({ { label = "Add route\nwaypoint", id = "addvia", cmd = "addvia " .. target },
+                      { label = "Undo route\nwaypoint", id = "undovia", cmd = "undovia " .. target },
+                      { label = "Clear\nroute", id = "clearvia", cmd = "clearvia " .. target, confirm = true } }, 40)
+  end)
 
   if e then
     Tabs.box("Event options", "copts", function()
@@ -2886,10 +2915,11 @@ Tabs.courseBuilder = function(c)
         button((e.solo and "> " or "") .. "Time trial - one at a time##modetrial", "setmode " .. target .. " trial")
       end
       local tl = intPtr("time" .. target, e.timeLimit or 600)
-      im.InputInt("Time limit (s)##tl", tl); same(); button("Set time##settime", "settime " .. target .. " " .. tl[0])
-      if e.solo then same(); txt("(per run)") end
+      txt("Time to complete event (s):"); same()
+      if imGet("SetNextItemWidth") then pcall(im.SetNextItemWidth, 110) end
+      im.InputInt("##tl", tl); same(); button("Set Time##settime", "settime " .. target .. " " .. tl[0])
+      if e.solo then Tabs.help("Per run: one at a time, each driver gets this long.") end
       if e.type == "trailer" then button("Test trailer spawn##tt", "trailertest"); same(); button("Remove test trailer##tto", "trailertest off") end
-      if c.idle then confirmButton("Delete this event", "delev", "delevent " .. target) end
     end)
   end
 
