@@ -89,6 +89,9 @@ function Rpc.driving() return Rpc.car() or getCar() end   -- what the HUD measur
 -- the Top Gear window's shared parts: boxes, hover help, the message log, the Start tab (filled in further down;
 -- declared here because the tab functions above them use it - one local: the chunk is near Lua's 200)
 local Tabs = {}
+-- each car condition's colour (Ryan): New blue, Used green, Needs work dark yellow, Beater orange, Death Trap red
+Tabs.condColor = { [0] = { 0.35, 0.60, 1.00 }, { 0.30, 0.85, 0.35 }, { 0.80, 0.68, 0.10 }, { 1.00, 0.55, 0.15 }, { 0.95, 0.25, 0.25 } }
+function Tabs.condCol(n) return Tabs.condColor[tonumber(n) or -1] end
 
 local function getDamage(v)
   local o = map and map.objects and map.objects[v:getID()]
@@ -2100,7 +2103,13 @@ local function drawCondition(d, fl)
   else
     local ptr = intPtr("condition", count)
     if ptr[0] < 0 then ptr[0] = 0 elseif ptr[0] > max then ptr[0] = max end
+    local col = Tabs.condCol(ptr[0]) or { 0.5, 0.5, 0.5 }
+    local function shade(k, a) return { col[1] * k, col[2] * k, col[3] * k, a or 1 } end
+    local rec = { c = 0 }
+    pcall(pushColors, { SliderGrab = shade(1), SliderGrabActive = shade(1.15), FrameBg = shade(0.35),
+                        FrameBgHovered = shade(0.45), FrameBgActive = shade(0.55) }, rec)
     local okS, changed = pcall(im.SliderInt, "##condition", ptr, 0, max, name(ptr[0]))
+    popColors(rec)
     if not okS then   -- (no slider on this ImGui: one button per condition instead)
       if not ui.sliderWarned then ui.sliderWarned = true; warn("condition slider: " .. tostring(changed)) end
       for n = 0, max do
@@ -2110,12 +2119,18 @@ local function drawCondition(d, fl)
     elseif changed and ptr[0] ~= count then
       sendCmd("condition " .. ptr[0])   -- every price in the list follows straight away
     end
+    for n = 0, max do   -- the colour key: each condition's name in its colour (the car list uses them too)
+      local c = Tabs.condCol(n) or { 1, 1, 1 }
+      if n > 0 then same() end
+      colored(c[1], c[2], c[3], name(n))
+    end
     local offs = {}
     for n = 1, max do offs[#offs + 1] = string.format("%s up to %d%% off", name(n), off(n)) end
+    local cc = Tabs.condCol(count) or { 1, 1, 1 }
     if count > 0 then
-      colored(0.4, 1, 0.4, string.format("%s (%s): prices up to %d%% off.", name(count), km(count), off(count)))
+      colored(cc[1], cc[2], cc[3], string.format("%s (%s): prices up to %d%% off.", name(count), km(count), off(count)))
     else
-      txt("New: full price.")
+      colored(cc[1], cc[2], cc[3], "New: full price.")
     end
     Tabs.help("A more worn car is cheaper on the market: " .. table.concat(offs, ", ") .. ".\n" ..
       "Fast cars hold their value: the quicker a car, the smaller its discount.\nChoose before you buy - it's locked in with the car.")
@@ -2154,13 +2169,25 @@ local function drawDealer(d)
   local pickM
   for _, m in ipairs(list) do if m.model == ui.dealerModel then pickM = m end end
   pickM = pickM or list[1]
+  local function modelCond(m)   -- the newest condition that affords one of its trims
+    local best
+    for _, t in ipairs(m.trims) do
+      local n = tonumber(t.minCond)
+      if n and (not best or n < best) then best = n end
+    end
+    return best
+  end
   if #list > 1 then
     local items = {}
     for _, m in ipairs(list) do
-      items[#items + 1] = { string.format("%s (%d)  from %s", m.name, #m.trims, commas((m.trims[1] or {}).price or 0)), m.model, m == pickM }
+      items[#items + 1] = { string.format("%s (%d)  from %s", m.name, #m.trims, commas((m.trims[1] or {}).price or 0)), m.model,
+                            m == pickM, Tabs.condCol(modelCond(m)) }
     end
-    local picked = Tabs.combo("dealermodel", pickM and (pickM.name .. " (" .. #pickM.trims .. ")") or "Pick a car...", items)
+    local picked = Tabs.combo("dealermodel", pickM and (pickM.name .. " (" .. #pickM.trims .. ")") or "Pick a car...", items,
+      pickM and Tabs.condCol(modelCond(pickM)))
     if picked then ui.dealerModel = picked end
+    Tabs.help("Each car's colour is the condition you need to afford it: blue New, green Used, dark yellow Needs work, " ..
+      "orange Beater, red Death Trap.")
   end
   for _, m in ipairs(pickM and { pickM } or {}) do
     do
@@ -2174,9 +2201,13 @@ local function drawDealer(d)
         if t.over then
           colored(1, 0.45, 0.45, string.format("%s  %s  - over budget", commas(t.price), label))
         elseif needs > 0 then
-          colored(1, 0.7, 0.3, string.format("%s  %s  - %s as a %s", commas(t.price), label, commas(t.condPrice), tostring(t.cond)))
+          local c = Tabs.condCol(t.minCond) or { 1, 0.7, 0.3 }
+          colored(c[1], c[2], c[3], string.format("%s  %s  - %s as a %s", commas(t.price), label, commas(t.condPrice), tostring(t.cond)))
         elseif me and t.price > (me.cash or 0) then colored(1, 0.45, 0.45, commas(t.price) .. "  " .. label)
-        else txt(commas(t.price) .. "  " .. label) end
+        else
+          local c = Tabs.condCol(t.minCond)
+          if c then colored(c[1], c[2], c[3], commas(t.price) .. "  " .. label) else txt(commas(t.price) .. "  " .. label) end
+        end
       end
     end
   end
@@ -3006,14 +3037,24 @@ Tabs.step = function(label, id, how)
 end
 
 -- A dropdown; items = { { label, value, selected } }. Returns the picked value, or nil.
-Tabs.combo = function(id, preview, items)
+Tabs.combo = function(id, preview, items, previewColor)   -- (an item's it[4] = its text colour { r, g, b })
   local picked
   if im.BeginCombo then
-    if im.BeginCombo("##" .. id, preview) then
+    local prec = { c = 0 }
+    if previewColor then pcall(pushColors, { Text = { previewColor[1], previewColor[2], previewColor[3], 1 } }, prec) end
+    local okO, open = pcall(im.BeginCombo, "##" .. id, preview)
+    popColors(prec)   -- (the preview is drawn: the list itself has its own colours)
+    if not okO then error(open) end
+    if open then
       local ok, err = pcall(function()
         local selectable = im.Selectable1 or im.Selectable
         for i, it in ipairs(items) do
-          if selectable(it[1] .. "##" .. id .. "_" .. i, it[3] == true) then picked = it[2] end
+          local rec = { c = 0 }
+          if it[4] then pcall(pushColors, { Text = { it[4][1], it[4][2], it[4][3], 1 } }, rec) end
+          local okS, sel = pcall(selectable, it[1] .. "##" .. id .. "_" .. i, it[3] == true)
+          popColors(rec)
+          if not okS then error(sel) end
+          if sel then picked = it[2] end
         end
       end)
       im.EndCombo()   -- always closed, even if an entry failed
@@ -3139,11 +3180,12 @@ Tabs.quick = function(d)
     local items = {}
     for n = 0, math.min(fl.max or 4, 4) do
       local off = ((fl.levels or {})[n + 1] or {}).off or 0
-      items[#items + 1] = { cname(n) .. (n > 0 and string.format("  (%d%% off)", off) or "  (full price)"), n, chosen and n == count }
+      items[#items + 1] = { cname(n) .. (n > 0 and string.format("  (%d%% off)", off) or "  (full price)"), n, chosen and n == count,
+                            Tabs.condCol(n) }
     end
     local rec = { c = 0 }
     if not chosen then pcall(pushColors, { FrameBg = { 0.10, 0.62, 0.20, 1 }, FrameBgHovered = { 0.25, 0.85, 0.30, 1 } }, rec) end
-    local okC, pick = pcall(Tabs.combo, "qcond", chosen and cname(count) or "Pick a condition...", items)
+    local okC, pick = pcall(Tabs.combo, "qcond", chosen and cname(count) or "Pick a condition...", items, chosen and Tabs.condCol(count) or nil)
     popColors(rec)
     if not okC then error(pick) end
     if pick then

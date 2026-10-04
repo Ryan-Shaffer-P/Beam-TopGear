@@ -235,3 +235,28 @@ t.test("the Admin tab's All cars, base trims button and its price boxes", functi
   t.match(im.textOf(WIN), "Fanto Bolide stradale  %- %$6,500")
   w:assertClean()
 end)
+
+t.test("condition colours: the slider's key, and each car coloured by the condition it needs (blue New .. red Death Trap)", function()
+  local w = World.new({ files = F.files(F.twoRaces()) })
+  local A = w:join("Alice")
+  w:chat(A, "/tg budget 5000")
+  w:chat(A, "/tg start")
+  w:step(2.5)
+  local function colourOf(text)
+    for _, it in ipairs(A.client.im.items(WIN)) do if it.text and it.text:find(text, 1, true) and it.color then return it.color end end
+  end
+  for n, name in ipairs({ "New", "Used", "Needs work", "Beater", "Death Trap" }) do
+    t.ok(colourOf(name), "the colour key shows " .. name)
+  end
+  t.eq(colourOf("Death Trap").x, 0.95, "Death Trap is red")
+  w:showModel(A, "Gavril D-Series")
+  local c = colourOf("$7,500  Gavril D-Series")
+  t.ok(c and c.x == 0.80 and c.y == 0.68, "the D-Series line is dark yellow (Needs work)")
+  w:showModel(A, "Ibishu Miramar")
+  c = colourOf("$3,500  Ibishu Miramar")
+  t.ok(c and c.z == 1.00 and c.x == 0.35, "the Miramar line is blue (New)")
+  w:showModel(A, "Bruckell Moonhawk")
+  c = colourOf("$9,000  Bruckell Moonhawk")
+  t.ok(c and c.x == 1.00 and c.y == 0.55, "the Moonhawk ($4,100 as a Beater) is orange")
+  w:assertClean()
+end)

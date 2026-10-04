@@ -56,9 +56,13 @@ newest at the bottom and brightest.
     name and in the Value filter, with "as a Beater" / "over budget" where it applies; the usual
     vehicle-selector key does the same while the dealership is open), and **Return it for a full refund**.
     If the selector still shows every car, `/tg diag` has a **Vehicle selector** line - send it to the developer.
-  - **Car condition**: the New .. Death Trap slider (see Car condition below).
+  - **Car condition**: the New .. Death Trap slider (see Car condition below). **Each condition has a colour** -
+    blue New, green Used, dark yellow Needs work, orange Beater, red Death Trap: the slider takes the colour of
+    the one you've picked, with the colour key under it.
   - **Today's cars**: a dropdown of the models on sale (with the cheapest price), then that model's trims,
-    each with a **Buy** button (ones that need a more worn condition say which, with no button).
+    each with a **Buy** button (ones that need a more worn condition say which, with no button). Every model in
+    the dropdown and every trim is **coloured by the condition you need to afford it** (a blue one you can
+    buy new, a red one only as a Death Trap). The Start tab's condition dropdown uses the same colours.
   - **Parts** (once you have a car; folded): what fitting each part costs, with **Fit** buttons in workshops.
 - **Admin** (admins only): **Challenge** (Start, Start (unfinished course), Next phase, Stop, Traffic mode)
   open; folded: **Players** (click a player or type a name, then **Give** / **Set** cash or **Award** points

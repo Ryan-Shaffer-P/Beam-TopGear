@@ -3365,6 +3365,7 @@ local function dealerOffers(p)
     if need == nil then return end   -- over budget even at the worst condition: not shown
     t.newPrice, t.price = t.price, CONDITION.price(cond, t.price, acc)
     t.needs = need or 0
+    t.minCond = CONDITION.needed(p, t.newPrice, acc)   -- the newest condition that affords it (the window colours by it)
     t.over = need == nil or nil
     if need and need > 0 then   -- the condition that would afford it, and its price then
       t.cond, t.condPrice = CONDITION.name(cond + need), CONDITION.price(cond + need, t.newPrice, acc)
