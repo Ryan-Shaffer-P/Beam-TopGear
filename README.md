@@ -151,8 +151,9 @@ Race / Time trial**) or with `/tg setmode <n> race|trial`. The table shows each 
   race** is the original point-to-point race.
 - **Star in a reasonably priced car:** a lap of the same track as a circuit, but in the **same car for
   everyone** and always one at a time. Everyone drives to the start in their own car and parks
-  beside the line. On your turn, a fresh **reasonably priced car** appears on the start line and the game
-  puts you in it; the countdown starts once it's there. You get the event's laps (3 by default) and
+  beside the line. Once everyone's there, someone types **GO**; on your turn a fresh **reasonably priced
+  car** appears on the start line and the game puts you in it, then you get **10 seconds to get settled**
+  (`eventTypes.rpc.readySeconds`) before your GO. You get the event's laps (3 by default) and
   **your fastest single lap counts** - every lap time is announced. After the last lap you have 3
   seconds to stop (`eventTypes.rpc.stopSeconds`), then the car is removed and you're back in your own
   car, exactly as you left it - same damage, problems, parts and fuel (it isn't touched: you get a
@@ -219,6 +220,7 @@ Drive to each spot and type the command. Positions come from your current vehicl
 | Forced waypoints on the drive TO event N | `/tg addvia N` |
 | Finale finish + its route | `/tg setfinale`, `/tg addvia finale` |
 | Rename | `/tg rename N The Hill Climb` |
+| (Positions come from **the car you're sitting in**. A checkpoint on top of the start or of the one before it is flagged when you add it, and `/tg start` refuses the course until it's moved.) | |
 | Check and save | `/tg courses`, `/tg course save <name>` |
 | Undo the last route waypoint | `/tg undovia N`, `/tg undovia finale` |
 | Start over (one event, the finale, or everything) | `/tg clearcourse N`, `/tg clearcourse finale`, `/tg clearcourse all` |

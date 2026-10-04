@@ -51,7 +51,10 @@ Install = copy `Resources/` into the BeamMP server.
   `speedtrap` (one run through the trap by default, `runs`), `parking` (multiple bays in order), `fragile`, `economy`, `slalom`, `trailer`,
   `rpc` (Star in a reasonably priced car: always time trial; laid out like a circuit; each runner gets a fresh RPC -
   server `RPC` table: `p.rpc`, positions from the RPC's vid, `RPC.request/spawned/fresh/handOver/remove`; client `Rpc`
-  table spawns + places it (`safeTeleport`) and `tg_rpc_end` puts the driver back in `getCar()`; score = best lap).
+  table spawns + places it (`safeTeleport`) and `tg_rpc_end` puts the driver back in `getCar()`; score = best lap;
+  `readySeconds` 10 once in the car). Course builder positions: `adminPose` uses the car the admin is IN (client sends
+  `tg_activeveh` "pid-vid" when it changes; `activeVeh[pid]`) - before 0.9.13 a parked second car put every checkpoint on
+  the start line. `Course.stacked` flags checkpoints on the start / each other (addcp warning, validate error).
   Every event has a **mode**: race (everyone at once) or time trial (one at a time) = `e.solo`
   (`isSolo`; nil = type default: speedtrap/parking/slalom trial, rest race). `/tg setmode`. There is no
   `timetrial` type since 0.8.4 - `migrateEvents` turns old ones into `race` + `solo = true`.

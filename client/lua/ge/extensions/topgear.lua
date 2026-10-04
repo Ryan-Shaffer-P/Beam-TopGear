@@ -3674,6 +3674,16 @@ function M.onUpdate(dtReal)
   updateMove(dtReal)
   updateTrailer(dtReal)
   Rpc.update(dtReal)
+  -- which car am I in? The server's course builder takes positions from it (once a second, sent when it changes)
+  ui.vehTimer = (ui.vehTimer or 0) + dtReal
+  if ui.vehTimer >= 1 and registered and TriggerServerEvent then
+    ui.vehTimer = 0
+    local ok, sid = pcall(function()
+      local v = be:getPlayerVehicle(0)
+      return v and MPVehicleGE and MPVehicleGE.getServerVehicleID and MPVehicleGE.getServerVehicleID(v:getID()) or nil
+    end)
+    if ok and sid and sid ~= ui.vehSent then ui.vehSent = sid; TriggerServerEvent("tg_activeveh", tostring(sid)) end
+  end
   if rebuildCheckIn then
     rebuildCheckIn = rebuildCheckIn - dtReal
     if rebuildCheckIn <= 0 then rebuildCheckIn = nil; pcall(checkRebuild) end

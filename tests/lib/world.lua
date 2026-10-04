@@ -356,6 +356,9 @@ function World:loadClient(p)
     if tonumber(spid) ~= p.pid then return -1 end
     local v = p.vehicles[tonumber(svid)]
     return v and v.gid or -1
+  end, getServerVehicleID = function(gid)   -- BeamMP: game vehicle id -> "pid-vid"
+    for vid, v in pairs(p.vehicles) do if v.gid == gid then return p.pid .. "-" .. vid end end
+    return nil
   end })
 
   sb.set("core_vehicles", {

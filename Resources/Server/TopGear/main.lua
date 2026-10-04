@@ -221,7 +221,8 @@ local DEFAULT_CONFIG = {
     fragile = { damageWeight = 0.01 },   -- seconds added per point of damage picked up
     rpc     = { model = "covet", config = "DXi_A",   -- the reasonably priced car (each event can pick its own: /tg setrpc)
                 spawnTimeout = 20,                   -- seconds to wait for it to appear (BeamMP MaxCars must be 2+)
-                stopSeconds = 3 },                   -- after the last lap: time to stop before you're back in your own car
+                stopSeconds = 3,                     -- after the last lap: time to stop before you're back in your own car
+                readySeconds = 10 },                 -- once you're in the car: a countdown to get settled before GO
     slalom  = { gateRadius = 4, gatePenalty = 5 },
     trailer = { setup = nil,   -- saved with /tg trailersave: a prebuilt trailer whose load is part of it (replaces the cones)
                 loadWeight = 0.7, speedWeight = 0.3,   -- score out of 100: share of the load kept + speed vs the fastest
@@ -1419,7 +1420,7 @@ local function stateFor(p)
   if ph == "countdown" and game.countdownEnd then
     s.lights = { left = game.countdownEnd - now(), total = cfg.defaults.countdown }
   elseif ph == "event" and game.solo and game.solo.runner and game.solo.runner.run.status == "staged" and game.solo.countEnd then
-    s.lights = { left = game.solo.countEnd - now(), total = cfg.defaults.countdown, who = game.solo.runner.name }
+    s.lights = { left = game.solo.countEnd - now(), total = game.solo.countTotal or cfg.defaults.countdown, who = game.solo.runner.name }
   end
   local tgt = currentTarget(p)
   local tp = tgt and v3(tgt.pos)
@@ -1566,6 +1567,21 @@ local function towDestination(p)
   return pos, dir, idx
 end
 
+-- course checks (one table: main.lua is near Lua's 200-local limit)
+local Course = {}
+-- a checkpoint on top of the start (or of the checkpoint before it) is reached the moment the run starts - e.g. one
+-- placed from a parked car instead of the one being driven. Returns why, or nil.
+function Course.stacked(e, cps)
+  cps = cps or e.checkpoints or {}
+  local start, near = v3(e.start), 2 * (e.cpRadius or cfg.defaults.cpRadius or 12)
+  for k, cp in ipairs(cps) do
+    local c = v3(cp)
+    if c and start and dist(c, start) < near then return string.format("checkpoint %d is on top of the start (%.0f m)", k, dist(c, start)) end
+    local prev = k > 1 and v3(cps[k - 1])
+    if c and prev and dist(c, prev) < near then return string.format("checkpoints %d and %d are on top of each other (%.0f m)", k - 1, k, dist(c, prev)) end
+  end
+  return nil
+end
 local function validate(events, finale, onlyEnabled)
   events, finale = events or cfg.events, finale or cfg.finale
   local errs = {}
@@ -1580,6 +1596,9 @@ local function validate(events, finale, onlyEnabled)
         errs[#errs + 1] = string.format("Event %d: no %s - /tg addcp %d", i, e.type == "slalom" and "gates" or "checkpoints", i)
       elseif (e.type == "circuit" or e.type == "rpc") and #(e.checkpoints or {}) < 1 then
         errs[#errs + 1] = string.format("Event %d: a circuit needs checkpoints round the lap - /tg addcp %d", i, i)
+      else
+        local why = Course.stacked(e)
+        if why then errs[#errs + 1] = string.format("Event %d (%s): %s - /tg clearcp %d and place them again", i, e.name, why, i) end
       end
     end
   end
@@ -1802,8 +1821,9 @@ function RPC.spawned(p, vid, model)   -- TG_onVehicleSpawn: is this the RPC we a
   r.vid, r.want = vid, false
   local s, run = game.solo, p.run
   if run.status == "staged" and s and s.runner == p and not s.countEnd then
-    s.countEnd, s.lastCount = now() + cfg.defaults.countdown, nil
-    say(p.pid, "Here's your reasonably priced car. Get ready!")
+    local secs = tonumber(typeCfg("rpc").readySeconds) or 10
+    s.countEnd, s.countTotal, s.lastCount = now() + secs, secs, nil
+    say(p.pid, string.format("Here's your reasonably priced car - %d seconds to get settled, then GO!", math.floor(secs)))
   elseif run.status == "running" then   -- a fresh car mid-run: a new lap from the line
     run.cp, run.lapStart, run.leftLine = 1, now(), false
   end
@@ -1914,7 +1934,7 @@ nextSoloRunner = function()
     local p = s.order[s.idx]
     if not p then s.runner = nil; pushAll(); return false end
     if p.run.status == "waiting" and racing(p) then
-      s.runner, s.countEnd, s.lastCount = p, now() + cfg.defaults.countdown, nil
+      s.runner, s.countEnd, s.countTotal, s.lastCount = p, now() + cfg.defaults.countdown, nil, nil
       p.run.status = "staged"
       local nxt = s.order[s.idx + 1]
       sayAll(string.format("%s is up%s.", p.name, nxt and (" - " .. nxt.name .. " is next") or " - last run"))
@@ -1998,6 +2018,10 @@ local function tickRoute(p, e)
   end
   local cp = cps[p.run.cp]
   if not cp or not reached(p, cp, e.cpRadius or cfg.defaults.cpRadius) then return end
+  if e.type == "rpc" then   -- (in the server console: where each one was reached, to check a course in game)
+    log(string.format("rpc: %s lap %d, point %d/%d reached %.0f m from it at (%.0f, %.0f)", p.name, p.run.lap or 1, p.run.cp, #cps,
+      dist(p.pos, v3(cp)), p.pos.x, p.pos.y))
+  end
   local elapsed = now() - p.run.startT
   if lapped and p.run.cp >= #cps then
     local laps = math.max(1, math.floor(tonumber(e.laps) or 3))
@@ -3226,12 +3250,22 @@ end
 -- Chat commands
 ---------------------------------------------------------------------------
 -- the admin's vehicles, their own challenge car first (so traffic they spawned never moves a course point)
+-- the car each player is sitting in (their game reports it - tg_activeveh): the course builder takes positions from it.
+-- Before 0.9.13 it took the challenge car or the first vehicle, so with two cars out every checkpoint could land on a
+-- parked one - e.g. on the start line.
+local activeVeh = {}
+function TG_onActiveVeh(pid, data)
+  activeVeh[pid] = tonumber(tostring(data or ""):match("(%d+)%s*$"))
+end
 local function adminVehicles(pid)
   local list, own = {}, nil
   local p = playerByPid(pid)
-  if p and p.carVid then own = p.carVid; list[1] = own end
+  local mine = MP.GetPlayerVehicles(pid) or {}
+  local active = activeVeh[pid]
+  if active and mine[active] ~= nil then own = active; list[1] = own
+  elseif p and p.carVid then own = p.carVid; list[1] = own end
   local rest = {}
-  for vid in pairs(MP.GetPlayerVehicles(pid) or {}) do if vid ~= own then rest[#rest + 1] = vid end end
+  for vid in pairs(mine) do if vid ~= own then rest[#rest + 1] = vid end end
   table.sort(rest)
   for _, vid in ipairs(rest) do list[#list + 1] = vid end
   return ipairs(list)
@@ -4394,6 +4428,8 @@ ADMIN_CMDS.addcp = function(pid, _, args)
     e.checkpoints[#e.checkpoints + 1] = pos
     markDirty()
     say(pid, string.format("%s checkpoint %d set %s - the last one is the finish (/tg save)", label, #e.checkpoints, fmtPos(pos)))
+    local why = Course.stacked(e)
+    if why then say(pid, "Careful: " .. why .. ". Positions come from the car you're in - /tg undocp " .. tostring(args[3]) .. " to take it back.") end
   end)
 end
 ADMIN_CMDS.undocp = function(pid, _, args)
@@ -5104,6 +5140,7 @@ MP.RegisterEvent("onVehicleEdited",    "TG_onVehicleEdited")
 MP.RegisterEvent("onVehicleDeleted",   "TG_onVehicleDeleted")
 MP.RegisterEvent("onVehicleReset",     "TG_onVehicleReset")
 MP.RegisterEvent("tg_report",          "TG_onReport")
+MP.RegisterEvent("tg_activeveh",       "TG_onActiveVeh")
 MP.RegisterEvent("tg_diag_reply",      "TG_onDiag")
 MP.RegisterEvent("tg_import_reply",    "TG_onImportReply")
 MP.RegisterEvent("tg_ui_req",          "TG_onUiRequest")
