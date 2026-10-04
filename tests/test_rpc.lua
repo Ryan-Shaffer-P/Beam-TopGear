@@ -214,3 +214,25 @@ t.test("the course builder takes positions from the car you're in (not a parked 
   t.eq(w:state(A) and w:state(A).phase or "idle", "idle", "won't start like that")
   w:assertClean()
 end)
+
+t.test("course builder layout: Pick a course / Event type / Events + big buttons / Event options / Save course", function()
+  local w = World.new({ files = F.files(rpcCourse()) })
+  local A = w:join("Alice")
+  w:chat(A, "/tg menu"); w:step(2.5)
+  local heads = {}
+  for _, it in ipairs(A.client.im.items("Top Gear Challenge")) do if it.kind == "header" then heads[#heads + 1] = it.label end end
+  local order = table.concat(heads, "|")
+  t.ok(order:find("Course|Pick a course|Event type|Events|Event options|Save course|Workshop locations|Session", 1, true), order)
+  t.ok(A.client.im.hasButton("Set start\nhere") and A.client.im.hasButton("Add\ncheckpoint") and
+       A.client.im.hasButton("Undo\ncheckpoint") and A.client.im.hasButton("Clear\ncheckpoints"), "the big place-it buttons")
+  A.client.im.setInt("# of laps##laps", 5); w:step(1)
+  t.eq(w:serverConfig().events[1].laps, 5, "# of laps is sent as it changes")
+  w:buy(A, "covet", "base_M"); w:drive(A, p(650), 40); w:step(1.5)   -- (a car to place it with)
+  A.client.im.click("Add\ncheckpoint##big_addcp"); w:step(1)
+  t.eq(#w:serverConfig().events[1].checkpoints, 2, "Add checkpoint works")
+  A.client.im.click("Clear\ncheckpoints##big_clearcp"); w:step(1)
+  t.eq(#w:serverConfig().events[1].checkpoints, 2, "Clear needs a second click")
+  A.client.im.click("Really?\nClear checkpoints##big_clearcp"); w:step(1)
+  t.eq(#w:serverConfig().events[1].checkpoints, 0, "cleared")
+  w:assertClean()
+end)

@@ -1,7 +1,8 @@
 -- Text preview of the Top Gear window, drawn by the real client code in the test harness (fake ImGui).
 -- Shows each tab's content and controls - not colours, fonts or exact spacing.
 --   luajit tools/preview.lua [scene] [tab]      (from the repo root)
---   scenes: idle (default), dealer, ready (cars bought, Alice ready), travel, event, workshop, results      tab: a tab name, or "all" (default)
+--   scenes: idle (default), dealer, ready (cars bought, Alice ready), travel, event, workshop, results
+--   PREVIEW_OPEN=1 shows folded boxes' contents too (e.g. the Admin tab's Course builder)      tab: a tab name, or "all" (default)
 package.path = "tests/lib/?.lua;tests/?.lua;" .. package.path
 local World = require("world")
 local F = require("fixtures")
@@ -104,14 +105,15 @@ local folded, inCombo = false, false
 local BOXES = { ["Setup"] = 1, ["Dealer"] = 1, ["My car"] = 1, ["Challenge saved"] = 1, ["Standings"] = 1, ["Buy a car"] = 1,
   ["Car condition"] = 1, ["Parts"] = 1, ["Challenge"] = 1, ["Players"] = 1, ["Money & timers"] = 1, ["Car classes"] = 1,
   ["Tools"] = 1, ["Course"] = 1, ["Sound"] = 1, ["Lights & flag"] = 1, ["Window"] = 1, ["Troubleshooting"] = 1,
-  ["Winner"] = 1, ["Results"] = 1, ["How the points add up"] = 1, ["Messages"] = 1 }
+  ["Winner"] = 1, ["Results"] = 1, ["How the points add up"] = 1, ["Messages"] = 1,
+  ["Pick a course"] = 1, ["Event type"] = 1, ["Events"] = 1, ["Event options"] = 1, ["Save course"] = 1 }
 local function isBox(it) return it.kind == "header" and (BOXES[it.label] or it.label:find("^Today's cars")) end
 for _, it in ipairs(items) do
   if it.kind == "tab" or isBox(it) then folded = false end
   if folded then goto continue end
   if it.kind == "selectable" and inCombo then goto continue end   -- (a dropdown's options: closed in game)
   inCombo = it.kind == "combo" or (inCombo and it.kind == "selectable")
-  if isBox(it) and it.flags == 0 then folded = true end
+  if isBox(it) and it.flags == 0 and not os.getenv("PREVIEW_OPEN") then folded = true end
   if it.kind == "endtable" then flushTable(); goto continue end
   if tbl and it.kind == "column" then tbl.cols[#tbl.cols + 1] = it.text; goto continue end
   if tbl and it.kind == "text" and #tbl.cols > 0 then tbl.cells[#tbl.cells + 1] = it.text; goto continue end

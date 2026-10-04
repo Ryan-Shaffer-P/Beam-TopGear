@@ -63,9 +63,13 @@ newest at the bottom and brightest.
 - **Admin** (admins only): **Challenge** (Start, Start (unfinished course), Next phase, Stop, Traffic mode)
   open; folded: **Players** (click a player or type a name, then **Give** / **Set** cash or **Award** points
   with an optional reason - a negative number takes cash or points away), **Money & timers** (budget,
-  workshop timer, workshop frequency, price import), **Car classes**, **Course** (workshop locations, the
-  session's events, the course builder: pick an event, drive there, click Set start / Add checkpoint /
-  Add route waypoint, then Save) and **Tools** (soundboard, fault tests). Stop and Clear ALL need a second click.
+  workshop timer, workshop frequency, price import), **Car classes**, **Course** - the course builder, as
+  boxes: **Pick a course** (load / save as / new), **Event type** (the selected event's type buttons + rename),
+  **Events** (pick the one to edit; under it big **Set start here / Add checkpoint / Undo / Clear** buttons and
+  **# of laps** for laps events, then the route-waypoint buttons - drive to the spot first, the (?) explains),
+  **Event options** (the reasonably priced car, race or time trial, time limit, delete) and **Save course**
+  (big Save / Revert / Clear buttons); then workshop locations and the session's events - and **Tools**
+  (soundboard, fault tests). Stop and Clear ALL need a second click.
 - **Settings** (everyone): **Sound** (your own sound on/off - only for you - Test sound, "Not hearing it?
   Try another way"), **Lights & flag** (Position / Test the start lights and the finish flag), **Window**
   (the colour theme on/off) and **Troubleshooting** (**Diagnostics** / **Parts diagnostics** - the results

@@ -2236,8 +2236,8 @@ local function drawLibrary(c)
   if c.active then same(); button("Save##libsave", "course save " .. c.active) end
   same()
   if im.Button("New course##libnew") then sendCmd("course new " .. trim(textOf(nb))) end
-  im.Separator()
 end
+Tabs.library = drawLibrary   -- (the course builder's "Pick a course" box)
 
 local function drawAdmin(d)
   drawAdminControls(d)
@@ -2401,13 +2401,14 @@ local function drawAdmin(d)
   end, true)
   local c = d.course
   if c then Tabs.box("Course", "course", function()
+    Tabs.courseBuilder(c)
     if header("Workshop locations##wsloc") then
       if (c.workshops or 0) == 0 then txt("No workshop locations: workshops work anywhere on the map.")
       else txt(string.format("%d workshop location%s: players drive to the nearest one when a workshop opens.",
         c.workshops, c.workshops == 1 and "" or "s")) end
       button("Import gas stations", "importgas"); same(); button("Add workshop here", "addworkshop"); same()
       button("Undo workshop", "undoworkshop"); same(); confirmButton("Clear workshops", "clrws", "clearworkshops")
-      colored(0.65, 0.65, 0.65, "Saved with the course - remember Save in the course library.")
+      Tabs.help("Saved with the course - remember Save course.")
     end
     if header("Session - pick and order the events##session") then
       local on = 0
@@ -2436,95 +2437,6 @@ local function drawAdmin(d)
         if i % 4 ~= 0 then same() end
       end
       txt("")
-    end
-    if header("Course builder##course") then
-      drawLibrary(c)
-      txt("Drive to the spot, then press a button - positions come from your car.")
-      if ui.sel ~= "finale" and not c.events[ui.sel] then ui.sel = 1 end
-      for _, e in ipairs(c.events) do
-        if im.Button(((ui.sel == e.n) and "> " or "") .. e.n .. "##ev" .. e.n) then ui.sel = e.n end
-        same()
-        local detail
-        if e.type == "speedtrap" then detail = "trap:" .. (e.trap and "yes" or "NO")
-        elseif e.type == "parking" then detail = "bays:" .. (e.bays or 0)
-        elseif e.type == "slalom" then detail = "gates:" .. e.cps
-        elseif e.type == "circuit" then detail = string.format("checkpoints:%d  laps:%d", e.cps, e.laps or 3)
-        elseif e.type == "rpc" then detail = string.format("checkpoints:%d  laps:%d  car:%s", e.cps, e.laps or 3, tostring(e.rpcCar))
-        else detail = "checkpoints:" .. e.cps end
-        local line = string.format("%s%s [%s]  start:%s  %s  route:%d", e.enabled and "" or "(off) ", e.name,
-          e.typeLabel or e.type, e.start and "yes" or "NO", detail, e.via)
-        if e.enabled then txt(line) else colored(0.6, 0.6, 0.6, line) end
-      end
-      if im.Button(((ui.sel == "finale") and "> " or "") .. "F##evf") then ui.sel = "finale" end
-      same()
-      txt(string.format("%s  finish:%s  route:%d", c.finale.name, c.finale.pos and "yes" or "NO", c.finale.via))
-      im.Separator()
-      local target = tostring(ui.sel)
-      if ui.sel == "finale" then
-        button("Set finish here", "setfinale"); same()
-        button("Add route waypoint", "addvia finale"); same(); button("Undo route waypoint", "undovia finale"); same()
-        button("Clear route", "clearvia finale")
-      else
-        local e = c.events[ui.sel]
-        button("Set start here", "setstart " .. target); same()
-        if e.type == "speedtrap" then button("Set speed trap here", "settrap " .. target)
-        elseif e.type == "parking" then
-          button("Add bay here", "addbay " .. target); same(); button("Undo bay", "undobay " .. target); same()
-          button("Clear bays", "clearbays " .. target)
-          txt("Park in each spot facing the way the bay should face. Bays are parked in the order you add them.")
-        else
-          local what = (e.type == "slalom") and "gate" or "checkpoint"
-          button("Add " .. what, "addcp " .. target); same(); button("Undo " .. what, "undocp " .. target); same()
-          button("Clear " .. what .. "s", "clearcp " .. target)
-          if e.type == "slalom" then txt("Gates in order - the last one is the finish.")
-          elseif e.type == "circuit" or e.type == "rpc" then
-            txt("Checkpoints round the lap, in order. The start point is the start/finish line - each lap ends by crossing it.")
-            local lp = intPtr("laps" .. target, e.laps or 3)
-            im.InputInt("Laps##laps", lp); same(); button("Set laps##setlaps", "setlaps " .. target .. " " .. lp[0])
-            if e.type == "rpc" then
-              txt("The reasonably priced car: " .. tostring(e.rpcCar) .. " - each driver gets a fresh one on the start line. Best lap wins.")
-              button("Use the car I'm in##rpcmine", "setrpc " .. target .. " mine"); same()
-              button("Default car##rpcdefault", "setrpc " .. target .. " default")
-            end
-          else txt("Checkpoints in order - the last one is the finish.") end
-        end
-        button("Add route waypoint", "addvia " .. target); same(); button("Undo route waypoint", "undovia " .. target); same()
-        button("Clear route", "clearvia " .. target)
-        local tl = intPtr("time" .. target, e.timeLimit or 600)
-        im.InputInt("Time limit (s)##tl", tl); same(); button("Set time##settime", "settime " .. target .. " " .. tl[0])
-        if e.solo then same(); txt("(per run)") end
-        if e.type == "rpc" then txt("Mode: time trial - one at a time (always, for this type)")
-        else
-          txt("Mode:"); same()
-          button((e.solo and "" or "> ") .. "Race - everyone at once##moderace", "setmode " .. target .. " race"); same()
-          button((e.solo and "> " or "") .. "Time trial - one at a time##modetrial", "setmode " .. target .. " trial")
-        end
-        txt("Event type:")
-        for i, t in ipairs(c.types or {}) do
-          local label = (t.id == e.type and "> " or "") .. t.label .. "##ty_" .. t.id
-          button(label, "settype " .. target .. " " .. t.id)
-          if i % 4 ~= 0 then same() end
-        end
-        txt("")
-        if c.idle then confirmButton("Delete this event", "delev", "delevent " .. target) end
-        if e.type == "trailer" then same(); button("Test trailer spawn##tt", "trailertest"); same(); button("Remove test trailer##tto", "trailertest off") end
-      end
-      local nb = textBuf("rename")
-      im.InputText("##rename", nb); same()
-      if im.Button("Rename") then
-        local nm = textOf(nb)
-        if nm ~= "" then sendCmd("rename " .. target .. " " .. nm) end
-      end
-      im.Separator()
-      if c.problems == 0 then colored(0.4, 1, 0.4, "Course complete.") else txt(c.problems .. " thing(s) still to set.") end
-      if c.active then button("Save course##bottomsave", "course save " .. c.active); same() end
-      if c.active and c.dirty then
-        local saved = false
-        for _, e in ipairs(c.library or {}) do if e.name == c.active then saved = true end end
-        if saved then button("Revert to saved##revert", "course load " .. c.active); same() end
-      end
-      confirmButton("Clear this one", "clr1", "clearcourse " .. target); same()
-      confirmButton("Clear ALL", "clrall", "clearcourse all")
     end
   end, true) end
 end
@@ -2841,6 +2753,159 @@ Tabs.box = function(title, id, fn, closed)
     if not okD then ui.noBoxes = true; warn("box borders unavailable, plain sections instead: " .. tostring(errD)) end
   end
   pcall(im.Dummy, im.ImVec2(1, 8))   -- a gap before the next box
+end
+
+-- A row of big buttons sharing the width: items = { { label, id, cmd = "..." or fn = function, confirm = bool,
+-- off = bool (greyed, ignores clicks) } }; extra = room kept at the end of the row (for an input after it). Labels may
+-- have "\n" (two lines). Confirm buttons need a second click within 3 s, like confirmButton.
+Tabs.bigButtons = function(items, height, extra)
+  local n = #items
+  if n == 0 then return end
+  local okW, avail = pcall(function() return im.GetContentRegionAvail() end)
+  local w = (okW and type(avail) == "table" and tonumber(avail.x)) or 480
+  w = math.max(60, math.floor((w - (extra or 0) - (n - 1) * 8) / n))
+  for i, it in ipairs(items) do
+    if i > 1 then same() end
+    local armed = it.confirm and ui.confirm[it.id] and (ui.t - ui.confirm[it.id]) < 3
+    local label = (armed and ("Really?\n" .. it.label:gsub("\n", " ")) or it.label) .. "##big_" .. it.id
+    local rec = { c = 0 }
+    if it.off then local g = { 0.30, 0.32, 0.34, 1 }; pcall(pushColors, { Button = g, ButtonHovered = g, ButtonActive = g, Text = { 0.55, 0.57, 0.60, 1 } }, rec) end
+    local okB, clicked = pcall(im.Button, label, im.ImVec2(w, height or 44))
+    popColors(rec)
+    if not okB then error(clicked) end
+    if clicked and not it.off then
+      if it.confirm and not armed then ui.confirm[it.id] = ui.t
+      else
+        if it.confirm then ui.confirm[it.id] = nil end
+        if it.fn then it.fn() else sendCmd(it.cmd) end
+      end
+    end
+  end
+end
+
+-- The course builder (Admin tab, Course box): Pick a course | Event type (+ rename) | Events (+ the big place-it
+-- buttons under it) | Event options | Save course. ui.sel = the event being edited (a number, or "finale").
+Tabs.courseBuilder = function(c)
+  if ui.sel ~= "finale" and not c.events[ui.sel] then ui.sel = 1 end
+  local target = tostring(ui.sel)
+  local e = ui.sel ~= "finale" and c.events[ui.sel] or nil
+
+  Tabs.box("Pick a course", "cpick", function() Tabs.library(c) end)
+
+  Tabs.box("Event type", "ctype", function()
+    if e then
+      txt("Event " .. target .. ": " .. tostring(e.name))
+      for i, t in ipairs(c.types or {}) do
+        button((t.id == e.type and "> " or "") .. t.label .. "##ty_" .. t.id, "settype " .. target .. " " .. t.id)
+        if i % 3 ~= 0 and i < #(c.types or {}) then same() end
+      end
+    else
+      txt("The finale: " .. tostring(c.finale.name) .. " (no type - it's where the challenge ends)")
+    end
+    local nb = textBuf("rename")
+    im.InputText("##rename", nb); same()
+    if im.Button("Rename") then
+      local nm = textOf(nb)
+      if nm ~= "" then sendCmd("rename " .. target .. " " .. nm) end
+    end
+  end)
+
+  Tabs.box("Events", "cevents", function()
+    txt("Pick the one to edit:")
+    Tabs.help("Drive to the spot, then press a button below - positions come from the car you're in.\n" ..
+      "The route buttons place waypoints on the drive TO the event (the arrows follow them).")
+    for _, ev in ipairs(c.events) do
+      if im.Button(((ui.sel == ev.n) and "> " or "") .. ev.n .. "##ev" .. ev.n) then ui.sel = ev.n end
+      same()
+      local detail
+      if ev.type == "speedtrap" then detail = "trap:" .. (ev.trap and "yes" or "NO")
+      elseif ev.type == "parking" then detail = "bays:" .. (ev.bays or 0)
+      elseif ev.type == "slalom" then detail = "gates:" .. ev.cps
+      elseif ev.type == "circuit" then detail = string.format("checkpoints:%d  laps:%d", ev.cps, ev.laps or 3)
+      elseif ev.type == "rpc" then detail = string.format("checkpoints:%d  laps:%d  car:%s", ev.cps, ev.laps or 3, tostring(ev.rpcCar))
+      else detail = "checkpoints:" .. ev.cps end
+      local line = string.format("%s%s [%s]  start:%s  %s  route:%d", ev.enabled and "" or "(off) ", ev.name,
+        ev.typeLabel or ev.type, ev.start and "yes" or "NO", detail, ev.via)
+      if ev.enabled then txt(line) else colored(0.6, 0.6, 0.6, line) end
+    end
+    if im.Button(((ui.sel == "finale") and "> " or "") .. "F##evf") then ui.sel = "finale" end
+    same()
+    txt(string.format("%s  finish:%s  route:%d", c.finale.name, c.finale.pos and "yes" or "NO", c.finale.via))
+  end)
+
+  -- the place-it buttons, big, under the Events box
+  if not e then
+    Tabs.bigButtons({ { label = "Set finish\nhere", id = "setfinale", cmd = "setfinale" } })
+  else
+    local row = { { label = "Set start\nhere", id = "setstart", cmd = "setstart " .. target } }
+    if e.type == "speedtrap" then
+      row[#row + 1] = { label = "Set speed\ntrap here", id = "settrap", cmd = "settrap " .. target }
+    elseif e.type == "parking" then
+      row[#row + 1] = { label = "Add bay\nhere", id = "addbay", cmd = "addbay " .. target }
+      row[#row + 1] = { label = "Undo\nbay", id = "undobay", cmd = "undobay " .. target }
+      row[#row + 1] = { label = "Clear\nbays", id = "clearbays", cmd = "clearbays " .. target, confirm = true }
+    else
+      local what = (e.type == "slalom") and "gate" or "checkpoint"
+      row[#row + 1] = { label = "Add\n" .. what, id = "addcp", cmd = "addcp " .. target }
+      row[#row + 1] = { label = "Undo\n" .. what, id = "undocp", cmd = "undocp " .. target }
+      row[#row + 1] = { label = "Clear\n" .. what .. "s", id = "clearcp", cmd = "clearcp " .. target, confirm = true }
+    end
+    local lapped = e.type == "circuit" or e.type == "rpc"
+    Tabs.bigButtons(row, 44, lapped and 130 or 0)
+    if lapped then   -- # of laps, at the end of the row (sent as it changes)
+      same()
+      local lp = intPtr("laps" .. target, e.laps or 3)
+      if imGet("SetNextItemWidth") then pcall(im.SetNextItemWidth, 80) end
+      if im.InputInt("# of laps##laps", lp) then
+        if lp[0] < 1 then lp[0] = 1 elseif lp[0] > 50 then lp[0] = 50 end
+        sendCmd("setlaps " .. target .. " " .. lp[0])
+      end
+    end
+  end
+  Tabs.bigButtons({ { label = "Add route\nwaypoint", id = "addvia", cmd = "addvia " .. target },
+                    { label = "Undo route\nwaypoint", id = "undovia", cmd = "undovia " .. target },
+                    { label = "Clear\nroute", id = "clearvia", cmd = "clearvia " .. target, confirm = true } }, 36)
+  if e and e.type == "parking" then Tabs.help("Park in each spot facing the way the bay should face. Bays are parked in the order you add them.") end
+  if e and (e.type == "circuit" or e.type == "rpc") then
+    Tabs.help("Checkpoints round the lap, in order. The start is the start/finish line - each lap ends by crossing it.")
+  elseif e and e.type == "slalom" then Tabs.help("Gates in order - the last one is the finish.")
+  elseif e and e.type ~= "speedtrap" and e.type ~= "parking" then Tabs.help("Checkpoints in order - the last one is the finish.") end
+  pcall(im.Dummy, im.ImVec2(1, 6))
+
+  if e then
+    Tabs.box("Event options", "copts", function()
+      if e.type == "rpc" then
+        txt("The reasonably priced car: " .. tostring(e.rpcCar))
+        Tabs.help("Each driver gets a fresh one on the start line, one at a time. Best lap wins.")
+        button("Use the car I'm in##rpcmine", "setrpc " .. target .. " mine"); same()
+        button("Default car##rpcdefault", "setrpc " .. target .. " default")
+        txt("Mode: time trial - one at a time (always, for this type)")
+      else
+        txt("Mode:"); same()
+        button((e.solo and "" or "> ") .. "Race - everyone at once##moderace", "setmode " .. target .. " race"); same()
+        button((e.solo and "> " or "") .. "Time trial - one at a time##modetrial", "setmode " .. target .. " trial")
+      end
+      local tl = intPtr("time" .. target, e.timeLimit or 600)
+      im.InputInt("Time limit (s)##tl", tl); same(); button("Set time##settime", "settime " .. target .. " " .. tl[0])
+      if e.solo then same(); txt("(per run)") end
+      if e.type == "trailer" then button("Test trailer spawn##tt", "trailertest"); same(); button("Remove test trailer##tto", "trailertest off") end
+      if c.idle then confirmButton("Delete this event", "delev", "delevent " .. target) end
+    end)
+  end
+
+  Tabs.box("Save course", "csave", function()
+    if c.problems == 0 then colored(0.4, 1, 0.4, "Course complete.") else txt(c.problems .. " thing(s) still to set.") end
+    local row = {}
+    if c.active then row[#row + 1] = { label = "Save course", id = "bottomsave", cmd = "course save " .. c.active } end
+    if c.active and c.dirty then
+      local saved = false
+      for _, le in ipairs(c.library or {}) do if le.name == c.active then saved = true end end
+      if saved then row[#row + 1] = { label = "Revert to saved", id = "revert", cmd = "course load " .. c.active } end
+    end
+    if #row > 0 then Tabs.bigButtons(row, 44) else Tabs.help("Name it in Pick a course (Save as) to save it.") end
+    Tabs.bigButtons({ { label = "Clear this one", id = "clr1", cmd = "clearcourse " .. target, confirm = true },
+                      { label = "Clear ALL", id = "clrall", cmd = "clearcourse all", confirm = true } }, 44)
+  end)
 end
 
 -- hover help: a dim "(?)" after the item before it; the explanation shows when the mouse is over it.

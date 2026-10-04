@@ -115,10 +115,11 @@ function M.new()
     record({ kind = "slider", label = visible(label), value = ptr[0], min = lo, max = hi, text = "<" .. tostring(fmt) .. ">" })
     return changed
   end
-  function im.InputInt(label, ptr)
-    if ints[label] then ptr[0] = ints[label]; ints[label] = nil end
+  function im.InputInt(label, ptr)   -- (like ImGui: true when the value changed this frame)
+    local changed = false
+    if ints[label] then changed = ptr[0] ~= ints[label]; ptr[0] = ints[label]; ints[label] = nil end
     record({ kind = "inputint", label = visible(label), value = ptr[0] })
-    return false
+    return changed
   end
   function im.SameLine() record({ kind = "sameline" }) end   -- (for tools/preview.lua: items side by side)
   function im.Separator() end
