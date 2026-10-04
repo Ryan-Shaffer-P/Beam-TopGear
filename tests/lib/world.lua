@@ -769,6 +769,16 @@ function World:steerOffset(p)
   return out
 end
 
+-- the Dealership's "Today's cars" shows one model at a time: pick this one in its dropdown (by the model's name)
+function World:showModel(p, name)
+  for _, it in ipairs(p.client.im.items("Top Gear Challenge")) do
+    if it.kind == "selectable" and it.label:sub(1, #name + 2) == name .. " (" then
+      p.client.im.click(it.label); self:step(0.5); return true
+    end
+  end
+  error("no " .. name .. " in the Today's cars dropdown", 2)
+end
+
 -- a player gets round the reset lock (R / Insert): the game resets the car
 function World:resetCar(p)
   assert(p.current, p.name .. " has no car")

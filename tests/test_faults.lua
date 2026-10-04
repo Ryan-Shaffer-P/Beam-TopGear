@@ -264,8 +264,9 @@ t.test("the Dealership tab: a Car Condition slider (New .. Death Trap, no number
   local function slider()
     for _, it in ipairs(A.client.im.items(WIN)) do if it.kind == "slider" then return it end end
   end
+  w:showModel(A, "Ibishu Covet")
   local s = A.client.im.textOf(WIN)
-  t.match(s, "CAR CONDITION\n<New>")
+  t.match(s, "Car condition%]\n<New>")
   t.match(s, "A more worn car is cheaper on the market: Used up to 10%% off, Needs work up to 20%% off, Beater up to 45%% off, Death Trap up to 70%% off%.")
   t.match(s, "Fast cars hold their value: the quicker a car, the smaller its discount%.")
   t.match(s, "Choose before you buy %- it's locked in with the car%.")
@@ -278,7 +279,7 @@ t.test("the Dealership tab: a Car Condition slider (New .. Death Trap, no number
   s = A.client.im.textOf(WIN)
   t.match(s, "%$2,500  Ibishu Covet", "...the prices do: $4,500 x 0.55")
   t.match(s, "<Beater>")
-  t.match(s, "Beater %(200,000 km%): the prices below are up to 45%% off%.")
+  t.match(s, "Beater %(200,000 km%): prices up to 45%% off%.")
   t.ok(not slider().text:find("%d"), "no number on the slider: " .. slider().text)
   A.client.im.setInt("##condition", 1)
   w:step(2.5)

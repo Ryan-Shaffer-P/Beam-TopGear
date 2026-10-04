@@ -41,6 +41,7 @@ t.test("dealership: buy by spawning, buy from the window, ready up, leg 1 starts
   w:step(2.5)   -- the window refreshes its data every 2 s
   local im = b.client.im
   t.ok(im.hasButton("Buy"), "Buy buttons shown")
+  w:showModel(b, "Ibishu Pessima")   -- (Today's cars: one model at a time)
   im.click("Buy##pessima_nil")
   w:step(1)
   t.eq(b.current and b.current.model, "pessima")
@@ -68,7 +69,7 @@ t.test("dealership: buy by spawning, buy from the window, ready up, leg 1 starts
     if it.kind == "button" and it.label == "GO! Start the countdown" then go = it end
   end
   t.ok(go, "GO button shown when everyone has arrived")
-  t.ok(go.size and go.size.y >= 60 and go.size.x < 0, "GO button is tall and full width")
+  t.ok(go.size and go.size.y >= 60 and (go.size.x < 0 or go.size.x >= 520), "GO button is tall and full width")
   local scaled = false
   for _, it in ipairs(im.items("Top Gear Challenge")) do if it.kind == "fontscale" and it.scale > 1 then scaled = true end end
   t.ok(scaled, "GO button uses a bigger font")

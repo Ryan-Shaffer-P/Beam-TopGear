@@ -57,8 +57,9 @@ t.test("a new install sells every stock car without an import; config.json stays
   w:chat(A, "/tg budget 30000")
   w:chat(A, "/tg start")
   w:step(2.5)
+  w:showModel(B, "Hirochi Sunburst")
   local s = B.client.im.textOf(WIN)
-  t.match(s, "TODAY'S CARS: every car and truck")
+  t.match(s, "Today's cars: every car and truck")
   t.match(s, "%$25,500  Hirochi Sunburst [^\n]*\n")
   -- (a dealership line starts with its price. No Scintilla fits a $30,000 budget even as a Death Trap - and the
   -- estimated $73,000 Off-Road one (0-100 in 3.5 s) holds its value: only 21% off -> $57,700)
@@ -86,6 +87,7 @@ t.test("custom prices, classes and the budget are saved in config.json and survi
   w2:chat(A2, "/tg class use jdm")
   w2:chat(A2, "/tg start")
   w2:step(2.5)
+  w2:showModel(A2, "Hirochi Sunburst")
   t.match(A2.client.im.textOf(WIN), "%$6,375  Hirochi Sunburst", "$25,500 x 0.25, from the catalogue after a restart")
   w2:assertClean()
 end)
@@ -146,6 +148,7 @@ t.test("the ~1,000-trim car list is only re-sent when it changes; the window kee
   w:step(6.5)   -- three refreshes with nothing changed
   t.ok(#sizes >= 3, "refreshes: " .. #sizes)
   for _, n in ipairs(sizes) do t.ok(n < 20000, "an unchanged refresh is small: " .. n .. " bytes") end
+  w:showModel(B, "Hirochi Sunburst")
   t.match(B.client.im.textOf(WIN), "%$25,500  Hirochi Sunburst", "the list is still shown")
   local before = #sizes
   w:chat(A, "/tg setprice sunburst2/base_EU_M 7000")   -- the list changed: it's sent again
@@ -153,6 +156,7 @@ t.test("the ~1,000-trim car list is only re-sent when it changes; the window kee
   local big = 0
   for i = before + 1, #sizes do big = math.max(big, sizes[i]) end
   t.ok(big > 50000, "the changed list is sent: " .. big .. " bytes")
+  w:showModel(B, "Hirochi Sunburst")
   t.match(B.client.im.textOf(WIN), "%$7,000  Hirochi Sunburst")
   w:assertClean()
 end)
@@ -164,8 +168,10 @@ t.test("car condition pricing: a beaten-up ordinary luxury car costs what a new 
   w:chat(A, "/tg start")
   w:chat(B, "/tg condition death trap")
   w:step(2.5)
+  w:showModel(A, "Ibishu Pigeon")
+  t.match(A.client.im.textOf(WIN), "%$10,000  Ibishu Pigeon Base %(M%)\n", "a new Pigeon: $10,000")
+  w:showModel(A, "ETK 800-Series"); w:showModel(B, "ETK 800-Series")
   local a, b = A.client.im.textOf(WIN), B.client.im.textOf(WIN)
-  t.match(a, "%$10,000  Ibishu Pigeon Base %(M%)\n", "a new Pigeon: $10,000")
   -- the ETK 844 does 0-100 in 8.5 s: 82.5% of the Death Trap's 70% discount = 57.75% off -> $14,365 -> $14,400
   t.match(b, "%$14,400  ETK 800%-Series 844 150 %(M%)\n", "a Death Trap ETK 844")
   t.match(a, "%$34,000  ETK 800%-Series 844 150 %(M%)  %- %$14,400 as a Death Trap", "Alice's list says what it'd take")

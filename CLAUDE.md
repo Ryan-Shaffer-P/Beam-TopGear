@@ -68,8 +68,14 @@ Install = copy `Resources/` into the BeamMP server.
   The dealership stays a workshop after the doors close until the player drives away.
 
 **Client:** receives `tg_state` (phase, cash, target, allow-flags, lights) and renders the HUD,
-ground arrows, target beacon, ImGui window (Quick start / Results / Status / Dealership / Parts / Admin / Settings tabs - Quick start = `Tabs.quick` (first tab, selected on open in idle/dealer: admin course/budget/class questions, then lit-in-order steps Start -> condition dropdown -> dealer selector; helpers `Tabs.step`/`Tabs.combo`); Settings = `drawSettings`: sound, lights/flag position + test, theme, diag; Top Gear colour
-theme), F1 start lights and the finish flag (own movable windows; the server sends `tg_finish` when a run ends), input locks (`core_input_actionFilter`), and does the
+ground arrows, target beacon, ImGui window (tabs Start | Status | Dealership | Admin | Settings | Results; since the UI
+overhaul every tab is a stack of `Tabs.box(title, id, fn, closed)` - a CollapsingHeader with a rounded draw-list border
+(`ui.noBoxes` if AddRect fails) - and long hints sit behind `Tabs.help(text)` "(?)" tooltips (fake ImGui: always hovered,
+tooltips recorded as text). Start = `Tabs.quick` (Setup box: course dropdown + Load, budget, class; Dealer box: lit-in-order
+steps Start -> condition -> dealer selector -> Return this car); Dealership = Buy a car / Car condition / Today's cars (model
+dropdown, `ui.dealerModel`; tests pick one with `w:showModel`) / Parts (`Tabs.parts`); Admin = Challenge + Players
+(`drawAdminControls`) and folded Money & timers / Car classes / Course / Tools; Messages box (`Tabs.messages`) under every
+tab; helpers `Tabs.step`/`Tabs.combo`; Top Gear colour theme), F1 start lights and the finish flag (own movable windows; the server sends `tg_finish` when a run ends), input locks (`core_input_actionFilter`), and does the
 car-side work: faults, tow/unstick placement, trailer spawn + load measurement, fuel/damage reports,
 parts snapshots/diffs, reverting refused parts.
 

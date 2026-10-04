@@ -29,7 +29,7 @@ t.test("every player gets a Settings tab, last, with sound, lights/flag, theme a
   t.eq(tabs[#tabs], "Settings", "it's the last tab")
   for _, b in ipairs({ "Sounds: ON - turn off", "Test sound", "Not hearing it? Try another way", "Position the start lights",
                        "Test them", "Position the finish flag", "Test it", "Colour theme: ON - turn off", "Diagnostics",
-                       "Parts tab diagnostics" }) do
+                       "Parts diagnostics" }) do
     t.ok(s:find("[" .. b .. "]", 1, true), "Settings has " .. b)
   end
   local _, atabs = tab(A, "Settings")
@@ -66,7 +66,7 @@ t.test("Settings buttons work: mute only you, theme toggles, tests and diagnosti
   w:assertClean()
 end)
 
-t.test("system messages: a heading and a tinted, bordered box under the tabs with the latest lines", function()
+t.test("messages: a Messages box under the tabs with a tinted, bordered log of the latest lines", function()
   local w = World.new({ files = F.files(F.twoRaces()) })
   local A, B = w:join("Alice"), w:join("Bob")
   w:chat(A, "/tg start")
@@ -74,10 +74,10 @@ t.test("system messages: a heading and a tinted, bordered box under the tabs wit
   for i = 1, 8 do B.client.im.click("Colour theme: " .. (i % 2 == 1 and "ON - turn off" or "OFF - turn on") .. "##theme"); w:step(2.5) end
   local items, at, child = B.client.im.items(WIN), nil, nil
   for i, it in ipairs(items) do
-    if it.text == "System messages" then at = i end
+    if it.kind == "header" and it.label == "Messages" then at = i end
     if it.kind == "child" and it.label == "" then child = it end
   end
-  t.ok(at, "a System messages heading")
+  t.ok(at, "a Messages box")
   t.ok(child and child.border == 1 and child.size.y == 6 * 17 + 12, "a bordered box, 6 lines tall")
   local after = {}
   for i = at + 1, #items do if items[i].text then after[#after + 1] = items[i] end end
@@ -88,7 +88,7 @@ t.test("system messages: a heading and a tinted, bordered box under the tabs wit
 
   B.client.im.BeginChild1 = nil   -- a game without BeginChild: plain lines, one warning
   w:step(2.5)
-  t.ok(B.client.im.textOf(WIN):find("System messages\n", 1, true))
+  t.ok(B.client.im.textOf(WIN):find("[Messages]\n", 1, true))
   t.ok(B.client.im.textOf(WIN):find("Colour theme on.", 1, true), "messages still show")
   local warned = 0
   for _, l in ipairs(B.client.log) do if l.level == "W" and l.msg:find("message box unavailable", 1, true) then warned = warned + 1 end end

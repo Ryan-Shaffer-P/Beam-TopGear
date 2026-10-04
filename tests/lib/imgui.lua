@@ -90,7 +90,7 @@ function M.new()
     return true
   end
   function im.EndTabItem() end
-  function im.CollapsingHeader1(label) record({ kind = "header", label = visible(label) }); return true end
+  function im.CollapsingHeader1(label, flags) record({ kind = "header", label = visible(label), flags = flags }); return true end
 
   -- widgets ---------------------------------------------------------------------
   function im.TextUnformatted(s) record({ kind = "text", text = tostring(s) }) end
@@ -158,6 +158,16 @@ function M.new()
   function im.ImDrawList_AddRectFilled(_, a, b, col)
     frame.rects[#frame.rects + 1] = { x1 = a.x, y1 = a.y, x2 = b.x, y2 = b.y, color = col }
   end
+  function im.ImDrawList_AddRect(_, a, b, col, rounding)   -- an outline (the boxes round each section)
+    frame.rects[#frame.rects + 1] = { x1 = a.x, y1 = a.y, x2 = b.x, y2 = b.y, color = col, outline = true, rounding = rounding }
+  end
+  function im.GetContentRegionAvail() return { x = 520, y = 400 } end
+  im.TreeNodeFlags_DefaultOpen = 32   -- (its real value; the generated constants below wrap to 0 after 30)
+  function im.Indent() end
+  function im.Unindent() end
+  -- hover help: the fake is always "hovered", so a tooltip's text is recorded like a line of text (tests find it)
+  function im.IsItemHovered() return true end
+  function im.SetTooltip(fmt, ...) record({ kind = "tooltip", text = string.format(fmt, ...) }) end
   function im.SetWindowFontScale(scale)
     st.fontScaled = (scale ~= 1) and 1 or 0
     record({ kind = "fontscale", scale = scale })
@@ -167,7 +177,7 @@ function M.new()
   local nextConst = 1
   setmetatable(im, { __index = function(t, k)
     if type(k) == "string" and (k:find("^Col_") or k:find("^StyleVar_") or k:find("^TableFlags_") or
-        k:find("^WindowFlags_") or k:find("^Cond_") or k:find("^TabItemFlags_")) then
+        k:find("^WindowFlags_") or k:find("^Cond_") or k:find("^TabItemFlags_") or k:find("^TreeNodeFlags_")) then
       nextConst = nextConst * 2 % 1073741824
       rawset(t, k, nextConst)
       return nextConst

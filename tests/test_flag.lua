@@ -36,7 +36,9 @@ t.test("finish flag shows for each driver as they finish, never for a DNF, and h
   t.match(flagText(A), "FINISH")
   t.match(flagText(A), "Race One")
   t.match(flagText(A), "Time 0:%d%d%.%d%d")
-  t.eq(#A.client.im.lastFrame.rects, 48, "a 12 x 4 checkered flag")
+  local squares = 0
+  for _, r in ipairs(A.client.im.lastFrame.rects) do if not r.outline then squares = squares + 1 end end   -- (not the menu's box borders)
+  t.eq(squares, 48, "a 12 x 4 checkered flag")
   t.eq(flagWin(B), nil, "Bob is still driving: no flag for him")
 
   w:step(7)

@@ -23,49 +23,54 @@ raise the budget (`/tg budget`) or use a class multiplier for cheap-car challeng
 
 ## The in-game window
 
-Type `/tg menu` to open or close it. Colour key: **solid blue = a button you click**; **grey box with a blue
-outline = a field you can type in or change**; blue headings mark sections; the standings are a light table.
-If the colours ever break the window on your BeamNG version, it switches them off by itself and
-keeps working (`/tg diag` shows why); `/tg theme` (or the Settings tab) turns them on/off. It opens by itself when the dealership and workshops
-open. Under the tabs, a **System messages** box (dark blue, outlined) keeps the mod's last 6 messages,
-newest at the bottom and brightest. Tabs:
+Type `/tg menu` to open or close it. It opens by itself when the dealership and workshops open.
+Tabs: **Start | Status | Dealership | Admin | Settings | Results**. **Every tab is a short stack of boxes**:
+each box has a rounded border and a title; click the title (its arrow) to fold the box away or open it
+again. Longer explanations hide behind a dim **(?)** - hover the mouse over it to read them. Colour key:
+**solid blue = a button you click**; **grey box with a blue outline = a field you can type in or change**;
+the standings are a light table. If the colours ever break the window on your BeamNG version, it
+switches them off by itself and keeps working (`/tg diag` shows why); `/tg theme` (or the Settings tab)
+turns them on/off. At the bottom of every tab, the **Messages** box keeps the mod's last 6 messages,
+newest at the bottom and brightest.
 
-- **Quick start** (far left; the menu opens on it before and during the dealership): the whole setup in
-  one place. An admin answers three questions - **which course** (dropdown of saved courses; picking one
-  loads it), **the budget**, and **what type of cars** (dropdown: any car, your classes, or a ready-made
-  class, which is made for you) - then presses **Start the challenge**. Below it, each step lights up
-  green only once the one before it is done: **Start** (lit when a finished course is loaded) ->
-  **Car condition** (a dropdown, every player, after Start) -> **Go to the dealer** (after you pick a
-  condition; opens the game's vehicle selector with today's cars). Done steps say "(done)"; players see
-  "Waiting for an admin" until the challenge starts.
-
-- **Status**: your car, cash, points, damage, standings, and the button for whatever comes
-  next (Ready, GO, Join, problem fixes in a workshop). The driver buttons are always there:
-  **Repair** (workshops only, shows the price), **Tow**, **Unstick** and **Respawn**, with a grey
-  line saying what's usable right now. Tow and Respawn need two clicks. Admins also get an
-  **Admin controls** dropdown here with Start, Start (unfinished course), Next phase and Stop, and
-  **Player cash & points**: click a player (or type a name), then **Give** / **Set** cash or
-  **Award** points with an optional reason (a negative number takes cash or points away).
-- **Dealership**: **Browse the cars in the vehicle selector** opens the game's own vehicle selector
-  (the freeroam one: pictures, filters, search, details) showing **only today's cars at today's
-  prices** - the price is in each name and in the Value filter, with "as a Beater" (the condition that would afford it) / "over
-  budget" where it applies. Spawning one buys it. The usual vehicle-selector key does the same while
-  the dealership is open; at any other time (and for an admin in traffic mode) it's the game's normal
-  list. If the selector still shows every car, `/tg diag` has a **Vehicle selector** line (game
-  version, whether today's list is ready and reached the selector) - send it to the developer. Below the button is the same list as text, every trim you could buy with a **Buy** button
-  (ones that need a more worn condition say which, with no button), and **Return for a full refund** to swap.
-- **Parts** (once you have a car): what fitting each part costs, with **Fit** buttons in workshops.
-- **Admin** (admins only): budget and workshop timer, price import, hitch scan,
-  per-player cash, and a course builder (pick an event, drive there, click Set start / Add
-  checkpoint / Add route waypoint, then Save). Stop and Clear ALL need a second click.
-- **Settings** (everyone, the last tab): your own **sound** on/off (only for you), Test sound and
-  "Not hearing it? Try another way"; **Position / Test** the start lights and the finish flag;
-  the **colour theme** on/off; and **Diagnostics** / **Parts tab diagnostics** (the results show
-  in chat - include them when reporting a problem).
+- **Start** (far left; the menu opens on it before and during the dealership):
+  - **Setup** (admins): three questions - **which course** (dropdown of saved courses, then **Load**),
+    **the budget**, and **what type of cars** (dropdown: any car, your classes, or a ready-made class,
+    which is made for you). Players see "Waiting for an admin" until the challenge starts.
+  - **Dealer**: the steps, each lit green only once the one before is done: **Start the challenge** (lit
+    when a finished course is loaded) -> **Car condition** (a dropdown, every player, after Start) ->
+    **Go to the dealer** (opens the game's vehicle selector with today's cars; spawning one buys it) ->
+    **Return this car** (two clicks: a full refund, so you can pick another). Done steps say "(done)".
+- **Status**:
+  - **My car**: your car, cash, points, damage, the button for whatever comes next (Ready, GO, Join,
+    problem fixes in a workshop) and the driver buttons **Repair** (workshops only, shows the price),
+    **Tow**, **Unstick** and **Respawn** - the (?) says what's usable right now. Tow and Respawn need two clicks.
+  - **Standings** (the table) and, after a server restart mid-challenge, **Challenge saved** (Resume).
+- **Dealership**:
+  - **Buy a car**: your budget, **Browse the cars in the vehicle selector** (the game's own selector -
+    pictures, filters, search - showing **only today's cars at today's prices**; the price is in each
+    name and in the Value filter, with "as a Beater" / "over budget" where it applies; the usual
+    vehicle-selector key does the same while the dealership is open), and **Return it for a full refund**.
+    If the selector still shows every car, `/tg diag` has a **Vehicle selector** line - send it to the developer.
+  - **Car condition**: the New .. Death Trap slider (see Car condition below).
+  - **Today's cars**: a dropdown of the models on sale (with the cheapest price), then that model's trims,
+    each with a **Buy** button (ones that need a more worn condition say which, with no button).
+  - **Parts** (once you have a car; folded): what fitting each part costs, with **Fit** buttons in workshops.
+- **Admin** (admins only): **Challenge** (Start, Start (unfinished course), Next phase, Stop, Traffic mode)
+  open; folded: **Players** (click a player or type a name, then **Give** / **Set** cash or **Award** points
+  with an optional reason - a negative number takes cash or points away), **Money & timers** (budget,
+  workshop timer, workshop frequency, price import), **Car classes**, **Course** (workshop locations, the
+  session's events, the course builder: pick an event, drive there, click Set start / Add checkpoint /
+  Add route waypoint, then Save) and **Tools** (soundboard, fault tests). Stop and Clear ALL need a second click.
+- **Settings** (everyone): **Sound** (your own sound on/off - only for you - Test sound, "Not hearing it?
+  Try another way"), **Lights & flag** (Position / Test the start lights and the finish flag), **Window**
+  (the colour theme on/off) and **Troubleshooting** (**Diagnostics** / **Parts diagnostics** - the results
+  show in chat; include them when reporting a problem).
 
 If the window ever gets squashed or lost off-screen, `/tg menu reset` puts it back.
 
-When the challenge ends, the window opens on a **Results** tab: the winner, then one row per
+When the challenge ends, the window opens on the **Results** tab (the last one): **Winner**, then a
+**Results** table with one row per
 driver with the car (and what it cost), placement and time/speed in every event, total
 repairs, upgrades, tows/resets, drivability, final points (with the breakdown) and cash left.
 `/tg menu` brings it back any time until the next `/tg start`.
@@ -309,7 +314,7 @@ where it was.
 
 ### Adding traffic (admins)
 
-`/tg traffic on` (or **Traffic mode** under Admin controls on the Status page) is a pause button on
+`/tg traffic on` (or **Traffic mode** in the Admin tab's Challenge box) is a pause button on
 the spawn rules, for you only: while it's on, everything you spawn - BeamNG's AI traffic, parked cars
 from the vehicle menu - is non-scoring traffic, in any phase including the dealership, and your
 vehicle menu is unlocked. Your HUD shows **TRAFFIC MODE** as a reminder. Your own car, cash and score
@@ -377,7 +382,7 @@ Player commands: `/tg menu`, `/tg go`, `/tg unstick`, `/tg tow`, `/tg respawn`, 
   part/tuning change is put back by the game (any damage that rebuild wiped is billed as a repair) -
   the server never cancels an edit, because BeamMP removes the car when it does. At the dealership - upgrades are billed like a workshop, paint is free, and returning the
   car refunds its upgrades with it. Swapping to another stock trim is priced as a trim, not as parts.
-  **Parts tab (price list + Fit):** the Top Gear window's **Parts** tab lists every slot on your
+  **Parts box (price list + Fit):** the Dealership tab's **Parts** box lists every slot on your
   car with every part that fits it and what fitting it would cost you - the price shown is what
   you're charged. At the dealership and in a workshop each option has a **Fit** button (it installs
   the part like the game's parts menu and is billed the same way); everywhere else the tab is a
@@ -392,7 +397,7 @@ Player commands: `/tg menu`, `/tg go`, `/tg unstick`, `/tg tow`, `/tg respawn`, 
     mode's parts shop uses - the moment they're fitted (removing one refunds half). If the game
     can't read a part's price, a flat `workshop.flatPartPrice` ($500) is charged instead.
     `/tg partsdiag` shows what your game reports: how many parts it found, in which format, and
-    how many have a price - and whether the Parts tab can list your car (and how).
+    how many have a price - and whether the Parts box can list your car (and how).
   - **Labour:** $300, once per workshop, on your first real part change.
   - **Overdraft:** parts, labour and problem fixes can take a driver up to $1,500 into the red
     (`workshop.creditLimit`). Repairs, tows, respawns and fines have no limit - you can always get
@@ -435,7 +440,7 @@ Player commands: `/tg menu`, `/tg go`, `/tg unstick`, `/tg tow`, `/tg respawn`, 
 - `/tg workshop <minutes>`: set the workshop length (saved). If a workshop is open, its
   timer moves by the difference.
 - `/tg setcash <name> <amount>` / `/tg give <name> <amount>`: adjust one player (also in the Status
-  tab's Admin controls). Names can be typed in any case, or just the start of one name.
+  tab's Players box). Names can be typed in any case, or just the start of one name.
 - **Cars and prices come built in** (`cars.json`, every stock car): nothing to import. The catalogue
   isn't copied into config.json, so a mod update can refresh it; your own prices (`/tg setprice`),
   classes and budget are saved in config.json and apply on top.
@@ -557,7 +562,7 @@ it affordable ("$10,200 as a Death Trap").
   names any left.
 - **Fixing one costs 5% of the car's new price** (at least $500) in a workshop: `/tg fix <id>` or the
   Status tab. A luxury car is dear to keep running: a Pigeon's fix is $500, an ETK 800's $1,700.
-- **Or replace the part.** Fitting a different part in a workshop (Parts tab) takes that part's problems
+- **Or replace the part.** Fitting a different part in a workshop (the Dealership tab's Parts box) takes that part's problems
   with it - a new engine sorts the tired engine, oil leak, ignition and weak starter. **A part with
   problems is scrap**: there's no trade-in, so the new part costs its **full price** (not the usual
   difference) plus labour. Healthy parts are still traded in as before. Which part holds which problems:

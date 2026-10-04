@@ -63,7 +63,7 @@ t.test("crash on the road: restored paused; Resume brings the cars back where th
   t.ok(w2:chatHas(A2, "Welcome back - the challenge was saved"))
   w2:step(2.5)
   local s = A2.client.im.textOf("Top Gear Challenge")
-  t.match(s, "CHALLENGE SAVED"); t.match(s, "Not back yet: Bob"); t.ok(A2.client.im.hasButton("Resume the challenge"))
+  t.match(s, "Challenge saved"); t.match(s, "Not back yet: Bob"); t.ok(A2.client.im.hasButton("Resume the challenge"))
   t.eq(w2:buy(A2, "covet", "base_M"), nil, "no spawning while paused")
   w2:chat(A2, "/tg start")
   t.ok(w2:chatHas(A2, "A saved challenge is waiting"))

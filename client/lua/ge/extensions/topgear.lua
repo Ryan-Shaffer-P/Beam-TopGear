@@ -35,7 +35,7 @@ local RESET_ACTIONS = {
 local VEHSEL_ACTIONS = { "vehicle_selector" }
 local PARTS_ACTIONS  = { "parts_selector" }
 
-local VERSION = "0.9.12"
+local VERSION = "0.9.13"
 local recentErrors = {}
 local function warn(msg)
   log("W", "topgear", tostring(msg))
@@ -85,6 +85,10 @@ function Rpc.car()   -- the RPC, while it exists
   return nil
 end
 function Rpc.driving() return Rpc.car() or getCar() end   -- what the HUD measures from
+
+-- the Top Gear window's shared parts: boxes, hover help, the message log, the Start tab (filled in further down;
+-- declared here because the tab functions above them use it - one local: the chunk is near Lua's 200)
+local Tabs = {}
 
 local function getDamage(v)
   local o = map and map.objects and map.objects[v:getID()]
@@ -1855,8 +1859,6 @@ end
 local function drawStandings(d)
   local rows = d.standings or {}
   if #rows == 0 then return end
-  im.Separator()
-  heading("STANDINGS")
   local drawn = false
   local rec = { c = 0 }
   if not ui.noTheme then pcall(pushColors, { TableRowBg = { 0.90, 0.93, 0.95, 1 }, TableRowBgAlt = { 0.80, 0.86, 0.90, 1 },
@@ -1893,8 +1895,6 @@ end
 
 local function drawDriverButtons(d, me)
   local ph = d.phase
-  im.Separator()
-  heading("YOUR CAR")
   button(((me.repair or 0) > 0 and ("Repair (" .. commas(me.repair) .. ")") or "Repair") .. "##drv_repair", "repair"); same()
   confirmButton("Tow (" .. commas(me.towCost or d.towFee or 1000) .. ")", "drv_tow", "tow"); same()
   button("Unstick (free)##drv_unstick", "unstick"); same()
@@ -1903,10 +1903,6 @@ local function drawDriverButtons(d, me)
   elseif ph == "workshop" then rl = "Respawn (repair price)"
   else rl = "Respawn (" .. commas(me.respawnCost or d.respawnFee or 500) .. ")" end
   confirmButton(rl, "drv_respawn", "respawn")
-  if state.eventType == "trailer" and (ph == "travel" or ph == "countdown" or ph == "event") then
-    button("Hitch up (couple the trailer)##hitchup", "hitchup"); same()
-    txt("Reverse so your hitch meets the trailer's coupler. No hitch? Fit one in a workshop (parts menu).")
-  end
   local notes = {}
   if ph ~= "workshop" then notes[#notes + 1] = "Repair: workshops only" end
   if not me.canTow then notes[#notes + 1] = "Tow: during legs and events" end
@@ -1921,62 +1917,66 @@ local function drawDriverButtons(d, me)
     notes[#notes + 1] = string.format("So far: %d tow%s, %d respawn%s", me.tows or 0, me.tows == 1 and "" or "s",
       me.respawns or 0, me.respawns == 1 and "" or "s")
   end
-  colored(0.65, 0.65, 0.65, table.concat(notes, "  |  "))
+  Tabs.help(table.concat(notes, "\n"))
+  if state.eventType == "trailer" and (ph == "travel" or ph == "countdown" or ph == "event") then
+    button("Hitch up (couple the trailer)##hitchup", "hitchup")
+    Tabs.help("Reverse so your hitch meets the trailer's coupler. No hitch? Fit one in a workshop (parts menu).")
+  end
 end
 
 -- Settings tab (everyone): this player's own sound, window placement, colour theme and diagnostics
 local function drawSettings(d)
-  heading("SOUND")
+  Tabs.box("Sound", "sound", function()
   if d.soundsOn == false then button("Sounds: OFF - turn on##sounds", "sounds on")
   else button("Sounds: ON - turn off##sounds", "sounds off") end
   same(); button("Test sound##soundtest", "soundtest"); same()
   button("Not hearing it? Try another way##soundnext", "soundtest next")
-  colored(0.65, 0.65, 0.65, "Only for you: other players keep their own setting.")
-  im.Separator()
-  heading("START LIGHTS AND FINISH FLAG")
-  txt("Position: shows the window so you can drag it where you want it.")
+  Tabs.help("Only for you: other players keep their own setting.")
+  end)
+  Tabs.box("Lights & flag", "lightsflag", function()
   button("Position the start lights##lightspin", "lights"); same(); button("Test them##lightstest", "lightstest")
+  Tabs.help("Position: shows the window so you can drag it where you want it.")
   button("Position the finish flag##flagpin", "flag"); same(); button("Test it##flagtest", "flagtest")
-  im.Separator()
-  heading("WINDOW")
+  end)
+  Tabs.box("Window", "window", function()
   button((ui.noTheme and "Colour theme: OFF - turn on" or "Colour theme: ON - turn off") .. "##theme", "theme")
-  im.Separator()
-  heading("TROUBLESHOOTING")
-  button("Diagnostics##diag", "diag"); same(); button("Parts tab diagnostics##partsdiag", "partsdiag")
-  colored(0.65, 0.65, 0.65, "The results appear in chat - handy when reporting a problem.")
+  end)
+  Tabs.box("Troubleshooting", "trouble", function()
+  button("Diagnostics##diag", "diag"); same(); button("Parts diagnostics##partsdiag", "partsdiag")
+  Tabs.help("The results appear in chat - handy when reporting a problem.")
+  end)
 end
 
 local function drawPaused(d)   -- a challenge saved before a server restart, waiting to be resumed
   local pz = d.paused
   if not pz then return end
-  im.Separator()
-  heading("CHALLENGE SAVED")
   txt("The server restarted mid-challenge. Everything was saved: " .. tostring(pz.at or "") .. ".")
   txt("Back: " .. (#(pz.back or {}) > 0 and table.concat(pz.back, ", ") or "nobody yet"))
   if #(pz.away or {}) > 0 then colored(1, 0.8, 0.3, "Not back yet: " .. table.concat(pz.away, ", ")) end
   if d.admin then
     bigButton("Resume the challenge", "resume")
     confirmButton("Discard it", "discard", "discard")
-    colored(0.65, 0.65, 0.65, "Resume brings everyone's car back (upgrades kept; each driver pays their car's repairs).")
+    Tabs.help("Resume brings everyone's car back (upgrades kept; each driver pays their car's repairs).")
   else
     txt("Waiting for an admin to resume it - your car comes back then.")
   end
 end
 
+-- Admin tab, first two boxes: run the challenge, and a player's cash & points
 local function drawAdminControls(d)
   if not d.admin then return end
-  im.Separator()
-  if header("Admin controls##statusadmin") then
+  Tabs.box("Challenge", "admchallenge", function()
     button("Start", "start"); same(); button("Start (unfinished course)", "start force"); same()
     button("Next phase", "next"); same(); confirmButton("Stop", "stop", "stop")
-    colored(0.65, 0.65, 0.65, "Next phase: closes the dealership, forces a start, ends a run or event, or closes a workshop.")
+    Tabs.help("Next phase: closes the dealership, forces a start, ends a run or event, or closes a workshop.\nStop needs two clicks.")
     if d.traffic then
       colored(1, 0.8, 0.3, "Traffic mode is ON: what you spawn is non-scoring traffic, and your vehicle menu is open.")
       button("Turn traffic mode off##traffic", "traffic off")
     else
       button("Traffic mode (add AI traffic / parked cars)##traffic", "traffic on")
     end
-    im.Separator()
+  end)
+  Tabs.box("Players", "admplayers", function()
     txt("Player cash & points")
     if #(d.standings or {}) == 0 then
       colored(0.65, 0.65, 0.65, "Players appear here once a challenge is running.")
@@ -2004,15 +2004,16 @@ local function drawAdminControls(d)
         local rb = textBuf("admreason")
         im.InputText("Reason (optional)##admreason", rb); same()
         button("Award##admaward", "award " .. who .. " " .. pt[0] .. " " .. textOf(rb))
-        colored(0.65, 0.65, 0.65, "A negative amount takes cash or points away. Award: everyone sees it, and it shows in the results.")
+        Tabs.help("A negative amount takes cash or points away. Award: everyone sees it, and it shows in the results.")
       end
     end
-  end
+  end, true)
 end
 
 local function drawStatus(d)
-  txt(state.title or "")
   local me = d.me
+  Tabs.box("My car", "mycar", function()
+  txt(state.title or "")
   if not me then
     txt("You're not in this challenge.")
     if d.phase == "dealer" then button("Join the challenge", "join") end
@@ -2032,7 +2033,6 @@ local function drawStatus(d)
       colored(1, 0.4, 0.4, string.format("Overdrawn: %s - prize money pays it off. Parts and problem fixes stop at %s overdrawn.",
         commas(-me.cash), commas(me.creditLimit or 1500)))
     end
-    im.Separator()
     if d.phase == "dealer" and me.hasCar then
       colored(0.6, 0.8, 1, "Workshop mode: fit upgrades and paint from the parts menu now (upgrades charged, paint free).")
     elseif d.phase == "workshop" and (d.workshopSpots or 0) > 0 then
@@ -2057,15 +2057,14 @@ local function drawStatus(d)
     end
     drawDriverButtons(d, me)
   end
-  drawPaused(d)
-  drawAdminControls(d)
-  drawStandings(d)
+  end)
+  if d.paused then Tabs.box("Challenge saved", "paused", function() drawPaused(d) end) end
+  if #(d.standings or {}) > 0 then Tabs.box("Standings", "standings", function() drawStandings(d) end) end
 end
 
 -- Car condition (= how many hidden faults the car comes with): a slider New .. Death Trap; each step down from New
 -- is cheaper on the market (+payout to spend). Moves both ways until a car is bought, then only toward Death Trap.
 local function drawCondition(d, fl)
-  heading("CAR CONDITION")
   local levels, max, count = fl.levels or {}, math.min(fl.max or 4, 4), fl.count or 0
   local function name(n) return (levels[n + 1] or {}).name or CONDITION_NAMES[n] or tostring(n) end
   local function km(n) return (commas((levels[n + 1] or {}).km or 0):gsub("^%$", "")) .. " km" end
@@ -2088,47 +2087,58 @@ local function drawCondition(d, fl)
     end
     local offs = {}
     for n = 1, max do offs[#offs + 1] = string.format("%s up to %d%% off", name(n), off(n)) end
-    txt("A more worn car is cheaper on the market: " .. table.concat(offs, ", ") .. ".")
-    txt("Fast cars hold their value: the quicker a car, the smaller its discount.")
     if count > 0 then
-      colored(0.4, 1, 0.4, string.format("%s (%s): the prices below are up to %d%% off.", name(count), km(count), off(count)))
+      colored(0.4, 1, 0.4, string.format("%s (%s): prices up to %d%% off.", name(count), km(count), off(count)))
     else
       txt("New: full price.")
     end
-    colored(0.65, 0.65, 0.65, "Choose before you buy - it's locked in with the car.")
+    Tabs.help("A more worn car is cheaper on the market: " .. table.concat(offs, ", ") .. ".\n" ..
+      "Fast cars hold their value: the quicker a car, the smaller its discount.\nChoose before you buy - it's locked in with the car.")
   end
-  txt(string.format("Each step also hides a problem in the car (a workshop finds them). Fixing one costs %d%% of the car's new price",
-    math.floor((fl.fixPercent or 0.05) * 100 + 0.5)))
-  txt(string.format("(at least %s)%s; each one still there at the finale costs %s points.", commas(fl.fixMin or 500),
+  txt("Each step down hides a problem in the car.")
+  Tabs.help(string.format("A workshop finds them. Fixing one costs %d%% of the car's new price (at least %s)%s;\n" ..
+    "each one still there at the finale costs %s points.", math.floor((fl.fixPercent or 0.05) * 100 + 0.5), commas(fl.fixMin or 500),
     fl.fix and (" - " .. commas(fl.fix) .. " for yours") or "", tostring(fl.points or 0)))
-  im.Separator()
 end
 
 local function drawDealer(d)
   local me = d.me
-  txt("Budget " .. commas(d.budget) .. (me and ("    You have " .. commas(me.cash)) or ""))
-  if d.phase ~= "dealer" then colored(1, 0.7, 0.3, "The dealership is closed.") end
   local busy = ui.busy and (ui.t - ui.busy) < 5
   local canBuy = d.phase == "dealer" and me and not me.hasCar and not busy
+  Tabs.box("Buy a car", "buy", function()
+  txt("Budget " .. commas(d.budget) .. (me and ("    You have " .. commas(me.cash)) or ""))
+  if d.phase ~= "dealer" then colored(1, 0.7, 0.3, "The dealership is closed.") end
   if busy then colored(1, 0.85, 0.3, "Talking to the dealer...") end
   if canBuy then
     if im.Button("Browse the cars in the vehicle selector##opensel") then M.openSelector() end
-    colored(0.65, 0.65, 0.65, "Today's cars at today's prices, with pictures and filters - spawning one buys it. Or pick from the list below.")
+    Tabs.help("Today's cars at today's prices, with pictures and filters - spawning one buys it.\nOr pick from Today's cars below.")
   end
   if d.phase == "dealer" and me and me.hasCar and not busy then
     txt("You own the " .. tostring(me.car) .. ".")
     same()
     if im.Button("Return it for a full refund") then returnCar() end
   end
+  end)
   local fl = d.faults
-  if fl and me then drawCondition(d, fl) end
-  if d.dealerClass then
-    heading("TODAY'S CARS: " .. d.dealerClass.name)
-    txt(d.dealerClass.summary)
+  if fl and me then Tabs.box("Car condition", "condition", function() drawCondition(d, fl) end) end
+  Tabs.box("Today's cars" .. (d.dealerClass and (": " .. d.dealerClass.name) or ""), "cars", function()
+  if d.dealerClass then txt(d.dealerClass.summary) end
+  local list = d.dealer or {}
+  if #list == 0 then txt("Nothing for sale.") end
+  -- one make/model at a time: a dropdown of the models, then that model's trims (a real catalogue has ~100 models)
+  local pickM
+  for _, m in ipairs(list) do if m.model == ui.dealerModel then pickM = m end end
+  pickM = pickM or list[1]
+  if #list > 1 then
+    local items = {}
+    for _, m in ipairs(list) do
+      items[#items + 1] = { string.format("%s (%d)  from %s", m.name, #m.trims, commas((m.trims[1] or {}).price or 0)), m.model, m == pickM }
+    end
+    local picked = Tabs.combo("dealermodel", pickM and (pickM.name .. " (" .. #pickM.trims .. ")") or "Pick a car...", items)
+    if picked then ui.dealerModel = picked end
   end
-  if #(d.dealer or {}) == 0 then txt("Nothing for sale.") end
-  for _, m in ipairs(d.dealer or {}) do
-    if header(m.name .. " (" .. #m.trims .. ")##" .. m.model) then
+  for _, m in ipairs(pickM and { pickM } or {}) do
+    do
       for _, t in ipairs(m.trims) do
         local needs = tonumber(t.needs) or 0
         if canBuy and needs == 0 and not t.over then
@@ -2145,6 +2155,8 @@ local function drawDealer(d)
       end
     end
   end
+  end)
+  if me and me.hasCar then Tabs.box("Parts", "parts", function() Tabs.parts(d) end, true) end
 end
 
 local function trim(str) return (tostring(str or ""):gsub("^%s+", ""):gsub("%s+$", "")) end
@@ -2203,8 +2215,8 @@ local function drawLibrary(c)
 end
 
 local function drawAdmin(d)
-  colored(0.65, 0.65, 0.65, "Start / Next / Stop are in the Status tab's Admin controls.")
-  if header("Money & timers##money") then
+  drawAdminControls(d)
+  Tabs.box("Money & timers", "money", function()
     local b = intPtr("budget", d.baseBudget or d.budget)
     im.InputInt("Budget##b", b); same(); button("Set##budget", "budget " .. b[0])
     local w = intPtr("ws", d.workshopMinutes)
@@ -2221,10 +2233,10 @@ local function drawAdmin(d)
       colored(0.65, 0.65, 0.65, "Cars: imported from your game."); same()
       confirmButton("Back to the built-in catalogue", "catbuiltin", "importprices builtin")
     end
-    colored(0.65, 0.65, 0.65, "A player's cash and points: Status tab, Admin controls.")
-  end
+  end, true)
   local cl = d.classes
-  if cl and header("Car classes - which cars the dealership sells##classes") then
+  if cl then Tabs.box("Car classes", "classes", function()
+    txt("Which cars the dealership sells.")
     if not cl.imported then colored(1, 0.8, 0.3, "Import the game's cars first (prices + details):"); same(); button("Import every car", "importprices") end
     txt("Next challenge: " .. (cl.active or cl.none or "no class - the normal dealer list"))
     if cl.idle and cl.active then same(); button("Use no class##clsnone", "class use none") end
@@ -2332,148 +2344,152 @@ local function drawAdmin(d)
       end
       if cl.unpricedCount > #(cl.unpriced or {}) then txt(string.format("... and %d more (/tg setprice list)", cl.unpricedCount - #cl.unpriced)) end
     end
-  end
-  if #(d.soundClips or {}) > 0 and header("Soundboard##soundboard") then
-    txt("Plays the clip for everyone (players who turned sounds off don't hear it).")
-    for i, clip in ipairs(d.soundClips) do
-      button(clip .. "##sb_" .. clip, "play " .. clip)
-      if i % 3 ~= 0 and i < #d.soundClips then same() end
+  end, true) end
+  Tabs.box("Tools", "tools", function()
+    if #(d.soundClips or {}) > 0 and header("Soundboard##soundboard") then
+      txt("Plays the clip for everyone (players who turned sounds off don't hear it).")
+      for i, clip in ipairs(d.soundClips) do
+        button(clip .. "##sb_" .. clip, "play " .. clip)
+        if i % 3 ~= 0 and i < #d.soundClips then same() end
+      end
     end
-  end
-  if d.faults and header("Problem-car fault test##ftest") then
-    txt("Applies faults to the car you're in right now (no money involved) and reports what worked.")
-    button("Test all faults on my car", "fault test"); same(); button("Remove test faults", "fault testoff")
-    for _, f in ipairs(d.faults.all or {}) do
-      button("Test: " .. f.name .. "##ft1_" .. f.id, "fault test " .. f.id)
+    if d.faults and header("Problem-car fault test##ftest") then
+      txt("Applies faults to the car you're in right now (no money involved) and reports what worked.")
+      button("Test all faults on my car", "fault test"); same(); button("Remove test faults", "fault testoff")
+      for _, f in ipairs(d.faults.all or {}) do
+        button("Test: " .. f.name .. "##ft1_" .. f.id, "fault test " .. f.id)
+      end
+      button("Which cars take which faults##fcaps", "fault caps")
     end
-    button("Which cars take which faults##fcaps", "fault caps")
-  end
+  end, true)
   local c = d.course
-  if c and header("Workshop locations##wsloc") then
-    if (c.workshops or 0) == 0 then txt("No workshop locations: workshops work anywhere on the map.")
-    else txt(string.format("%d workshop location%s: players drive to the nearest one when a workshop opens.",
-      c.workshops, c.workshops == 1 and "" or "s")) end
-    button("Import gas stations", "importgas"); same(); button("Add workshop here", "addworkshop"); same()
-    button("Undo workshop", "undoworkshop"); same(); confirmButton("Clear workshops", "clrws", "clearworkshops")
-    colored(0.65, 0.65, 0.65, "Saved with the course - remember Save in the course library.")
-  end
-  if c and header("Session - pick and order the events##session") then
-    local on = 0
-    for _, e in ipairs(c.events) do if e.enabled then on = on + 1 end end
-    local every = c.workshopEvery or 2
-    txt(string.format("%d event%s switched on. They run top to bottom; %s.", on, on == 1 and "" or "s",
-      every > 0 and ("a workshop after every " .. every .. " events (not after the last)") or "no workshops"))
-    if not c.idle then colored(1, 0.8, 0.3, "Locked while a challenge is running.") end
-    local pos = 0
-    for i, e in ipairs(c.events) do
-      if c.idle then
-        button((e.enabled and "Turn off" or "Turn on") .. "##en" .. i, "enable " .. i .. (e.enabled and " off" or " on")); same()
-        if i > 1 then button("Up##up" .. i, "moveevent " .. i .. " up") else txt("  ") end; same()
-        if i < #c.events then button("Down##dn" .. i, "moveevent " .. i .. " down") else txt("    ") end; same()
-        confirmButton("Remove", "rm" .. i, "delevent " .. i); same()
-      end
-      if e.enabled then pos = pos + 1 end
-      local line = string.format("%s%s  (%s%s)", e.enabled and (pos .. ". ") or "off  ", e.name, e.typeLabel or e.type,
-        e.solo and ", time trial mode" or "")
-      if e.enabled then colored(0.5, 1, 0.5, line) else txt(line) end
+  if c then Tabs.box("Course", "course", function()
+    if header("Workshop locations##wsloc") then
+      if (c.workshops or 0) == 0 then txt("No workshop locations: workshops work anywhere on the map.")
+      else txt(string.format("%d workshop location%s: players drive to the nearest one when a workshop opens.",
+        c.workshops, c.workshops == 1 and "" or "s")) end
+      button("Import gas stations", "importgas"); same(); button("Add workshop here", "addworkshop"); same()
+      button("Undo workshop", "undoworkshop"); same(); confirmButton("Clear workshops", "clrws", "clearworkshops")
+      colored(0.65, 0.65, 0.65, "Saved with the course - remember Save in the course library.")
     end
-    im.Separator()
-    txt("Add a new event to the course:")
-    for i, t in ipairs(c.types or {}) do
-      button(t.label .. "##add_" .. t.id, "addevent " .. t.id)
-      if i % 4 ~= 0 then same() end
-    end
-    txt("")
-  end
-  if c and header("Course builder##course") then
-    drawLibrary(c)
-    txt("Drive to the spot, then press a button - positions come from your car.")
-    if ui.sel ~= "finale" and not c.events[ui.sel] then ui.sel = 1 end
-    for _, e in ipairs(c.events) do
-      if im.Button(((ui.sel == e.n) and "> " or "") .. e.n .. "##ev" .. e.n) then ui.sel = e.n end
-      same()
-      local detail
-      if e.type == "speedtrap" then detail = "trap:" .. (e.trap and "yes" or "NO")
-      elseif e.type == "parking" then detail = "bays:" .. (e.bays or 0)
-      elseif e.type == "slalom" then detail = "gates:" .. e.cps
-      elseif e.type == "circuit" then detail = string.format("checkpoints:%d  laps:%d", e.cps, e.laps or 3)
-      elseif e.type == "rpc" then detail = string.format("checkpoints:%d  laps:%d  car:%s", e.cps, e.laps or 3, tostring(e.rpcCar))
-      else detail = "checkpoints:" .. e.cps end
-      local line = string.format("%s%s [%s]  start:%s  %s  route:%d", e.enabled and "" or "(off) ", e.name,
-        e.typeLabel or e.type, e.start and "yes" or "NO", detail, e.via)
-      if e.enabled then txt(line) else colored(0.6, 0.6, 0.6, line) end
-    end
-    if im.Button(((ui.sel == "finale") and "> " or "") .. "F##evf") then ui.sel = "finale" end
-    same()
-    txt(string.format("%s  finish:%s  route:%d", c.finale.name, c.finale.pos and "yes" or "NO", c.finale.via))
-    im.Separator()
-    local target = tostring(ui.sel)
-    if ui.sel == "finale" then
-      button("Set finish here", "setfinale"); same()
-      button("Add route waypoint", "addvia finale"); same(); button("Undo route waypoint", "undovia finale"); same()
-      button("Clear route", "clearvia finale")
-    else
-      local e = c.events[ui.sel]
-      button("Set start here", "setstart " .. target); same()
-      if e.type == "speedtrap" then button("Set speed trap here", "settrap " .. target)
-      elseif e.type == "parking" then
-        button("Add bay here", "addbay " .. target); same(); button("Undo bay", "undobay " .. target); same()
-        button("Clear bays", "clearbays " .. target)
-        txt("Park in each spot facing the way the bay should face. Bays are parked in the order you add them.")
-      else
-        local what = (e.type == "slalom") and "gate" or "checkpoint"
-        button("Add " .. what, "addcp " .. target); same(); button("Undo " .. what, "undocp " .. target); same()
-        button("Clear " .. what .. "s", "clearcp " .. target)
-        if e.type == "slalom" then txt("Gates in order - the last one is the finish.")
-        elseif e.type == "circuit" or e.type == "rpc" then
-          txt("Checkpoints round the lap, in order. The start point is the start/finish line - each lap ends by crossing it.")
-          local lp = intPtr("laps" .. target, e.laps or 3)
-          im.InputInt("Laps##laps", lp); same(); button("Set laps##setlaps", "setlaps " .. target .. " " .. lp[0])
-          if e.type == "rpc" then
-            txt("The reasonably priced car: " .. tostring(e.rpcCar) .. " - each driver gets a fresh one on the start line. Best lap wins.")
-            button("Use the car I'm in##rpcmine", "setrpc " .. target .. " mine"); same()
-            button("Default car##rpcdefault", "setrpc " .. target .. " default")
-          end
-        else txt("Checkpoints in order - the last one is the finish.") end
+    if header("Session - pick and order the events##session") then
+      local on = 0
+      for _, e in ipairs(c.events) do if e.enabled then on = on + 1 end end
+      local every = c.workshopEvery or 2
+      txt(string.format("%d event%s switched on. They run top to bottom; %s.", on, on == 1 and "" or "s",
+        every > 0 and ("a workshop after every " .. every .. " events (not after the last)") or "no workshops"))
+      if not c.idle then colored(1, 0.8, 0.3, "Locked while a challenge is running.") end
+      local pos = 0
+      for i, e in ipairs(c.events) do
+        if c.idle then
+          button((e.enabled and "Turn off" or "Turn on") .. "##en" .. i, "enable " .. i .. (e.enabled and " off" or " on")); same()
+          if i > 1 then button("Up##up" .. i, "moveevent " .. i .. " up") else txt("  ") end; same()
+          if i < #c.events then button("Down##dn" .. i, "moveevent " .. i .. " down") else txt("    ") end; same()
+          confirmButton("Remove", "rm" .. i, "delevent " .. i); same()
+        end
+        if e.enabled then pos = pos + 1 end
+        local line = string.format("%s%s  (%s%s)", e.enabled and (pos .. ". ") or "off  ", e.name, e.typeLabel or e.type,
+          e.solo and ", time trial mode" or "")
+        if e.enabled then colored(0.5, 1, 0.5, line) else txt(line) end
       end
-      button("Add route waypoint", "addvia " .. target); same(); button("Undo route waypoint", "undovia " .. target); same()
-      button("Clear route", "clearvia " .. target)
-      local tl = intPtr("time" .. target, e.timeLimit or 600)
-      im.InputInt("Time limit (s)##tl", tl); same(); button("Set time##settime", "settime " .. target .. " " .. tl[0])
-      if e.solo then same(); txt("(per run)") end
-      if e.type == "rpc" then txt("Mode: time trial - one at a time (always, for this type)")
-      else
-        txt("Mode:"); same()
-        button((e.solo and "" or "> ") .. "Race - everyone at once##moderace", "setmode " .. target .. " race"); same()
-        button((e.solo and "> " or "") .. "Time trial - one at a time##modetrial", "setmode " .. target .. " trial")
-      end
-      txt("Event type:")
+      im.Separator()
+      txt("Add a new event to the course:")
       for i, t in ipairs(c.types or {}) do
-        local label = (t.id == e.type and "> " or "") .. t.label .. "##ty_" .. t.id
-        button(label, "settype " .. target .. " " .. t.id)
+        button(t.label .. "##add_" .. t.id, "addevent " .. t.id)
         if i % 4 ~= 0 then same() end
       end
       txt("")
-      if c.idle then confirmButton("Delete this event", "delev", "delevent " .. target) end
-      if e.type == "trailer" then same(); button("Test trailer spawn##tt", "trailertest"); same(); button("Remove test trailer##tto", "trailertest off") end
     end
-    local nb = textBuf("rename")
-    im.InputText("##rename", nb); same()
-    if im.Button("Rename") then
-      local nm = textOf(nb)
-      if nm ~= "" then sendCmd("rename " .. target .. " " .. nm) end
+    if header("Course builder##course") then
+      drawLibrary(c)
+      txt("Drive to the spot, then press a button - positions come from your car.")
+      if ui.sel ~= "finale" and not c.events[ui.sel] then ui.sel = 1 end
+      for _, e in ipairs(c.events) do
+        if im.Button(((ui.sel == e.n) and "> " or "") .. e.n .. "##ev" .. e.n) then ui.sel = e.n end
+        same()
+        local detail
+        if e.type == "speedtrap" then detail = "trap:" .. (e.trap and "yes" or "NO")
+        elseif e.type == "parking" then detail = "bays:" .. (e.bays or 0)
+        elseif e.type == "slalom" then detail = "gates:" .. e.cps
+        elseif e.type == "circuit" then detail = string.format("checkpoints:%d  laps:%d", e.cps, e.laps or 3)
+        elseif e.type == "rpc" then detail = string.format("checkpoints:%d  laps:%d  car:%s", e.cps, e.laps or 3, tostring(e.rpcCar))
+        else detail = "checkpoints:" .. e.cps end
+        local line = string.format("%s%s [%s]  start:%s  %s  route:%d", e.enabled and "" or "(off) ", e.name,
+          e.typeLabel or e.type, e.start and "yes" or "NO", detail, e.via)
+        if e.enabled then txt(line) else colored(0.6, 0.6, 0.6, line) end
+      end
+      if im.Button(((ui.sel == "finale") and "> " or "") .. "F##evf") then ui.sel = "finale" end
+      same()
+      txt(string.format("%s  finish:%s  route:%d", c.finale.name, c.finale.pos and "yes" or "NO", c.finale.via))
+      im.Separator()
+      local target = tostring(ui.sel)
+      if ui.sel == "finale" then
+        button("Set finish here", "setfinale"); same()
+        button("Add route waypoint", "addvia finale"); same(); button("Undo route waypoint", "undovia finale"); same()
+        button("Clear route", "clearvia finale")
+      else
+        local e = c.events[ui.sel]
+        button("Set start here", "setstart " .. target); same()
+        if e.type == "speedtrap" then button("Set speed trap here", "settrap " .. target)
+        elseif e.type == "parking" then
+          button("Add bay here", "addbay " .. target); same(); button("Undo bay", "undobay " .. target); same()
+          button("Clear bays", "clearbays " .. target)
+          txt("Park in each spot facing the way the bay should face. Bays are parked in the order you add them.")
+        else
+          local what = (e.type == "slalom") and "gate" or "checkpoint"
+          button("Add " .. what, "addcp " .. target); same(); button("Undo " .. what, "undocp " .. target); same()
+          button("Clear " .. what .. "s", "clearcp " .. target)
+          if e.type == "slalom" then txt("Gates in order - the last one is the finish.")
+          elseif e.type == "circuit" or e.type == "rpc" then
+            txt("Checkpoints round the lap, in order. The start point is the start/finish line - each lap ends by crossing it.")
+            local lp = intPtr("laps" .. target, e.laps or 3)
+            im.InputInt("Laps##laps", lp); same(); button("Set laps##setlaps", "setlaps " .. target .. " " .. lp[0])
+            if e.type == "rpc" then
+              txt("The reasonably priced car: " .. tostring(e.rpcCar) .. " - each driver gets a fresh one on the start line. Best lap wins.")
+              button("Use the car I'm in##rpcmine", "setrpc " .. target .. " mine"); same()
+              button("Default car##rpcdefault", "setrpc " .. target .. " default")
+            end
+          else txt("Checkpoints in order - the last one is the finish.") end
+        end
+        button("Add route waypoint", "addvia " .. target); same(); button("Undo route waypoint", "undovia " .. target); same()
+        button("Clear route", "clearvia " .. target)
+        local tl = intPtr("time" .. target, e.timeLimit or 600)
+        im.InputInt("Time limit (s)##tl", tl); same(); button("Set time##settime", "settime " .. target .. " " .. tl[0])
+        if e.solo then same(); txt("(per run)") end
+        if e.type == "rpc" then txt("Mode: time trial - one at a time (always, for this type)")
+        else
+          txt("Mode:"); same()
+          button((e.solo and "" or "> ") .. "Race - everyone at once##moderace", "setmode " .. target .. " race"); same()
+          button((e.solo and "> " or "") .. "Time trial - one at a time##modetrial", "setmode " .. target .. " trial")
+        end
+        txt("Event type:")
+        for i, t in ipairs(c.types or {}) do
+          local label = (t.id == e.type and "> " or "") .. t.label .. "##ty_" .. t.id
+          button(label, "settype " .. target .. " " .. t.id)
+          if i % 4 ~= 0 then same() end
+        end
+        txt("")
+        if c.idle then confirmButton("Delete this event", "delev", "delevent " .. target) end
+        if e.type == "trailer" then same(); button("Test trailer spawn##tt", "trailertest"); same(); button("Remove test trailer##tto", "trailertest off") end
+      end
+      local nb = textBuf("rename")
+      im.InputText("##rename", nb); same()
+      if im.Button("Rename") then
+        local nm = textOf(nb)
+        if nm ~= "" then sendCmd("rename " .. target .. " " .. nm) end
+      end
+      im.Separator()
+      if c.problems == 0 then colored(0.4, 1, 0.4, "Course complete.") else txt(c.problems .. " thing(s) still to set.") end
+      if c.active then button("Save course##bottomsave", "course save " .. c.active); same() end
+      if c.active and c.dirty then
+        local saved = false
+        for _, e in ipairs(c.library or {}) do if e.name == c.active then saved = true end end
+        if saved then button("Revert to saved##revert", "course load " .. c.active); same() end
+      end
+      confirmButton("Clear this one", "clr1", "clearcourse " .. target); same()
+      confirmButton("Clear ALL", "clrall", "clearcourse all")
     end
-    im.Separator()
-    if c.problems == 0 then colored(0.4, 1, 0.4, "Course complete.") else txt(c.problems .. " thing(s) still to set.") end
-    if c.active then button("Save course##bottomsave", "course save " .. c.active); same() end
-    if c.active and c.dirty then
-      local saved = false
-      for _, e in ipairs(c.library or {}) do if e.name == c.active then saved = true end end
-      if saved then button("Revert to saved##revert", "course load " .. c.active); same() end
-    end
-    confirmButton("Clear this one", "clr1", "clearcourse " .. target); same()
-    confirmButton("Clear ALL", "clrall", "clearcourse all")
-  end
+  end, true) end
 end
 
 ordinal = function(n)
@@ -2496,9 +2512,11 @@ local function drawResults(d)
   local rows = s.rows or {}
   local win = rows[1]
   if win then
-    colored(1, 0.85, 0.2, string.format("WINNER: %s in the %s - %.1f points", win.name, win.car, win.points or 0))
+    Tabs.box("Winner", "winner", function()
+      colored(1, 0.85, 0.2, string.format("WINNER: %s in the %s - %.1f points", win.name, win.car, win.points or 0))
+    end)
   end
-  im.Separator()
+  Tabs.box("Results", "restable", function()
 
   -- build every cell as text first, so the table itself only draws
   local cols = { "#", "Driver", "Car" }
@@ -2550,8 +2568,8 @@ local function drawResults(d)
     end
   end
 
-  im.Separator()
-  txt("How the points add up:")
+  end)
+  Tabs.box("How the points add up", "respoints", function()
   for _, r in ipairs(rows) do
     local n = #(r.inspections or {})
     txt(string.format("  %s: %g from events + %.1f drivability%s%s%s = %.1f   (%d win%s)", r.name, r.eventPoints or 0,
@@ -2560,6 +2578,7 @@ local function drawResults(d)
       (r.awards or 0) ~= 0 and string.format(" %s %g from the producers", r.awards > 0 and "+" or "-", math.abs(r.awards)) or "",
       r.points or 0, r.wins or 0, r.wins == 1 and "" or "s"))
   end
+  end, true)
 end
 
 -- Parts tab -------------------------------------------------------------------------
@@ -2698,13 +2717,11 @@ local function drawParts(d)
   else
     colored(1, 0.8, 0.3, "Price list - parts can be fitted at the dealership or in a workshop.")
   end
-  txt("Upgrades cost the difference to the part you have; a cheaper part refunds " ..
-    math.floor((sh.resale or 0.5) * 100 + 0.5) .. "% of the difference. Looks-only parts are free.")
-  if (sh.labour or 0) > 0 then
-    txt("Labour: " .. commas(sh.labour) .. " once per workshop" .. (sh.labourPaid and " (already paid)" or "") ..
-      ". Parts that come with a part (e.g. an engine's own intake) are billed too.")
-  end
   if im.Button("Refresh the list##partsrefresh") then shop.cat, shop.tried = nil, nil end
+  Tabs.help("Upgrades cost the difference to the part you have; a cheaper part refunds " ..
+    math.floor((sh.resale or 0.5) * 100 + 0.5) .. "% of the difference. Looks-only parts are free." ..
+    ((sh.labour or 0) > 0 and ("\nLabour: " .. commas(sh.labour) .. " once per workshop" .. (sh.labourPaid and " (already paid)" or "") ..
+      ". Parts that come with a part (e.g. an engine's own intake) are billed too.") or ""))
   if shop.err then colored(1, 0.4, 0.4, "Couldn't list your car's parts: " .. shop.err); return end
   local cat = shop.cat
   if not cat then return end
@@ -2733,6 +2750,7 @@ local function drawParts(d)
     end
   end
 end
+Tabs.parts = drawParts   -- (shown as the Parts box in the Dealership tab)
 
 local function section(name, fn, d)  -- a broken section shows an error instead of breaking the window
   local ok, err = pcall(fn, d)
@@ -2749,14 +2767,50 @@ local function section(name, fn, d)  -- a broken section shows an error instead 
   end
 end
 
+-- A box: a collapsible section (ImGui's own header - its arrow folds it) with a rounded border round the header and
+-- its contents. Every tab is a short stack of these. closed = starts folded. If the border can't be drawn on this
+-- BeamNG version it's left off (plain headers), never breaking the window.
+Tabs.box = function(title, id, fn, closed)
+  local okP, at = pcall(function() return im.GetCursorScreenPos() end)
+  local okW, avail = pcall(function() return im.GetContentRegionAvail() end)
+  local hdr = im.CollapsingHeader1 or im.CollapsingHeader
+  local label = title .. "##box_" .. id
+  local okH, open = pcall(hdr, label, closed and 0 or (tonumber(imGet("TreeNodeFlags_DefaultOpen")) or 32))
+  if not okH then open = hdr(label) end
+  if open then
+    local indent = imGet("Indent") ~= nil
+    if indent then pcall(im.Indent, 8) end
+    local ok, err = pcall(fn)
+    if indent then pcall(im.Unindent, 8) end
+    if not ok then error(err, 0) end
+  end
+  if not ui.noBoxes and okP and type(at) == "table" and okW and type(avail) == "table" and tonumber(avail.x) then
+    local okD, errD = pcall(function()
+      local bottom = im.GetCursorScreenPos()
+      im.ImDrawList_AddRect(im.GetWindowDrawList(), im.ImVec2(at.x - 4, at.y - 3), im.ImVec2(at.x + avail.x + 4, bottom.y + 2),
+        im.GetColorU322(im.ImVec4(0.40, 0.56, 0.95, 0.85)), 6, 0, 1.5)
+    end)
+    if not okD then ui.noBoxes = true; warn("box borders unavailable, plain sections instead: " .. tostring(errD)) end
+  end
+  pcall(im.Dummy, im.ImVec2(1, 8))   -- a gap before the next box
+end
+
+-- hover help: a dim "(?)" after the item before it; the explanation shows when the mouse is over it.
+-- (Without hover support on this BeamNG version, the explanation is shown as a dim line instead.)
+Tabs.help = function(text)
+  same()
+  colored(0.55, 0.62, 0.70, "(?)")
+  local okH, hov = pcall(function() return im.IsItemHovered() end)
+  if not okH then colored(0.65, 0.65, 0.65, text); return end
+  if hov then pcall(function() im.SetTooltip((tostring(text):gsub("%%", "%%%%"))) end) end
+end
+
 -- The message log under the tabs: a "System messages" heading and a tinted, bordered box (a child window) with the
 -- last few lines, newest brightest. BeginChild isn't used anywhere else, so if it fails the lines show plain.
-local Tabs = {}   -- window parts drawn outside the tab functions above (one local: the chunk is near Lua's 200)
-Tabs.messages = function()
+Tabs.messages = function() Tabs.box("Messages", "messages", Tabs.messageLines) end   -- (under every tab)
+Tabs.messageLines = function()
   local MSG_LINES = 6
   local MSG_BOX = { ChildBg = { 0.05, 0.09, 0.22, 1 }, Border = { 0.40, 0.56, 0.95, 0.80 } }
-  im.Separator()
-  heading("System messages")
   local from = math.max(1, #ui.log - MSG_LINES + 1)
   local function lines()
     if #ui.log == 0 then colored(0.55, 0.62, 0.70, "No messages yet."); return end
@@ -2838,6 +2892,7 @@ Tabs.quick = function(d)
   local c, cl = d.course or {}, d.classes or {}
   local ready, budget = false, nil
 
+  Tabs.box("Setup", "setup", function()
   heading("SET UP THE CHALLENGE")
   if not admin then
     colored(0.65, 0.65, 0.65, idle and "Waiting for an admin to set up and start the challenge." or "The challenge is set up.")
@@ -2851,8 +2906,12 @@ Tabs.quick = function(d)
       if #items == 0 then
         colored(1, 0.8, 0.3, "No saved courses yet - build one in the Admin tab's Course builder.")
       else
-        local pick = Tabs.combo("qcourse", c.active or "Pick a course...", items)
-        if pick then sendCmd("course load " .. pick) end
+        if q.course == c.active then q.course = nil end   -- (loaded)
+        for _, it in ipairs(items) do it[3] = it[2] == (q.course or c.active) end
+        local pick = Tabs.combo("qcourse", q.course or c.active or "Pick a course...", items)
+        if pick then q.course = pick end
+        same()
+        if im.Button((q.course and "Load" or "Loaded") .. "##qload") and q.course then sendCmd("course load " .. q.course) end
       end
       if c.active and c.dirty then colored(1, 0.8, 0.3, "The loaded course has unsaved changes - picking another drops them.") end
     else
@@ -2899,7 +2958,9 @@ Tabs.quick = function(d)
     end
   end
 
-  im.Separator()
+  end)
+
+  Tabs.box("Dealer", "dealer", function()
   heading("GO")
   if idle then
     if Tabs.step("Start the challenge", "qstart", (admin and ready) and "lit" or "wait") then
@@ -2952,6 +3013,17 @@ Tabs.quick = function(d)
     if canPick and not chosen then colored(0.65, 0.65, 0.65, "Pick a car condition first.") end
     if lit then colored(0.65, 0.65, 0.65, "Opens the vehicle selector with today's cars - spawning one buys it.") end
   end
+
+  -- changed your mind? return the car (full refund) and pick another - two clicks
+  if dealer and me and me.hasCar then
+    local armed = q.returnAt and (ui.t - q.returnAt) < 3
+    if Tabs.step(armed and "Really? Click again to return it" or ("Return this car - full refund"), "qreturn", "lit") then
+      if armed then q.returnAt = nil; returnCar() else q.returnAt = ui.t end
+    end
+  else
+    Tabs.step("Return this car", "qreturn", "wait")
+  end
+  end)
 end
 
 local function drawWindow(dt)
@@ -2971,15 +3043,20 @@ local function drawWindow(dt)
     local d = ui.data
     if not d then txt("Loading...")
     else
+      -- Start | Status | Dealership | Admin | Settings | Results - each tab a short stack of boxes (Tabs.box)
       if im.BeginTabBar("##tgtabs") then
         local quickOpen
         if ui.selectQuick and (d.phase == "idle" or d.phase == "dealer") and im.TabItemFlags_SetSelected then
-          quickOpen = im.BeginTabItem("Quick start", nil, im.TabItemFlags_SetSelected)
+          quickOpen = im.BeginTabItem("Start", nil, im.TabItemFlags_SetSelected)
         else
-          quickOpen = im.BeginTabItem("Quick start")
+          quickOpen = im.BeginTabItem("Start")
         end
         ui.selectQuick = false
-        if quickOpen then section("Quick start", Tabs.quick, d); im.EndTabItem() end
+        if quickOpen then section("Start", Tabs.quick, d); im.EndTabItem() end
+        if im.BeginTabItem("Status") then section("Status", drawStatus, d); im.EndTabItem() end
+        if im.BeginTabItem("Dealership") then section("Dealership", drawDealer, d); im.EndTabItem() end
+        if d.admin and im.BeginTabItem("Admin") then section("Admin", drawAdmin, d); im.EndTabItem() end
+        if im.BeginTabItem("Settings") then section("Settings", drawSettings, d); im.EndTabItem() end
         if d.summary then
           local open
           if ui.selectResults and im.TabItemFlags_SetSelected then
@@ -2989,11 +3066,6 @@ local function drawWindow(dt)
           end
           if open then ui.selectResults = false; section("Results", drawResults, d); im.EndTabItem() end
         end
-        if im.BeginTabItem("Status") then section("Status", drawStatus, d); im.EndTabItem() end
-        if im.BeginTabItem("Dealership") then section("Dealership", drawDealer, d); im.EndTabItem() end
-        if d.me and d.me.hasCar and im.BeginTabItem("Parts") then section("Parts", drawParts, d); im.EndTabItem() end
-        if d.admin and im.BeginTabItem("Admin") then section("Admin", drawAdmin, d); im.EndTabItem() end
-        if im.BeginTabItem("Settings") then section("Settings", drawSettings, d); im.EndTabItem() end
         im.EndTabBar()
       end
       Tabs.messages()

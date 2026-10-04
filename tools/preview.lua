@@ -57,7 +57,8 @@ local function show(it)
   elseif k == "inputint" then return it.label .. ": " .. c("4", " " .. tostring(it.value) .. " ") .. " -/+"
   elseif k == "slider" then return it.label .. ": " .. tostring(it.text) .. "  " .. it.min .. " |" .. string.rep("-", it.value - it.min) .. "o" .. string.rep("-", it.max - it.value) .. "| " .. it.max
   elseif k == "combo" then return (it.label ~= "" and (it.label .. ": ") or "") .. c("4", "[" .. tostring(it.preview) .. " v]")
-  elseif k == "header" then return "\n" .. c("1;35", "v " .. it.label)
+  elseif k == "header" then return "\n" .. c("1;35", (it.flags == 0 and "> " or "v ") .. it.label)
+  elseif k == "tooltip" then return c("2", "(?) " .. it.text:gsub("\n", " / "))
   elseif k == "table" then return c("2", "-- table --")
   elseif k == "column" then return c("1", it.text)
   elseif k == "child" then return c("2", "[ box: " .. it.label .. " ]")
@@ -97,7 +98,18 @@ local function flushTable()
   end
   tbl = nil
 end
+local folded, inCombo = false, false
+local BOXES = { ["Setup"] = 1, ["Dealer"] = 1, ["My car"] = 1, ["Challenge saved"] = 1, ["Standings"] = 1, ["Buy a car"] = 1,
+  ["Car condition"] = 1, ["Parts"] = 1, ["Challenge"] = 1, ["Players"] = 1, ["Money & timers"] = 1, ["Car classes"] = 1,
+  ["Tools"] = 1, ["Course"] = 1, ["Sound"] = 1, ["Lights & flag"] = 1, ["Window"] = 1, ["Troubleshooting"] = 1,
+  ["Winner"] = 1, ["Results"] = 1, ["How the points add up"] = 1, ["Messages"] = 1 }
+local function isBox(it) return it.kind == "header" and (BOXES[it.label] or it.label:find("^Today's cars")) end
 for _, it in ipairs(items) do
+  if it.kind == "tab" or isBox(it) then folded = false end
+  if folded then goto continue end
+  if it.kind == "selectable" and inCombo then goto continue end   -- (a dropdown's options: closed in game)
+  inCombo = it.kind == "combo" or (inCombo and it.kind == "selectable")
+  if isBox(it) and it.flags == 0 then folded = true end
   if it.kind == "endtable" then flushTable(); goto continue end
   if tbl and it.kind == "column" then tbl.cols[#tbl.cols + 1] = it.text; goto continue end
   if tbl and it.kind == "text" and #tbl.cols > 0 then tbl.cells[#tbl.cells + 1] = it.text; goto continue end
