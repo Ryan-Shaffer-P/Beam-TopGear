@@ -1,7 +1,7 @@
 -- Text preview of the Top Gear window, drawn by the real client code in the test harness (fake ImGui).
 -- Shows each tab's content and controls - not colours, fonts or exact spacing.
 --   luajit tools/preview.lua [scene] [tab]      (from the repo root)
---   scenes: idle (default), dealer, travel, event, workshop, results      tab: a tab name, or "all" (default)
+--   scenes: idle (default), dealer, ready (cars bought, Alice ready), travel, event, workshop, results      tab: a tab name, or "all" (default)
 package.path = "tests/lib/?.lua;tests/?.lua;" .. package.path
 local World = require("world")
 local F = require("fixtures")
@@ -17,7 +17,9 @@ local function to(phase) w:waitFor(function() return (w:state(A) or {}).phase ==
 if scene ~= "idle" then
   w:chat(A, "/tg workshopevery 1")   -- (a workshop after each event)
   w:chat(A, "/tg start")
-  if scene ~= "dealer" then
+  if scene == "ready" then
+    w:buy(A, "covet", "base_M"); w:buy(B, "pessima", "base_M"); w:chat(A, "/tg ready")
+  elseif scene ~= "dealer" then
     w:buy(A, "covet", "base_M"); w:buy(B, "pessima", "base_M")
     w:chat(A, "/tg ready"); w:chat(B, "/tg ready")
     if scene ~= "travel" then

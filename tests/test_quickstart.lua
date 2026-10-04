@@ -153,3 +153,46 @@ t.test("Start tab: Return this car - two clicks give a full refund, then you can
   t.eq(w:state(B).cash, 10000, "full refund")
   w:assertClean()
 end)
+
+t.test("Start tab: I'm ready locks the car in, the box shows who's ready, and everyone ready = a 5 s countdown", function()
+  local cfg = F.twoRaces(); cfg.defaults = { readyCountdown = 5 }
+  local w = World.new({ files = F.files(cfg) })
+  local A, B = w:join("Alice"), w:join("Bob")
+  w:chat(A, "/tg start"); w:chat(A, "/tg condition new"); w:chat(B, "/tg condition new"); w:step(2.5)
+  t.ok(has(tab(A, "Start"), "0/2 players are ready"), "the count, top right of the Dealer box")
+  t.ok(has(tab(A, "Start"), "[I'm ready]"), "grey until you have a car")
+  local red
+  w:buy(A, "covet", "base_M"); w:buy(B, "pessima", "base_M"); w:step(2.5)
+  for _, it in ipairs(A.client.im.items(WIN)) do if it.kind == "button" and it.label == "Return this car - full refund" then red = it end end
+  t.ok(red, "Return this car is offered (red)")
+  A.client.im.click("I'm ready##qready"); w:step(2.5)
+  t.ok(w:chatHas(A, "Alice is happy with their Ibishu Covet."))
+  t.ok(has(tab(A, "Start"), "1/2 players are ready"))
+  t.ok(has(tab(A, "Start"), "[Return this car - locked, you're ready]"), "locked in")
+  t.ok(has(tab(A, "Start"), "[I'm ready  (done)]"))
+  -- Bob's ready too: everyone - the countdown starts
+  B.client.im.click("I'm ready##qready"); w:step(0.5)
+  t.ok(w:chatHas(A, "Everyone's ready! The challenge starts in 5 seconds."))
+  t.eq(w:state(A).phase, "dealer", "not yet")
+  w:step(2.5)
+  t.ok(w:sawMessage(A, "Starting in 3") or w:sawMessage(A, "Starting in 4"), "a countdown on screen")
+  t.ok(has(tab(A, "Start"), "starting in"), "and in the box")
+  w:step(3)
+  t.eq(w:state(A).phase, "travel", "then the dealership closes and leg 1 starts")
+  w:assertClean()
+end)
+
+t.test("the ready countdown stops if someone returns their car", function()
+  local cfg = F.twoRaces(); cfg.defaults = { readyCountdown = 5 }
+  local w = World.new({ files = F.files(cfg) })
+  local A, B = w:join("Alice"), w:join("Bob")
+  w:chat(A, "/tg start")
+  w:buy(A, "covet", "base_M"); w:buy(B, "pessima", "base_M")
+  w:chat(A, "/tg ready"); w:chat(B, "/tg ready"); w:step(1)
+  w:clientDelete(B, B.current)   -- Bob deletes his car anyway (the game's own menu): refunded, not ready
+  w:step(1)
+  t.ok(w:chatHas(A, "Bob isn't ready any more - the countdown is off."))
+  w:step(6)
+  t.eq(w:state(A).phase, "dealer", "still at the dealership")
+  w:assertClean()
+end)

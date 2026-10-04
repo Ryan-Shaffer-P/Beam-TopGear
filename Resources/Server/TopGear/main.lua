@@ -145,6 +145,7 @@ local DEFAULT_CONFIG = {
   defaults = {
     startRadius = 20, cpRadius = 12, viaRadius = 25,
     countdown = 5, falseStartPenalty = 5, eventTimeLimit = 600,
+    readyCountdown = 5,   -- seconds from "everyone's ready" at the dealership to the dealership closing (leg 1)
   },
 
   dealer = {
@@ -1592,6 +1593,7 @@ local function stopGame()
 end
 
 local function lockDealer()
+  game.dealerGo, game.dealerCount = nil, nil   -- (an admin's Next phase skips the ready countdown)
   for name, p in pairs(game.players) do
     if not p.carVid then
       say(p.pid, "You didn't buy a car, so you're spectating this one.")
@@ -2490,8 +2492,26 @@ end
 ---------------------------------------------------------------------------
 local pendingDiag = {}   -- pid -> time the report was requested
 
+-- the dealership: once everyone is ready, a short countdown, then it closes and leg 1 starts. Anyone not ready any more
+-- (returned their car) or a newcomer stops it.
+local function tickDealer()
+  if not game.dealerGo then return end
+  for _, q in pairs(game.players) do
+    if q.pid and not q.ready then
+      game.dealerGo, game.dealerCount = nil, nil
+      sayAll(q.name .. " isn't ready any more - the countdown is off.")
+      pushAll()
+      return
+    end
+  end
+  local left = game.dealerGo - now()
+  local sec = math.ceil(left)
+  if sec > 0 and sec ~= game.dealerCount then game.dealerCount = sec; bigAll("Starting in " .. sec) end
+  if left <= 0 then game.dealerGo, game.dealerCount = nil, nil; lockDealer() end
+end
+
 local phaseTick = { travel = tickTravel, countdown = tickCountdown, event = tickEvent,
-                    workshop = tickWorkshop, finale = tickFinale }
+                    workshop = tickWorkshop, finale = tickFinale, dealer = tickDealer }
 
 function TG_onTick()
   for dpid, t0 in pairs(pendingDiag) do
@@ -3325,10 +3345,15 @@ PLAYER_CMDS.ready = function(pid)
   local p = playerByPid(pid)
   if not p or game.phase ~= "dealer" then say(pid, "Nothing to be ready for right now."); return end
   if not p.carVid then say(pid, "Buy a car first!"); return end
+  if p.ready then say(pid, "You're already marked ready."); return end
   p.ready = true
   sayAll(string.format("%s is happy with their %s.", p.name, p.carName))
+  pushAll()
   for _, q in pairs(game.players) do if q.pid and not q.ready then return end end
-  lockDealer()
+  local secs = tonumber(cfg.defaults.readyCountdown) or 5
+  if secs <= 0 then lockDealer(); return end
+  game.dealerGo, game.dealerCount = now() + secs, nil   -- (tickDealer counts down, then closes the dealership)
+  sayAll(string.format("Everyone's ready! The challenge starts in %d seconds.", math.floor(secs)))
 end
 
 PLAYER_CMDS.quote = function(pid)
@@ -4806,6 +4831,7 @@ local function buildUi(pid)
     workshopEvery = tonumber(cfg.workshopEvery) or 2,
     workshopMinutes = cfg.workshop.minutes,
     gamePrices = cfg.dealer.useGamePrices and true or false, allHere = game.allHere and true or false,
+    readyGo = game.dealerGo and math.max(0, math.ceil(game.dealerGo - now())) or nil,
     traffic = inTrafficMode(name),
     soundsOn = not soundsOff[name], soundClips = (cfg.sounds or {}).clips or {},
     shop = p and {   -- the Parts tab prices options exactly the way TG_onRebuild bills them
@@ -4856,9 +4882,12 @@ local function buildUi(pid)
                  points = cfg.faults.inspectionPenaltyPoints or 0 }
   end
   d.standings = {}
+  local nReady, nIn = 0, 0   -- (the Start tab's "2/3 players are ready")
   for _, q in ipairs(sortedPlayers()) do
     d.standings[#d.standings + 1] = { name = q.name, points = q.points, wins = q.wins, cash = q.cash, car = q.carName, online = q.pid ~= nil }
+    if q.pid then nIn = nIn + 1; if q.ready then nReady = nReady + 1 end end
   end
+  d.ready = { n = nReady, total = nIn }
   if d.admin then
     local clist, cnames = {}, {}
     for n in pairs(cfg.dealer.classes or {}) do cnames[#cnames + 1] = n end

@@ -2845,6 +2845,9 @@ Tabs.step = function(label, id, how)
   if how == "lit" then
     cols = { Button = { 0.10, 0.62, 0.20, 1 }, ButtonHovered = { 0.25, 0.85, 0.30, 1 }, ButtonActive = { 0.05, 0.40, 0.10, 1 },
              Text = { 1, 1, 1, 1 } }
+  elseif how == "red" then   -- (an undo: Return this car)
+    cols = { Button = { 0.70, 0.12, 0.12, 1 }, ButtonHovered = { 0.88, 0.22, 0.20, 1 }, ButtonActive = { 0.50, 0.06, 0.06, 1 },
+             Text = { 1, 1, 1, 1 } }
   elseif how == "done" then
     cols = { Button = { 0.14, 0.26, 0.30, 1 }, ButtonHovered = { 0.14, 0.26, 0.30, 1 }, ButtonActive = { 0.14, 0.26, 0.30, 1 },
              Text = { 0.60, 0.80, 0.65, 1 } }
@@ -2856,7 +2859,7 @@ Tabs.step = function(label, id, how)
   local okB, clicked = pcall(im.Button, (how == "done" and (label .. "  (done)") or label) .. "##" .. id, im.ImVec2(-1, 36))
   popColors(rec)
   if not okB then error(clicked) end
-  return clicked and how == "lit"
+  return clicked and (how == "lit" or how == "red")
 end
 
 -- A dropdown; items = { { label, value, selected } }. Returns the picked value, or nil.
@@ -2962,6 +2965,15 @@ Tabs.quick = function(d)
 
   Tabs.box("Dealer", "dealer", function()
   heading("GO")
+  local rd = d.ready
+  if dealer and rd and (rd.total or 0) > 0 then   -- top right of the box: how many are ready
+    local okW, avail = pcall(function() return im.GetContentRegionAvail() end)
+    local x = okW and type(avail) == "table" and tonumber(avail.x) or nil
+    if x and x > 260 then pcall(im.SameLine, x - 170) else same() end
+    local line = string.format("%d/%d player%s ready", rd.n or 0, rd.total, rd.total == 1 and " is" or "s are")
+    if (rd.n or 0) >= rd.total then colored(0.4, 1, 0.4, line) else colored(1, 0.85, 0.3, line) end
+  end
+  if dealer and d.readyGo then colored(0.4, 1, 0.4, string.format("Everyone's ready - starting in %d...", d.readyGo)) end
   if idle then
     if Tabs.step("Start the challenge", "qstart", (admin and ready) and "lit" or "wait") then
       if budget and budget[0] ~= (d.baseBudget or d.budget) then sendCmd("budget " .. budget[0]) end
@@ -3014,14 +3026,27 @@ Tabs.quick = function(d)
     if lit then colored(0.65, 0.65, 0.65, "Opens the vehicle selector with today's cars - spawning one buys it.") end
   end
 
-  -- changed your mind? return the car (full refund) and pick another - two clicks
-  if dealer and me and me.hasCar then
+  -- changed your mind? return the car (full refund) and pick another - two clicks, red; locked once you're ready
+  if dealer and me and me.hasCar and not me.ready then
     local armed = q.returnAt and (ui.t - q.returnAt) < 3
-    if Tabs.step(armed and "Really? Click again to return it" or ("Return this car - full refund"), "qreturn", "lit") then
+    if Tabs.step(armed and "Really? Click again to return it" or ("Return this car - full refund"), "qreturn", "red") then
       if armed then q.returnAt = nil; returnCar() else q.returnAt = ui.t end
     end
+  elseif dealer and me and me.ready then
+    Tabs.step("Return this car - locked, you're ready", "qreturn", "wait")
   else
     Tabs.step("Return this car", "qreturn", "wait")
+  end
+  -- I'm ready: locks the car in; when everyone is, a 5 s countdown starts the challenge
+  if dealer and me and me.ready then
+    Tabs.step("I'm ready", "qready", "done")
+  elseif dealer and me and me.hasCar then
+    if Tabs.step("I'm ready", "qready", "lit") then sendCmd("ready") end
+    colored(0.65, 0.65, 0.65, "Locks in your car. When everyone's ready, the challenge starts.")
+  elseif not (idle or dealer) then
+    Tabs.step("I'm ready", "qready", "done")
+  else
+    Tabs.step("I'm ready", "qready", "wait")
   end
   end)
 end

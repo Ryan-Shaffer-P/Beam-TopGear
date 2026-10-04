@@ -40,7 +40,11 @@ newest at the bottom and brightest.
   - **Dealer**: the steps, each lit green only once the one before is done: **Start the challenge** (lit
     when a finished course is loaded) -> **Car condition** (a dropdown, every player, after Start) ->
     **Go to the dealer** (opens the game's vehicle selector with today's cars; spawning one buys it) ->
-    **Return this car** (two clicks: a full refund, so you can pick another). Done steps say "(done)".
+    **Return this car** (red, two clicks: a full refund, so you can pick another) -> **I'm ready** (locks
+    your car in - Return is locked from then on). Done steps say "(done)". The box's top right shows how
+    many are ready ("2/3 players are ready"); once **everyone** is, a 5 s countdown ("Starting in 5...")
+    closes the dealership and the first leg starts (`defaults.readyCountdown`, 0 = straight away). If
+    anyone returns their car or a new player joins, the countdown stops. An admin's Next phase skips it.
 - **Status**:
   - **My car**: your car, cash, points, damage, the button for whatever comes next (Ready, GO, Join,
     problem fixes in a workshop) and the driver buttons **Repair** (workshops only, shows the price),

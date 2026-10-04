@@ -14,6 +14,8 @@ function F.config(events, extra)
     workshopEvery = 2,
     -- (tests of how each problem works use its listed strength at every condition; test_faults checks the scaling)
     faults = { severity = { 1, 1, 1, 1 } },
+    -- (the dealership closes the moment everyone's ready, as before 0.9.13; test_quickstart checks the 5 s countdown)
+    defaults = { readyCountdown = 0 },
   }
   for k, v in pairs(extra or {}) do cfg[k] = v end
   return cfg
