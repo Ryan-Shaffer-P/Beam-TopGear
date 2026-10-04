@@ -120,7 +120,7 @@ function M.new()
     record({ kind = "inputint", label = visible(label), value = ptr[0] })
     return false
   end
-  function im.SameLine() end
+  function im.SameLine() record({ kind = "sameline" }) end   -- (for tools/preview.lua: items side by side)
   function im.Separator() end
   function im.Dummy() end
 
@@ -128,7 +128,7 @@ function M.new()
   function im.EndCombo() st.combos = st.combos - 1 end
 
   function im.BeginTable(id) st.tables = st.tables + 1; record({ kind = "table", label = visible(id) }); return true end
-  function im.EndTable() st.tables = st.tables - 1 end
+  function im.EndTable() st.tables = st.tables - 1; record({ kind = "endtable" }) end
   function im.TableSetupColumn(name) record({ kind = "column", text = name }) end
   function im.TableHeadersRow() end
   function im.TableNextRow() end

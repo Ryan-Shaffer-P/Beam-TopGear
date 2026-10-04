@@ -154,6 +154,8 @@ for the `/tg diag` "Client error" line or the matching `[TopGear]` server-consol
    successor of `sim13` - expected cash/points are hand-calculated in its comments; if a rule change
    moves them, recompute by hand rather than pasting the new output). Still to rebuild: workshop
    parts billing/overdraft/dealership upgrades, start lights, circuits, parking/slalom, course builder.
+   **Menu preview:** `luajit tools/preview.lua [idle|dealer|travel|event|workshop|results] [tab|all]` prints the real
+   ImGui window as a text mock-up (harness test data; content and controls, not colours/spacing).
 4. Beware harness artifacts (wrong test coordinates, sequencing): say so explicitly when a failure is the
    test's fault, not the mod's.
 5. Real server: `docker compose -f server/compose.yaml restart`, then check `logs` for the
