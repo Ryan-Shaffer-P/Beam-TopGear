@@ -144,7 +144,7 @@ t.test("Start tab: Return this car - two clicks give a full refund, then you can
   w:chat(A, "/tg start"); w:chat(B, "/tg condition used"); w:step(2.5)
   t.ok(has(tab(B, "Start"), "[Return this car]"), "grey until you own one")
   w:buy(B, "covet", "base_M"); w:step(2.5)
-  t.eq(w:state(B).cash, 10000 - 4100)
+  t.eq(w:state(B).cash, 10000 - 3400)   -- (a Used Covet: $4,500 x 0.75 = $3,375 -> $3,400)
   B.client.im.click("Return this car - full refund##qreturn"); w:step(0.5)
   t.ok(has(tab(B, "Start"), "[Really? Click again to return it]"), "asks first")
   t.ok(B.current, "still has the car")

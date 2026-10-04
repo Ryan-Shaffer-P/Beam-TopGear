@@ -49,18 +49,18 @@ local function start(w, A, model, faults, n)
   w:step(10)   -- applied: setup faults respawn the car, physics faults run in its Lua, the report comes back
 end
 
-t.test("car condition: chosen before buying, it sets every car's price (career's formula); locked once bought", function()
+t.test("car condition: chosen before buying, it sets every car's price (faults.discount); locked once bought", function()
   local w = World.new({ files = F.files(F.twoRaces()) })   -- (the test dealer list: the Covet is $4,500 new)
   local A, B = w:join("Alice"), w:join("Bob")
   w:chat(A, "/tg start")
   w:chat(A, "/tg condition needs work")
-  t.ok(w:chatHas(A, "Car condition: Needs work (100,000 km) - cars up to 20% off (fast ones hold their value)."))
+  t.ok(w:chatHas(A, "Car condition: Needs work (100,000 km) - cars up to 40% off (fast ones hold their value)."))
   t.eq(w:state(A).cash, 10000, "no cash bonus: the prices drop instead")
   w:chat(A, "/tg dealer covet")
-  t.ok(w:chatHas(A, "  $3,600  Ibishu Covet"), "$4,500 x 0.8")
+  t.ok(w:chatHas(A, "  $2,700  Ibishu Covet"), "$4,500 x 0.6")
   w:chat(A, "/tg condition used")          -- changed her mind: free before buying
   w:chat(A, "/tg dealer covet")
-  t.ok(w:chatHas(A, "  $4,100  Ibishu Covet"), "$4,500 x 0.9 = $4,050, to the nearest $100")
+  t.ok(w:chatHas(A, "  $3,400  Ibishu Covet"), "$4,500 x 0.75 = $3,375, to the nearest $100")
   w:chat(A, "/tg condition new")
   t.ok(w:chatHas(A, "Car condition: New - full price."))
   w:chat(A, "/tg fault take 2")            -- the old command still works: two steps worse
@@ -68,13 +68,13 @@ t.test("car condition: chosen before buying, it sets every car's price (career's
   pin(w, { "engine", "brakes" })
   w:buy(A, "covet", "base_M")            -- bought at the Needs work price; the problems are drawn now
   w:step(10)
-  t.ok(w:chatHas(B, "Alice bought an Ibishu Covet for $3,600 - a Needs work, $900 off ($6,400 left)."))
-  t.eq(w:state(A).cash, 10000 - 3600)
+  t.ok(w:chatHas(B, "Alice bought an Ibishu Covet for $2,700 - a Needs work, $1,800 off ($7,300 left)."))
+  t.eq(w:state(A).cash, 10000 - 2700)
   t.ok(math.abs(A.current.engine.outputTorqueState - 0.8) < 1e-9, "engine problem on the car")
   t.eq(A.current.wheels[0].brakeTorque, 1500 * 0.6, "brake problem on the car")
   w:chat(A, "/tg condition death trap")    -- locked in with the car
   t.ok(w:chatHas(A, "You've bought your Ibishu Covet as Needs work - that's locked in (return it to choose again)."))
-  t.eq(w:state(A).cash, 10000 - 3600)
+  t.eq(w:state(A).cash, 10000 - 2700)
   w:assertClean()
 end)
 
@@ -229,7 +229,7 @@ t.test("a fault the car can't take is quietly swapped for another, and remembere
   w:buy(A, "miramar", "base_M")   -- no fuel tank model, no radiator model on this test car
   w:step(10)
   t.eq(A.current.vars["$tirepressure_F"], 9, "swapped for worn tyres")
-  t.eq(w:state(A).cash, 10000 - 3200, "a Used Miramar ($3,500 x 0.9 = $3,150 -> $3,200); no money moves on a swap")
+  t.eq(w:state(A).cash, 10000 - 2600, "a Used Miramar ($3,500 x 0.75 = $2,625 -> $2,600); no money moves on a swap")
   t.noLine(A.chat, "can't take")
   w:chat(A, "/tg fault caps")
   t.ok(w:chatHas(A, "miramar/base_M: works tires | can't take fuelleak"))
@@ -289,7 +289,7 @@ t.test("the Dealership tab: a Car Condition slider (New .. Death Trap, no number
   w:showModel(A, "Ibishu Covet")
   local s = A.client.im.textOf(WIN)
   t.match(s, "Car condition%]\n<New>")
-  t.match(s, "A more worn car is cheaper on the market: Used up to 10%% off, Needs work up to 20%% off, Beater up to 45%% off, Death Trap up to 70%% off%.")
+  t.match(s, "A more worn car is cheaper on the market: Used up to 25%% off, Needs work up to 40%% off, Beater up to 55%% off, Death Trap up to 70%% off%.")
   t.match(s, "Fast cars hold their value: the quicker a car, the smaller its discount%.")
   t.match(s, "Choose before you buy %- it's locked in with the car%.")
   t.match(s, "%$4,500  Ibishu Covet")
@@ -299,14 +299,14 @@ t.test("the Dealership tab: a Car Condition slider (New .. Death Trap, no number
   w:step(2.5)
   t.eq(w:state(A).cash, 10000, "the cash doesn't move...")
   s = A.client.im.textOf(WIN)
-  t.match(s, "%$2,500  Ibishu Covet", "...the prices do: $4,500 x 0.55")
+  t.match(s, "%$2,000  Ibishu Covet", "...the prices do: $4,500 x 0.45 = $2,025 -> $2,000")
   t.match(s, "<Beater>")
-  t.match(s, "Beater %(200,000 km%): prices up to 45%% off%.")
+  t.match(s, "Beater %(200,000 km%): prices up to 55%% off%.")
   t.ok(not slider().text:find("%d"), "no number on the slider: " .. slider().text)
   A.client.im.setInt("##condition", 1)
   w:step(2.5)
   t.match(A.client.im.textOf(WIN), "<Used>")
-  t.match(A.client.im.textOf(WIN), "%$4,100  Ibishu Covet")
+  t.match(A.client.im.textOf(WIN), "%$3,400  Ibishu Covet")
   pin(w, { "engine" })
   w:buy(A, "covet", "base_M")
   w:step(2.5)
@@ -314,7 +314,7 @@ t.test("the Dealership tab: a Car Condition slider (New .. Death Trap, no number
   t.match(A.client.im.textOf(WIN), "Bought as Used %(60,000 km%)%.")
   t.match(A.client.im.textOf(WIN), "That's locked in %- return the car to choose again%.")
   t.match(A.client.im.textOf(WIN), "at least %$500%) %- %$500 for yours")
-  t.eq(w:state(A).cash, 10000 - 4100)
+  t.eq(w:state(A).cash, 10000 - 3400)
   w:assertClean()
 end)
 
@@ -550,7 +550,7 @@ t.test("the mod's own part changes (a fault taking a part off, a fix putting it 
   pin(w, { "suspension" }); w:buy(A, "pickup", "d15_M")   -- no adjustable suspension: the fault removes the anti-roll bar
   w:step(10)
   t.eq(A.current.parts["/pickup_swaybar_F/"], "", "the anti-roll bar is off")
-  t.eq(w:state(A).cash, 10000 - 6800, "a Used pickup ($7,500 x 0.9 = $6,750 -> $6,800); no refund for the part the fault took off")
+  t.eq(w:state(A).cash, 10000 - 5600, "a Used pickup ($7,500 x 0.75 = $5,625 -> $5,600); no refund for the part the fault took off")
   w:chat(A, "/tg ready")
   w:drive(A, p(500), 40); w:chat(A, "/tg go")
   w:waitFor(function() return w:state(A).phase == "event" end, 10, "GO")
@@ -1049,4 +1049,20 @@ t.test("saved configs at the 1.8% alignment pull move to 2.8% once (custom value
   end
   t.eq(load(0.018), 0.028)
   t.eq(load(0.025), 0.025, "a custom value isn't touched")
+end)
+
+t.test("condition discounts: 25/40/55/70% off (faults.discount); an empty list goes back to career's mileage formula", function()
+  local w = World.new({ files = F.files(F.twoRaces()) })
+  local A = w:join("Alice")
+  w:chat(A, "/tg start")
+  for _, c in ipairs({ { "used", "$3,400" }, { "needs work", "$2,700" }, { "beater", "$2,000" }, { "death trap", "$1,400" } }) do
+    w:chat(A, "/tg condition " .. c[1]); w:chat(A, "/tg dealer covet")   -- ($4,500 x 0.75 / 0.6 / 0.45 / 0.3, nearest $100)
+    t.ok(w:chatHas(A, "  " .. c[2] .. "  Ibishu Covet"), c[1] .. ": " .. c[2])
+  end
+  local cfg = F.twoRaces(); cfg.faults.discount = {}
+  local w2 = World.new({ files = F.files(cfg) })
+  local B = w2:join("Alice")
+  w2:chat(B, "/tg start"); w2:chat(B, "/tg condition used"); w2:chat(B, "/tg dealer covet")
+  t.ok(w2:chatHas(B, "  $4,100  Ibishu Covet"), "career's formula: x0.9")
+  w:assertClean()
 end)

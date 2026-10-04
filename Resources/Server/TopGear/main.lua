@@ -68,6 +68,9 @@ local DEFAULT_CONFIG = {
     -- (1 - lossPerKm x the condition's mileage) + scrapValue -> Used 90%, Needs work 80%, Beater 55%, Death Trap 30%
     lossPerKm = 0.0000025,
     scrapValue = 0.05,
+    -- 0.9.13, Ryan: steeper early steps instead (career's formula made Used only 10% off - at a $15,000 budget it
+    -- unlocked 3 more cars): the price off for Used, Needs work, Beater, Death Trap. Remove it to go back to the formula.
+    discount = { 0.25, 0.40, 0.55, 0.70 },
     -- Fast cars hold their value: the condition discount is scaled by the car's 0-100 km/h time - the full discount
     -- at perfSlowSeconds or slower, perfMinShare of it at perfFastSeconds or quicker (a worn 340 hp ETK isn't a bargain)
     perfFastSeconds = 4, perfSlowSeconds = 10, perfMinShare = 0.3,
@@ -674,8 +677,12 @@ function CONDITION.accel(model, config)   -- a trim's 0-100 km/h time from the i
 end
 function CONDITION.factor(n, acc)
   if (n or 0) <= 0 or not faultsOn() then return 1 end
-  local career = math.max(0, 1 - CONDITION.km(n) * (tonumber(cfg.faults.lossPerKm) or 0.0000025)) + (tonumber(cfg.faults.scrapValue) or 0.05)
-  return 1 - (1 - math.min(1, career)) * CONDITION.perfShare(acc)
+  local off = tonumber(((cfg.faults or {}).discount or {})[n])   -- the condition's price off (faults.discount)...
+  if not off then   -- ...or career's formula from its mileage
+    local career = math.max(0, 1 - CONDITION.km(n) * (tonumber(cfg.faults.lossPerKm) or 0.0000025)) + (tonumber(cfg.faults.scrapValue) or 0.05)
+    off = 1 - math.min(1, career)
+  end
+  return 1 - math.max(0, math.min(1, off)) * CONDITION.perfShare(acc)   -- (fast cars hold their value)
 end
 function CONDITION.price(n, newPrice, acc)   -- a car's price in that condition (to the nearest $100)
   if not newPrice then return nil end

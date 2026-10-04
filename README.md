@@ -538,16 +538,20 @@ cars each with **Leave out** and a price box. `/tg class list` and `/tg class sh
 
 Before buying, each player picks their car's **condition** with a slider in the Dealership tab (or
 `/tg condition <name>`): **New, Used, Needs work, Beater or Death Trap**. A more worn car is cheaper on
-the market - **every car's price** drops with the condition's mileage, using career mode's own used-car
-formula (price x (1 - 0.25% per 1,000 km) + 5% scrap value, without career's age factor):
+the market - **every car's price** drops with the condition:
 
 | Condition | Mileage | Price |
 |---|---|---|
 | New | - | full price |
-| Used | 60,000 km | 90% (10% off) |
-| Needs work | 100,000 km | 80% |
-| Beater | 200,000 km | 55% |
-| Death Trap | 300,000 km | **30%** |
+| Used | 60,000 km | 75% (25% off) |
+| Needs work | 100,000 km | 60% (40% off) |
+| Beater | 200,000 km | 45% (55% off) |
+| Death Trap | 300,000 km | **30%** (70% off) |
+
+The discounts are `faults.discount` in `config.json` (0.25, 0.40, 0.55, 0.70 - steeper early steps since 0.9.13,
+because BeamNG's car values are high: at a $15,000 budget only 7 cars are affordable new, and the old 10% off for
+Used unlocked just 3 more - now it's 20 more, Needs work 49 in all, Beater 103, Death Trap 238). Set it to `[]` to
+use career mode's own used-car formula instead (price x (1 - 0.25% per 1,000 km) + 5% scrap: 90/80/55/30%).
 
 **Fast cars hold their value**: the discount above is for ordinary cars (0-100 km/h in 10 s or slower); the
 quicker a car, the smaller its share of it, down to 30% of the discount at 4 s or quicker. So a Death Trap ETK

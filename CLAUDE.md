@@ -246,7 +246,8 @@ config keys and admin tools still say fault.
 Condition PRICING (0.9.12, Ryan: "a luxury car that's been beat up should match a newer low-end car"): career's
 `valueCalculator.getAdjustedVehicleBaseValue` without age: price x (max(0, 1 - lossPerKm x km) + scrapValue) =
 `CONDITION.price(n, newPrice, acc)` (nearest $100; +1e-9 for float halves). Used/NW/Beater/DT = 60k/100k/200k/300k km =
-90/80/55/30% for slow cars; FAST CARS HOLD THEIR VALUE (Ryan drove a 4.4 s Death Trap ETK for $19,400 and it destroyed
+90/80/55/30% for slow cars - since 0.9.13 `faults.discount` {0.25, 0.40, 0.55, 0.70} replaces that (75/60/45/30%; empty =
+the formula; mileage wear unchanged) because Used's 10% unlocked ~nothing at a $15k budget; FAST CARS HOLD THEIR VALUE (Ryan drove a 4.4 s Death Trap ETK for $19,400 and it destroyed
 cheap cars): the discount x `CONDITION.perfShare(acc)` = 1 at >= perfSlowSeconds (10) .. perfMinShare (0.3) at <=
 perfFastSeconds (4), acc = the trim's 0-100 from gamePrices attrs (`CONDITION.accel`; unknown = full discount). No cash payout any more: `dealerOffers` shows prices in the player's chosen condition (`t.newPrice`,
 `t.cond`/`t.condPrice` = the condition that makes it affordable, `CONDITION.needed`); purchase `setCar` stores
