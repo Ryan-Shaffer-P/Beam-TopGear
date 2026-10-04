@@ -278,8 +278,8 @@ until a workshop (`revealFaults`), final, fix 1.5x. Ten faults: tires, alignment
 vars `$spring*`/`$damp*` to min, else empty sway-bar slots), engine, brakes, ignition (engine
 `slow/fastIgnitionErrorChance` + GE-timed `electrics.setIgnitionLevel(0)` cut-outs), cooling
 (`thermals.applyDeformGroupDamageRadiator`), fuelleak (GE-timed `fuelTank:setRemainingVolume` drain), body
-(`beamstate.addDamage` + `breakBreakGroup` lights/glass), starter (`starterTorque`), clutch (frictionClutch
-`clutchPermanentlyDamaged`), synchros (manualGearbox `synchroWear`), turbo (`turbocharger.applyDeformGroupDamage`),
+(`beamstate.addDamage` + `breakBreakGroup` lights/glass), starter (`starterTorque`; part of ignition since 0.9.13), clutch (frictionClutch
+`damageLockTorqueCoef` x factor 0.6, scaled loss floor 0.35 - 0.9.13; `clutchPermanentlyDamaged` was a flat 25% grip), synchros (manualGearbox `synchroWear`), turbo (`turbocharger.applyDeformGroupDamage`),
 brakefade (`padGlazingFactor`, GE top-up every 10 s), abs (`wheels.setABSBehavior("off")`), oilleak (engine
 `damageFrictionCoef` x1.5; server rolls `p.oilDoomed` at draw = `blowChance` 0.2; a doomed engine `lockUp()`s after
 blowMin-blowMax s of driving > 15 m/s, client -> `tg_engine_blown`; can't blow twice), idle (engine

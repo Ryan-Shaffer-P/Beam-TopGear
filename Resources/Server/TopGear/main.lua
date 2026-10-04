@@ -96,7 +96,8 @@ local DEFAULT_CONFIG = {
       { id = "fuelleak",   name = "Fuel leak",                                factor = 1.0 },   -- litres per minute
       { id = "body",       name = "Accident damage (missing bumpers, dents, broken lights)", factor = 3000 },   -- damage it
                                                        -- starts with, plus no front/rear bumper (0.9.13: was its own fault)
-      { id = "clutch",     name = "Slipping clutch", enabled = false },                        -- manuals; off: mileage wears the clutch
+      { id = "clutch",     name = "Slipping clutch", enabled = false,          factor = 0.6 },   -- clutch grip x this (0.9.13: was
+                                                       -- BeamNG's "permanently damaged" = 25%); manuals; off: mileage wears the clutch
       { id = "synchros",   name = "Worn gearbox synchros (gears grind)",     factor = 0.8 },   -- synchro wear (1 = gears break); manuals
       { id = "turbo",      name = "Damaged turbo (low boost)",               factor = 0.02 },  -- turbo damage; turbo cars
       { id = "brakefade",  name = "Glazed brake pads (squeal, fade when hot)", factor = 1,     -- pad glazing (1 = fully glazed:
@@ -426,6 +427,12 @@ local function loadConfig()
         ch.clips = { "top-gear-theme-intro" }
       end
     end
+    if not cfg.migrations.clutchGrip then   -- 0.9.13, Ryan: the slipping clutch killed whole gears (BeamNG's 25% damage)
+      cfg.migrations.clutchGrip, changed = true, true
+      for _, f in ipairs((cfg.faults or {}).list or {}) do
+        if f.id == "clutch" and f.factor == nil then f.factor = 0.6 end
+      end
+    end
     if not cfg.migrations.combineStarter then   -- 0.9.13, Ryan: the weak starter is part of the ignition problems now
       cfg.migrations.combineStarter, changed = true, true
       local list = (cfg.faults or {}).list or {}
@@ -718,6 +725,7 @@ CONDITION.SCALE = {
   tires = { "loss", floor = 0.15 }, engine = { "loss", floor = 0.5 }, brakes = { "loss", floor = 0.3 },
   starter = { "loss", noWorse = true },
   ignition = { "add" }, cooling = { "add" }, fuelleak = { "add" }, body = { "add" }, turbo = { "add" }, oilleak = { "add" },
+  clutch = { "loss", floor = 0.35 },   -- (grip: Used 80%, Beater 60%, Death Trap 48%)
   synchros = { "add", cap = 0.9 }, brakefade = { "add", cap = 1 },   -- (synchros: at 1 BeamNG breaks the gear - Ryan's Death Trap had no 2nd/3rd)
   idle = { "mult" }, gearbox = { "mult" },
 }

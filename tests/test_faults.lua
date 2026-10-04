@@ -414,7 +414,8 @@ t.test("starter, clutch, synchros, ABS on a manual car; turbo on a turbo car; on
   w:step(15)
   local a, b = A.current, B.current
   t.ok(math.abs(a.engine.starterTorque - 60) < 1e-9, "ignition problems include a weak starter: x0.6 (it still starts)")
-  t.eq(a.devices.clutch.clutchPermanentlyDamaged, true, "slipping clutch")
+  t.ok(math.abs(a.devices.clutch.damageLockTorqueCoef - 0.6) < 1e-9, "slipping clutch: 60% grip")
+  t.eq(a.devices.clutch.clutchPermanentlyDamaged, false, "not BeamNG's flat 25% 'permanently damaged'")
   t.eq(a.devices.gearbox.synchroWear[2], 0.8, "worn synchros"); t.eq(a.devices.gearbox.synchroWearCoef[2], 0, "grinding adds no wear")
   t.eq(a.abs, "off", "no ABS")
   t.ok(math.abs(b.turboDamage - 0.02) < 1e-9, "damaged turbo")
@@ -426,7 +427,7 @@ t.test("starter, clutch, synchros, ABS on a manual car; turbo on a turbo car; on
   w:chat(A, "/tg ready"); w:chat(B, "/tg ready")
   w:step(20)
   w:resetCar(A); w:resetCar(B); w:step(3)   -- a reset repairs all of that... and the faults go back on
-  t.eq(a.devices.clutch.clutchPermanentlyDamaged, true); t.eq(a.devices.gearbox.synchroWear[2], 0.8); t.eq(a.abs, "off")
+  t.ok(math.abs(a.devices.clutch.damageLockTorqueCoef - 0.6) < 1e-9, "not stacked"); t.eq(a.devices.gearbox.synchroWear[2], 0.8); t.eq(a.abs, "off")
   t.ok(math.abs(b.turboDamage - 0.02) < 1e-9 and math.abs(b.engine.damageFrictionCoef - 1.5) < 1e-9, "turbo + oil, not stacked")
   t.eq(b.wheels[0].padGlazingFactor, 1)
   b.wheels[0].padGlazingFactor = 0.3        -- the game lets the glazing recover a little...
@@ -1012,4 +1013,28 @@ t.test("the weak starter merged into the ignition problems: one fault, both part
     end
   end
   w:assertClean()
+end)
+
+t.test("slipping clutch: less grip, scaled by condition (Death Trap 48%), never BeamNG's flat 25%; no stacking on a reset", function()
+  local base = allFaults(F.twoRaces()); base.faults.severity = nil   -- (clutch switched on; the real severities)
+  local w = World.new({ files = F.files(base) })
+  local A = w:join("Alice")
+  w:chat(A, "/tg start"); w:chat(A, "/tg condition death trap")
+  pin(w, { "clutch", "abs", "brakefade", "alignment" }, nil, true); w:buy(A, "covet", "base_M"); w:step(10)   -- (manual)
+  local c = A.current.devices.clutch
+  t.ok(math.abs(c.damageLockTorqueCoef - 0.48) < 1e-9, "Death Trap: 1 - 40% x 1.3 = 48% grip: " .. tostring(c.damageLockTorqueCoef))
+  t.eq(c.clutchPermanentlyDamaged, false)
+  w:chat(A, "/tg ready"); w:step(20)
+  w:resetCar(A); w:step(3)
+  t.ok(math.abs(A.current.devices.clutch.damageLockTorqueCoef - 0.48) < 1e-9, "the same after a reset")
+  w:assertClean()
+end)
+
+t.test("saved configs: the slipping clutch gets its grip factor once (switched off as before)", function()
+  local list = World.new():serverConfig().faults.list
+  for _, f in ipairs(list) do if f.id == "clutch" then f.factor = nil end end
+  local cfg = F.twoRaces(); cfg.faults = { list = list }
+  for _, f in ipairs(World.new({ files = F.files(cfg) }):serverConfig().faults.list) do
+    if f.id == "clutch" then t.eq(f.factor, 0.6); t.eq(f.enabled, false) end
+  end
 end)

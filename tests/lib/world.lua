@@ -651,7 +651,7 @@ function World:freshPhysics(p, v)
     v.engine.turbocharger = { isExisting = false }
   end
   if traits.manual then
-    v.devices.clutch = { type = "frictionClutch", clutchPermanentlyDamaged = false }
+    v.devices.clutch = { type = "frictionClutch", clutchPermanentlyDamaged = false, damageLockTorqueCoef = 1 }
     v.devices.gearbox = { type = "manualGearbox", gearRatios = { [-1] = -3.5, [0] = 0, [1] = 3.5, [2] = 2.1, [3] = 1.4, [4] = 1.0 },
                           synchroWear = { [-1] = 0, [0] = 0, [1] = 0, [2] = 0, [3] = 0, [4] = 0 }, damageFrictionCoef = 1,
                           synchroWearCoef = { [-1] = 5e-6, [0] = 5e-6, [1] = 5e-6, [2] = 5e-6, [3] = 5e-6, [4] = 5e-6 } }
@@ -694,7 +694,7 @@ function World:freshPhysics(p, v)
     v.engine.damageFrictionCoef, v.engine.damageIdleAVReadErrorRangeCoef = 1, 1
     v.engine.slowIgnitionErrorChance, v.engine.fastIgnitionErrorChance = 0, 0
     if v.devices.gearbox then v.devices.gearbox.damageFrictionCoef = 1 end
-    if v.devices.clutch then v.devices.clutch.clutchPermanentlyDamaged = false end
+    if v.devices.clutch then v.devices.clutch.clutchPermanentlyDamaged, v.devices.clutch.damageLockTorqueCoef = false, 1 end
     v.partSnapshot = { odo = v.odometer }
     v.partConditionCalls = v.partConditionCalls + 1
   end })
@@ -737,7 +737,7 @@ function World:vehicleReset(p, v)
   v.engine.damageFrictionCoef, v.engine.isBroken, v.engine.damageIdleAVReadErrorRangeCoef = 1, false, 1
   if v.devices.gearbox then v.devices.gearbox.damageFrictionCoef = 1 end
   v.radiatorDamage, v.broken, v.turboDamage = 0, {}, 0
-  if v.devices.clutch then v.devices.clutch.clutchPermanentlyDamaged = false end
+  if v.devices.clutch then v.devices.clutch.clutchPermanentlyDamaged, v.devices.clutch.damageLockTorqueCoef = false, 1 end
   if v.devices.gearbox then for i in pairs(v.devices.gearbox.synchroWear or {}) do v.devices.gearbox.synchroWear[i] = 0 end end   -- (automatics have none)
   for _, wd in pairs(v.wheels) do wd.padGlazingFactor = 0 end
   for _, wd in pairs(v.wheels) do wd.brakeTorque = BRAKE_TORQUE end

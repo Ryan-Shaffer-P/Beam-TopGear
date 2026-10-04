@@ -763,12 +763,22 @@ run("starter", function(f)   -- a weak starter: slow cranking before the engine 
   tgFaults.starter = f
   out.starter = f and "ok" or "removed"
 end)
-run("clutch", function(on)   -- the clutch's own "permanently overheated" state: it slips (manual gearboxes)
-  local clutches = devicesOfType("frictionClutch")
-  if #clutches == 0 then out.clutch = "unavailable"; return end
-  for _, d in ipairs(clutches) do d.clutchPermanentlyDamaged = on and true or false end
-  tgFaults.clutch = on
-  out.clutch = on and "ok" or "removed"
+-- a slipping clutch: less grip (the clutch's damageLockTorqueCoef x f - BeamNG's own clutch-damage multiplier; its
+-- "permanently damaged" switch is a flat 25%% that killed whole gears). A reset or the mileage wear puts the
+-- coefficient back to its base, so it's always re-scaled from there (manual gearboxes)
+run("clutch", function(f)
+  local n = 0
+  for _, d in ipairs(devicesOfType("frictionClutch")) do
+    if type(d.damageLockTorqueCoef) == "number" then
+      local cur = wearFresh and 1 or (tgFaults.clutchMult or 1)
+      d.damageLockTorqueCoef = d.damageLockTorqueCoef / cur * (f or 1)
+      n = n + 1
+    end
+  end
+  if n == 0 then out.clutch = "unavailable"; return end
+  tgFaults.clutchMult = f
+  tgFaults.clutch = f
+  out.clutch = f and "ok" or "removed"
 end)
 -- worn synchros grind on quick shifts (manual gearboxes). Grind, never break: BeamNG adds wear while a shift grinds
 -- (synchroWearCoef per gear) and at 100%% sets that gear's ratio to 0 - a gear with no drive. While the fault is on,
