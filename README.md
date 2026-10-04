@@ -45,7 +45,7 @@ newest at the bottom and brightest.
     many are ready ("2/3 players are ready"); once **everyone** is, a 5 s countdown ("Starting in 5...")
     closes the dealership and the first leg starts (`defaults.readyCountdown`, 0 = straight away). If
     anyone returns their car or a new player joins, the countdown stops. An admin's Next phase skips it.
-- **Status**:
+- **Status** (the window switches to it once the challenge starts - when the dealership closes):
   - **My car**: your car, cash, points, damage, the button for whatever comes next (Ready, GO, Join,
     problem fixes in a workshop) and the driver buttons **Repair** (workshops only, shows the price),
     **Tow**, **Unstick** and **Respawn** - the (?) says what's usable right now. Tow and Respawn need two clicks.

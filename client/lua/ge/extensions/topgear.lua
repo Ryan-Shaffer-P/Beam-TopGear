@@ -506,6 +506,8 @@ end
 local function onState(data)
   local ok, t = pcall(jsonDecode, data)
   if not ok or type(t) ~= "table" then return end
+  -- the challenge has started (the dealership closed, or a saved one resumed): the window shows the Status tab
+  if (state.phase == "dealer" or state.phase == "paused") and t.phase == "travel" then ui.selectStatus = true end
   state, stateAge = t, 0
   if ui.open then ui.reqTimer = math.min(ui.reqTimer, 0.2) end
   applyFilters()
@@ -3089,7 +3091,14 @@ local function drawWindow(dt)
         end
         ui.selectQuick = false
         if quickOpen then section("Start", Tabs.quick, d); im.EndTabItem() end
-        if im.BeginTabItem("Status") then section("Status", drawStatus, d); im.EndTabItem() end
+        local statusOpen
+        if ui.selectStatus and im.TabItemFlags_SetSelected then
+          statusOpen = im.BeginTabItem("Status", nil, im.TabItemFlags_SetSelected)
+          if ui.open then ui.selectStatus = false end   -- (once; a closed window opens on it next time)
+        else
+          statusOpen = im.BeginTabItem("Status")
+        end
+        if statusOpen then section("Status", drawStatus, d); im.EndTabItem() end
         if im.BeginTabItem("Dealership") then section("Dealership", drawDealer, d); im.EndTabItem() end
         if d.admin and im.BeginTabItem("Admin") then section("Admin", drawAdmin, d); im.EndTabItem() end
         if im.BeginTabItem("Settings") then section("Settings", drawSettings, d); im.EndTabItem() end
