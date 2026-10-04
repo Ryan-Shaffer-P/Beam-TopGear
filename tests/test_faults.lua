@@ -7,7 +7,7 @@ local p = F.p
 local WIN = "Top Gear Challenge"
 
 -- the draw order is the fault list's order, minus faults already drawn / known not to fit the car
-local ORDER = { "tires", "alignment", "bumpers", "engine", "brakes", "ignition", "cooling", "suspension", "fuelleak", "body",
+local ORDER = { "tires", "alignment", "engine", "brakes", "ignition", "cooling", "suspension", "fuelleak", "body",
                 "starter", "clutch", "synchros", "turbo", "brakefade", "abs", "oilleak", "idle", "gearbox" }
 -- off by default since 0.9.12 (the car condition's mileage wear does the same); allFaults() switches them back on
 local OFF = { clutch = true, idle = true, gearbox = true }
@@ -195,6 +195,28 @@ t.test("accident damage: the car starts dented with broken lights; tows don't st
   w:step(5)
   t.eq(A.current.damage, 0, "the dents go with the fault")
   t.eq(w:state(A).cash, before - 500, "just the fix - not a repair bill on top")
+  t.eq(A.current.parts["/bumper_F/"], "covet_bumper_F", "the bumpers are back on")
+  w:assertClean()
+end)
+
+t.test("accident damage takes the bumpers off too; fixing it with other crash damage bills only that damage", function()
+  local cfg = F.twoRaces(); cfg.workshopEvery = 1
+  local w = World.new({ files = F.files(cfg) })
+  local A = w:join("Alice")
+  start(w, A, "covet", { "body" })
+  t.eq(A.current.parts["/bumper_F/"], "", "no front bumper")
+  t.eq(A.current.parts["/bumper_R/"], "", "no rear bumper")
+  t.eq(A.current.damage, 3000, "dented (after the respawn that took the bumpers off)")
+  w:chat(A, "/tg ready"); w:drive(A, p(500), 40); w:chat(A, "/tg go")
+  w:waitFor(function() return w:state(A).phase == "event" end, 10, "GO")
+  w:drive(A, p(900), 40)
+  w:waitFor(function() return w:state(A).phase == "workshop" end, 10, "the workshop")
+  w:damage(A, 5000); w:step(3)                 -- 2,000 more from the race
+  local before = w:state(A).cash
+  w:chat(A, "/tg fix body"); w:step(5)
+  t.eq(A.current.damage, 0)
+  -- the fix ($500) + a workshop repair of the other 2,000: ($250 + 2000 x 0.5) x 0.85 = $1,063
+  t.eq(before - w:state(A).cash, 500 + 1063, "the race damage is still billed")
   w:assertClean()
 end)
 
@@ -215,12 +237,12 @@ t.test("a fault the car can't take is quietly swapped for another, and remembere
 
   -- the next Miramar never draws the fuel leak: the draw skips it
   w:chat(B, "/tg fault take")
-  pin(w, { "cooling", "bumpers" }, { "fuelleak" })   -- cooling can't be applied either; bumpers can
+  pin(w, { "cooling", "body" }, { "fuelleak" })   -- cooling can't be applied either; accident damage can
   w:buy(B, "miramar", "base_M")
   w:step(10)
   w:chat(A, "/tg fault caps")
-  t.ok(w:chatHas(A, "miramar/base_M: works bumpers, tires | can't take cooling, fuelleak"))
-  t.eq(B.current.parts["/bumper_F/"], "", "Bob got the bumpers fault in the end")
+  t.ok(w:chatHas(A, "miramar/base_M: works body, tires | can't take cooling, fuelleak"))
+  t.eq(B.current.parts["/bumper_F/"], "", "Bob got accident damage in the end: no front bumper")
   w:assertClean()
 end)
 
@@ -247,7 +269,7 @@ t.test("saved configs with the old 5-fault menu get every fault; custom severiti
     { id = "brakes", name = "Brakes", payout = 3600, factor = 0.6 } } }
   local w = World.new({ files = F.files(F.config({}, { faults = old })) })
   local fl = w:serverConfig().faults
-  t.eq(#fl.list, 19)
+  t.eq(#fl.list, 18)
   t.eq(fl.maxPerCar, 4, "the old limit of 3 becomes 4")
   local byId = {}
   for _, f in ipairs(fl.list) do byId[f.id] = f end
@@ -351,9 +373,9 @@ t.test("admin fault test: a button per fault, and the timed faults act outside a
   local w = World.new({ files = F.files(F.twoRaces()) })
   local A = w:join("Alice")
   w:chat(A, "/tg menu"); w:step(2.5)
-  for _, name in ipairs({ "Worn, underinflated tires", "Knocked-out wheel alignment", "Missing bumpers", "Tired engine (about -20% power)",
+  for _, name in ipairs({ "Worn, underinflated tires", "Knocked-out wheel alignment", "Tired engine (about -20% power)",
       "Worn brakes (about -40% braking)", "Ignition problems (misfires, cuts out)", "Cooling problems (leaking radiator)",
-      "Worn-out suspension (soft and bouncy)", "Fuel leak", "Accident damage (dents, broken lights)",
+      "Worn-out suspension (soft and bouncy)", "Fuel leak", "Accident damage (missing bumpers, dents, broken lights)",
       "Weak starter (slow to start)", "Slipping clutch", "Worn gearbox synchros (gears grind)", "Damaged turbo (low boost)",
       "Glazed brake pads (squeal, fade when hot)", "ABS failure (wheels lock)", "Oil leak (runs hot - might blow the engine)",
       "Rough idle (hunts and stalls)", "Worn gearbox (power lost to friction)" }) do
@@ -476,9 +498,9 @@ t.test("saved configs with the 10 faults get the 9 new ones added", function()
   end
   local w = World.new({ files = F.files(F.config({}, { faults = { list = ten }, migrations = { faults10 = true, tires30 = true } })) })
   local fl = w:serverConfig().faults.list
-  t.eq(#fl, 19)
+  t.eq(#fl, 18, "(missing bumpers is part of accident damage since 0.9.13)")
   t.eq(fl[1].factor, 0.5, "existing faults untouched")
-  t.eq(fl[17].id, "oilleak"); t.eq(fl[17].blowChance, 0.2)
+  t.eq(fl[16].id, "oilleak"); t.eq(fl[16].blowChance, 0.2)
 end)
 
 t.test("rough idle and a worn gearbox (manual or automatic), re-applied after a reset without stacking", function()
@@ -640,7 +662,7 @@ t.test("a new engine sorts the engine's problems; the old one is scrap, so the n
   local w = World.new({ files = F.files(cfg) })
   local A = w:join("Alice")
   w:chat(A, "/tg start"); w:chat(A, "/tg condition beater")
-  w.rolls = { "last", 6, 5 }; w.chances = { 0.9 }   -- oil leak (last when it's in the draw), ignition, worn brakes
+  w.rolls = { "last", 5, 4 }; w.chances = { 0.9 }   -- oil leak (last when it's in the draw), ignition, worn brakes
   w:buy(A, "covet", "base_M"); w:step(10)
   toWorkshop(w, A)
   local e = A.current.engine
@@ -670,7 +692,7 @@ t.test("an upgrade to a part with no problems is billed as before (the differenc
   local w = World.new({ files = F.files(cfg) })
   local A = w:join("Alice")
   w:chat(A, "/tg start"); w:chat(A, "/tg condition used")
-  w.rolls = { 5 }; w:buy(A, "covet", "base_M"); w:step(10)   -- worn brakes (not an engine problem)
+  w.rolls = { 4 }; w:buy(A, "covet", "base_M"); w:step(10)   -- worn brakes (not an engine problem)
   toWorkshop(w, A)
   local before = w:state(A).cash
   fit(w, A, "/covet_engine/", "covet_engine_turbo")
@@ -686,7 +708,7 @@ t.test("new coilovers sort worn-out suspension (the same rule for every part sys
   local w = World.new({ files = F.files(cfg) })
   local A = w:join("Alice")
   w:chat(A, "/tg start"); w:chat(A, "/tg condition used")
-  w.rolls = { 8 }; w:buy(A, "covet", "base_M"); w:step(10)   -- worn-out suspension
+  w.rolls = { 7 }; w:buy(A, "covet", "base_M"); w:step(10)   -- worn-out suspension
   t.eq(A.current.vars["$spring_F"], 20000, "softest springs")
   toWorkshop(w, A)
   local before = w:state(A).cash
@@ -802,7 +824,7 @@ t.test("ignition cut-outs: a Used car every 4-8 minutes, a Death Trap closer tog
   local w2 = World.new({ files = F.files(base) })
   local B = w2:join("Alice")   -- (the admin)
   w2:chat(B, "/tg start"); w2:chat(B, "/tg condition death trap")
-  pin(w2, { "ignition", "bumpers", "alignment", "abs" }); w2:buy(B, "covet", "base_M"); w2:step(10)   -- (a Death Trap has 4)
+  pin(w2, { "ignition", "starter", "alignment", "abs" }); w2:buy(B, "covet", "base_M"); w2:step(10)   -- (a Death Trap has 4)
   w2:chat(B, "/tg ready")
   w2:step(190)  -- a Death Trap's: about 92-185 s (/ 1.3)
   t.ok(B.current.stalls >= 1, "a Death Trap has cut out within about 3 minutes")
@@ -868,7 +890,7 @@ t.test("worn synchros on a Death Trap: 90% (never 100%, where BeamNG breaks the 
   local w = World.new({ files = F.files(base) })
   local A = w:join("Alice")
   w:chat(A, "/tg start"); w:chat(A, "/tg condition death trap")
-  pin(w, { "synchros", "bumpers", "alignment", "abs" }); w:buy(A, "covet", "base_M"); w:step(10)   -- (manual)
+  pin(w, { "synchros", "starter", "alignment", "abs" }); w:buy(A, "covet", "base_M"); w:step(10)   -- (manual)
   local g = A.current.devices.gearbox
   for i = 1, 4 do
     t.ok(math.abs(g.synchroWear[i] - 0.9) < 1e-9, "gear " .. i .. ": 90% worn, not 1.04 or 1: " .. tostring(g.synchroWear[i]))
@@ -898,7 +920,7 @@ t.test("alignment pull on a Death Trap: 2.34% of full steering (Ryan: +20%)", fu
   local w = World.new({ files = F.files(base) })
   local A = w:join("Alice")
   w:chat(A, "/tg start"); w:chat(A, "/tg condition death trap")
-  pin(w, { "alignment", "bumpers", "abs", "body" }); w:buy(A, "covet", "base_M"); w:step(10)
+  pin(w, { "alignment", "starter", "abs", "body" }); w:buy(A, "covet", "base_M"); w:step(10)
   t.ok(math.abs(math.abs(w:steerOffset(A)) - 0.0234) < 1e-9, "Death Trap: " .. tostring(w:steerOffset(A)))
   w:assertClean()
 end)
@@ -929,4 +951,38 @@ t.test("admin fault test 'as' a condition: the same strengths as a car bought th
   A.client.im.click("Test: Tired engine (about -20% power)##ft1_engine"); w:step(3)
   t.ok(w:chatHas(A, "as a Used (x0.5)"), "the button tested it as Used")
   w:assertClean()
+end)
+
+t.test("missing bumpers merged into accident damage: saved configs and a saved challenge move over once", function()
+  local list = World.new():serverConfig().faults.list
+  table.insert(list, 3, { id = "bumpers", name = "Missing bumpers" })
+  for _, f in ipairs(list) do if f.id == "body" then f.name = "Accident damage (dents, broken lights)" end end
+  local cfg = F.twoRaces(); cfg.faults = { list = list }
+  cfg.faultCaps = { ["covet/base_M"] = { ok = { bumpers = true, tires = true }, no = {} } }
+  cfg.migrations = { mileageOverlap = true, conditionPricing = true, faultTuning2 = true }
+  local w = World.new({ files = F.files(cfg) })
+  local sc = w:serverConfig()
+  local ids, body = {}, nil
+  for _, f in ipairs(sc.faults.list) do ids[#ids + 1] = f.id; if f.id == "body" then body = f end end
+  t.eq(#ids, 18); t.ok(not table.concat(ids, ","):find("bumpers"), "no bumpers fault")
+  t.eq(body.name, "Accident damage (missing bumpers, dents, broken lights)")
+  t.eq(sc.faultCaps["covet/base_M"].ok.bumpers, nil, "learnt caps tidied")
+  -- a challenge saved mid-way with the old fault: it's accident damage now (never twice)
+  local A = w:join("Alice")
+  start(w, A, "covet", { "tires" })
+  local SESSION = "Resources/Server/TopGear/session.json"
+  w:step(6)
+  local files = {}
+  for k, v in pairs(w.files) do files[k] = v end
+  local json = require("json")
+  local sess = json.decode(files[SESSION])
+  for _, pl in pairs(sess.game.players) do pl.faults = { "bumpers" } end   -- (as a 0.9.12 server saved it)
+  files[SESSION] = json.encode(sess)
+  local w2 = World.new({ files = files })
+  local A2 = w2:join("Alice"); w2:step(1)
+  w2:chat(A2, "/tg resume"); w2:step(20)       -- the car comes back with its problems
+  t.ok(A2.current, "Alice's car is back")
+  t.eq(A2.current.parts["/bumper_F/"], "", "the saved bumpers fault became accident damage: no bumpers...")
+  t.eq(A2.current.damage, 1500, "...and its dents (a Used car: 3,000 x 0.5 - this config has the real severities)")
+  t.eq(A2.current.vars["$tirepressure_F"], 30, "(the tyres were never the problem)")
 end)

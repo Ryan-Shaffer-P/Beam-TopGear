@@ -39,7 +39,7 @@ t.test("full session: five events, two workshops, faults, tow, reset fine, final
   w:chat(B, "/tg condition used"); w:chat(C, "/tg condition used")
   w:buy(A, "covet", "base_M")                      -- $4,500 new
   w.rolls = { 1 }; w:buy(B, "pessima", "base_M")   -- $5,000 x 0.9 = $4,500; draw 1 = worn tyres (setup: respawns the car)
-  w.rolls = { 4 }; w:buy(C, "pickup", "d15_M")     -- $7,500 x 0.9 = $6,750 -> $6,800; draw 4 = tired engine (vehicle Lua)
+  w.rolls = { 3 }; w:buy(C, "pickup", "d15_M")     -- $7,500 x 0.9 = $6,750 -> $6,800; draw 3 = tired engine (vehicle Lua)
   w:step(10)                           -- problems applied, reports back
   t.eq(B.current.vars["$tirepressure_F"], 9, "Bob's tyres let down to 30%")
   t.ok(math.abs(C.current.engine.outputTorqueState - 0.8) < 1e-9, "Carol's engine at 80%")

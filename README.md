@@ -614,14 +614,13 @@ The problems (the code and config.json call them *faults*):
 |---|---|---|
 | tires | Worn, underinflated tires | tire pressures set to 30% of normal (`$tirepressure_*`), never below the car's minimum |
 | alignment | Knocked-out alignment | **pulls to the left or right** (picked per car; the name says which): the steering's straight ahead is moved 1.8% of full steering (`pull`; Used half that, Death Trap x1.3 = 2.3%) - hold a little opposite lock. Also front toe pushed to its limit, rear toe 40% of the way (`$toe_*`, cars that have it). `/tg diag`: "Alignment pull" |
-| bumpers | Missing bumpers | front/rear bumper slots emptied |
 | engine | Tired engine | engine output x0.8 |
 | brakes | Worn brakes | brake torque x0.6 |
 | ignition | Ignition problems | BeamNG's own misfire chances raised a little (+0.05: the engine stumbles), and every 2-4 minutes on the road (a Beater; Used 4-8, Death Trap about 1.5-3) the engine dies - **restart it yourself** (never during a countdown) |
 | cooling | Cooling problems | the radiator is damaged like in a front-end crash: coolant leaks and the engine overheats when pushed |
 | suspension | Worn-out suspension | springs and dampers at their softest; on cars without adjustable suspension the anti-roll bars come off |
 | fuelleak | Fuel leak | 1 litre a minute drains from the tank on the road (it matters in the economy run) |
-| body | Accident damage | the car starts with 3,000 damage (repair costs, drivability) and some broken lights and glass; fixing the fault removes the dents |
+| body | Accident damage (missing bumpers, dents, broken lights) | the front and rear bumpers are gone, and the car starts with 3,000 damage (repair costs, drivability) and some broken lights and glass. Fixing it puts the bumpers back and removes its dents - any other crash damage that goes with them is billed as a repair. (Until 0.9.13 missing bumpers was a problem of its own; saved configs and challenges move over by themselves.) |
 | starter | Weak starter | the starter motor at 60% of its strength: slow, labouring cranking before the engine catches (nasty with the ignition fault) |
 | clutch | Slipping clutch | **off by default** (mileage wear already wears the clutch). The clutch's own "permanently overheated" state: drive slips away under hard acceleration (manual gearboxes) |
 | synchros | Worn gearbox synchros | every gear's synchro 80% worn (Used 40%, Death Trap 90% - never 100%, where BeamNG breaks the gear): gears grind and fight you on quick shifts, but grinding adds no more wear while the problem is there, so a gear never dies (manual gearboxes) |
@@ -641,8 +640,8 @@ the server remembers it for that car, so it isn't drawn for it again. Admins: `/
 Per problem, in `config.json` under `faults`: `maxPerCar`, `inspectionPenaltyPoints`, and per fault `factor` (severity), `enabled` (false leaves it out of the
 draw), for ignition `cutoutMin`/`cutoutMax` (seconds between cut-outs) and for the oil leak
 `blowChance` (0.2) and `blowMin`/`blowMax` (seconds of hard driving before a doomed engine goes). Saved configs from before
-0.8.8 get all nineteen faults automatically (custom severities and switched-off faults are kept).
-Setup faults (tires, alignment, bumpers, suspension) respawn the car when applied or fixed; the
+0.8.8 get every fault automatically (custom severities and switched-off faults are kept) - eighteen since 0.9.13.
+Setup faults (tires, alignment, accident damage's bumpers, suspension) respawn the car when applied or fixed; the
 others run inside the car and are re-applied after every reset or respawn. Putting bumpers back or
 re-inflating tires via the parts/tuning menus doesn't work - the faults go straight back on.
 

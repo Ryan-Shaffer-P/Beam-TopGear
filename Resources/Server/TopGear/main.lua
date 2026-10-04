@@ -86,7 +86,6 @@ local DEFAULT_CONFIG = {
       { id = "tires",      name = "Worn, underinflated tires",               factor = 0.3 },   -- pressure = 30% of normal
       { id = "alignment",  name = "Knocked-out wheel alignment",             factor = 1.4,     -- front toe to its limit + rear 40%
         pull = 0.018 },   -- and it pulls to one side (random per car): straight ahead moved this share of full steering
-      { id = "bumpers",    name = "Missing bumpers" },
       { id = "engine",     name = "Tired engine (about -20% power)",         factor = 0.8 },
       { id = "brakes",     name = "Worn brakes (about -40% braking)",        factor = 0.6 },
       { id = "ignition",   name = "Ignition problems (misfires, cuts out)",  factor = 0.05,    -- extra misfire chance
@@ -94,7 +93,8 @@ local DEFAULT_CONFIG = {
       { id = "cooling",    name = "Cooling problems (leaking radiator)",     factor = 0.05 },  -- radiator damage (0.1 = wrecked)
       { id = "suspension", name = "Worn-out suspension (soft and bouncy)" },                   -- softest springs/dampers, or no anti-roll bars
       { id = "fuelleak",   name = "Fuel leak",                                factor = 1.0 },   -- litres per minute
-      { id = "body",       name = "Accident damage (dents, broken lights)",  factor = 3000 },  -- damage it starts with
+      { id = "body",       name = "Accident damage (missing bumpers, dents, broken lights)", factor = 3000 },   -- damage it
+                                                       -- starts with, plus no front/rear bumper (0.9.13: was its own fault)
       { id = "starter",    name = "Weak starter (slow to start)",            factor = 0.6 },   -- starter torque x this
       { id = "clutch",     name = "Slipping clutch", enabled = false },                        -- manuals; off: mileage wears the clutch
       { id = "synchros",   name = "Worn gearbox synchros (gears grind)",     factor = 0.8 },   -- synchro wear (1 = gears break); manuals
@@ -379,6 +379,21 @@ local function loadConfig()
       for _, f in ipairs((cfg.faults or {}).list or {}) do have[f.id] = true end
       for _, f in ipairs(DEFAULT_CONFIG.faults.list) do
         if not have[f.id] then cfg.faults.list[#cfg.faults.list + 1] = deepcopy(f) end
+      end
+    end
+    if not cfg.migrations.combineBumpers then   -- 0.9.13, Ryan: missing bumpers is part of accident damage now
+      cfg.migrations.combineBumpers, changed = true, true
+      local list = (cfg.faults or {}).list or {}
+      for i = #list, 1, -1 do
+        local f = list[i]
+        if f.id == "bumpers" then table.remove(list, i) end
+        if f.id == "body" and f.name == "Accident damage (dents, broken lights)" then f.name = "Accident damage (missing bumpers, dents, broken lights)" end
+      end
+      for _, c in pairs(cfg.faultCaps or {}) do
+        if type(c) == "table" then
+          if c.ok then c.ok.bumpers = nil end
+          if c.no then c.no.bumpers = nil end
+        end
       end
     end
     if not cfg.migrations.faultTuning2 then   -- 0.9.12, Ryan's in-game tuning: ignition halved, a starter that still
@@ -743,7 +758,8 @@ local function faultNames(p)
   for _, id in ipairs(p.faults or {}) do names[#names + 1] = CONDITION.problemName(p, id) end
   return names
 end
-local SETUP_FAULTS = { tires = true, alignment = true, bumpers = true, suspension = true }   -- these respawn the car
+local SETUP_FAULTS = { tires = true, alignment = true, body = true, suspension = true,   -- these respawn the car (body: the bumpers)
+                       bumpers = true }   -- (accident damage's bumper record in faultRestore keeps this key)
 
 -- faults taken = drawn ones + ones paid for but not drawn yet (no car yet)
 local function faultsTaken(p) return #(p.faults or {}) + (p.faultsOwed or 0) end
@@ -2642,6 +2658,14 @@ function Save.load()
   for _, p in pairs(g.players) do
     p.run = p.run or newRun(); p.leg = p.leg or { via = 1, arrived = false }
     p.results, p.faults, p.spent = p.results or {}, p.faults or {}, p.spent or {}
+    local hadBody, list = false, {}   -- (0.9.13: missing bumpers became part of accident damage)
+    for _, id in ipairs(p.faults) do if id == "body" then hadBody = true end end
+    for _, id in ipairs(p.faults) do
+      if id == "bumpers" then
+        if not hadBody then list[#list + 1] = "body"; hadBody = true end
+      else list[#list + 1] = id end
+    end
+    p.faults = list
   end
   if g.chosenClass and Class.def(g.chosenClass) then chosenClass = g.chosenClass end
   g.chosenClass = nil
@@ -3119,13 +3143,20 @@ function TG_onReport(pid, data)
       billUnstickRepair(p)   -- the move repaired the car without the game reporting a reset
     elseif (game.phase == "workshop" or rebuiltOutside) and not paidRecently and before >= (cfg.economy.repairMinDamage or 50)
        and nowDmg < before * 0.2 then
-      -- the car got repaired (a part change rebuilds it, or a reset): bill what the repair would have cost
-      local cost = repairQuote(p, game.phase ~= "workshop", before)   -- (the workshop discount in a workshop)
+      -- the car got repaired (a part change rebuilds it, or a reset): bill what the repair would have cost - minus
+      -- the dents a just-fixed accident-damage problem gave it (that fix puts the bumpers back: the car respawns)
+      local billable = before
+      local dc = p.dentsCredit
+      if dc and now() - dc.at < 15 then billable, p.dentsCredit = math.max(0, before - dc.amount), nil end
+      local cost = repairQuote(p, game.phase ~= "workshop", billable)   -- (the workshop discount in a workshop)
+      if cost <= 0 then cost = nil end
+      if cost then
       p.cash = p.cash - cost
       spend(p, "repairs", cost)
       say(p.pid, string.format("Your car was rebuilt%s, which repaired its damage - billed as a repair: -%s.",
         game.phase == "workshop" and " in the workshop" or "", money(cost)))
       log(string.format("workshop: %s's damage dropped %d -> %d, billed repair %s", p.name, math.floor(before), math.floor(nowDmg), money(cost)))
+      end
     end
     local ph = game.phase
     if (ph == "travel" or ph == "countdown" or ph == "event" or ph == "finale")
@@ -3527,7 +3558,10 @@ PLAYER_CMDS.fix = function(pid, _, args)
   local cost = fixCost(p)
   if cost > creditLeft(p) then say(pid, string.format("Fixing that costs %s - you have %s (at most %s overdrawn).", money(cost), money(p.cash), money(cfg.workshop.creditLimit or 1500))); return end
   removeFault(p, id)
-  if id == "body" then p.repairPending = now() end   -- the dents go with the fault: not a repair to bill as well
+  if id == "body" then   -- the dents go with the fault: not a repair to bill as well (any other crash damage still is)
+    p.repairPending = now()
+    p.dentsCredit = { at = now(), amount = tonumber(CONDITION.scaled(f, CONDITION.severity(p))) or 0 }
+  end
   p.cash = p.cash - cost
   spend(p, "faultFixes", cost)
   p.faultsFixed = (p.faultsFixed or 0) + 1

@@ -163,7 +163,7 @@ t.test("repairs, tows and respawns can go as deep into the red as they need; par
   local A = w:join("Alice")
   w:chat(A, "/tg start")
   w:chat(A, "/tg fault take")
-  w.rolls = { 5 }; w:buy(A, "covet", "base_M")   -- (draw 5 = worn brakes: a fault to try fixing later)
+  w.rolls = { 4 }; w:buy(A, "covet", "base_M")   -- (draw 4 = worn brakes: a fault to try fixing later)
   w:step(10)
   w:chat(A, "/tg ready")
   w:chat(A, "/tg setcash Alice 0")

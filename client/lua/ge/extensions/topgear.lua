@@ -625,7 +625,8 @@ local function onImport(data)
 end
 
 -- Problem-car faults -------------------------------------------------------------
--- Setup faults (tires, alignment, bumpers) change the car's configuration and respawn it.
+-- Setup faults (tires, alignment, suspension, and accident damage's missing bumpers) change the car's configuration
+-- and respawn it.
 -- Physics faults (engine, brakes) run inside the car's own Lua and are re-applied after
 -- every reset or respawn. The server says which faults this car should have; applying is
 -- idempotent, and anything a fault changed is recorded in `restore` so it can be undone.
@@ -924,6 +925,8 @@ function M.onVehicleFaultReport(js)
       if id == "_mileage" then
         faults.mileageStatus = tostring(st)
         if not tostring(st):find("^ok") then warn("mileage wear: " .. tostring(st)) end
+      elseif id == "body" and st == "unavailable" and faults.want.body and faults.bumperStatus == "ok" then
+        faults.results.body = "ok"   -- (no dents on this version, but the bumpers came off: it's applied)
       elseif id == "pull" then   -- part of the alignment fault: it counts as applied if either the toe or the pull is
         faults.pullStatus = tostring(st)
         if tostring(st):find("^error") then warn("alignment pull: " .. tostring(st)) end
@@ -1027,9 +1030,10 @@ local function applyConfigFaults()
       return base + (hi - base) * frac
     end)
 
-    -- bumpers: empty the front and rear bumper slots
+    -- accident damage (body): empty the front and rear bumper slots (its dents and broken lights are physics, applied
+    -- after the respawn). The parts record keeps its old key, "bumpers" (0.9.13: that was a fault of its own).
     local rec = faults.restore.bumpers
-    if faults.want.bumpers then
+    if faults.want.body then
       rec = rec or { parts = {} }
       rec.parts = rec.parts or {}
       local n = 0
@@ -1042,14 +1046,14 @@ local function applyConfigFaults()
           end
         end
       end
-      if n == 0 then faults.results.bumpers = "unavailable"; faults.restore.bumpers = nil
-      else faults.restore.bumpers = rec; faults.results.bumpers = "ok" end
+      if n == 0 then faults.bumperStatus = "no bumpers on this car"; faults.restore.bumpers = nil
+      else faults.restore.bumpers = rec; faults.bumperStatus = "ok" end
     elseif rec and rec.parts then
       for slot, orig in pairs(rec.parts) do
         if parts[slot] ~= orig then parts[slot] = orig; changedParts = true end
       end
       faults.restore.bumpers = nil
-      faults.results.bumpers = "removed"
+      faults.bumperStatus = nil
     end
 
     -- suspension: softest springs and dampers (adjustable suspension); otherwise the anti-roll bars come off
@@ -1107,7 +1111,7 @@ local function applyConfigFaults()
   end)
   if not ok then
     warn("setup faults failed: " .. tostring(err))
-    for _, id in ipairs({ "tires", "alignment", "bumpers", "suspension" }) do
+    for _, id in ipairs({ "tires", "alignment", "suspension" }) do
       if faults.want[id] then faults.results[id] = "error: " .. sanitize(err) end
     end
     changedVars, changedParts = false, false
