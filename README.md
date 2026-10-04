@@ -52,9 +52,10 @@ newest at the bottom and brightest.
   - **Standings** (the table) and, after a server restart mid-challenge, **Challenge saved** (Resume).
 - **Dealership**:
   - **Buy a car**: your budget, **Browse the cars in the vehicle selector** (the game's own selector -
-    pictures, filters, search - showing **only today's cars at today's prices**; the price is in each
-    name and in the Value filter, with "as a Beater" / "over budget" where it applies; the usual
-    vehicle-selector key does the same while the dealership is open), and **Return it for a full refund**.
+    pictures, filters, search - showing **only the cars you can buy in the condition you've picked**, at
+    those prices: the price is in each name and in the Value filter; move the condition slider and the
+    selector follows - a more worn condition opens up more cars; the usual vehicle-selector key does the
+    same while the dealership is open), and **Return it for a full refund**.
     If the selector still shows every car, `/tg diag` has a **Vehicle selector** line - send it to the developer.
   - **Car condition**: the New .. Death Trap slider (see Car condition below). **Each condition has a colour** -
     blue New, green Used, dark yellow Needs work, orange Beater, red Death Trap: the slider takes the colour of

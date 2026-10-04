@@ -5090,9 +5090,17 @@ end
 function TG_onUiRequest(pid, data) sendUi(pid, data) end
 
 -- the game's vehicle selector, opened during the dealership: the client shows today's cars at these prices
+-- the game's vehicle selector during the dealership: only the cars you can buy in the condition you've picked
+-- (Ryan, 0.9.13 - the Dealership tab still lists the rest, coloured by the condition each needs)
 function TG_onDealerListReq(pid)
   if game.phase ~= "dealer" then return end
-  MP.TriggerClientEvent(pid, "tg_dealerlist", Util.JsonEncode({ offers = dealerOffers(playerByPid(pid)) }))
+  local offers = {}
+  for _, g in ipairs(dealerOffers(playerByPid(pid))) do
+    local trims = {}
+    for _, t in ipairs(g.trims) do if (tonumber(t.needs) or 0) == 0 and not t.over then trims[#trims + 1] = t end end
+    if #trims > 0 then offers[#offers + 1] = { model = g.model, name = g.name, trims = trims } end
+  end
+  MP.TriggerClientEvent(pid, "tg_dealerlist", Util.JsonEncode({ offers = offers }))
 end
 
 -- window buttons send the same text as the chat commands; permissions are checked the same way

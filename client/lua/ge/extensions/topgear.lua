@@ -2151,7 +2151,8 @@ local function drawDealer(d)
   if busy then colored(1, 0.85, 0.3, "Talking to the dealer...") end
   if canBuy then
     if im.Button("Browse the cars in the vehicle selector##opensel") then M.openSelector() end
-    Tabs.help("Today's cars at today's prices, with pictures and filters - spawning one buys it.\nOr pick from Today's cars below.")
+    Tabs.help("Only the cars you can buy in the condition you've picked, at those prices, with pictures and filters -\n" ..
+      "spawning one buys it. A more worn condition opens up more. Or pick from Today's cars below.")
   end
   if d.phase == "dealer" and me and me.hasCar and not busy then
     txt("You own the " .. tostring(me.car) .. ".")

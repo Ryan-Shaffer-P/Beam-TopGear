@@ -182,5 +182,6 @@ t.test("car condition pricing: a beaten-up ordinary luxury car costs what a new 
   t.eq(w:state(B).cash, 15000 - 14400)
   w:step(2.5)
   t.match(B.client.im.textOf(WIN), "%- %$1,700 for yours", "fixing a problem: 5% of the ETK's $34,000 new price")
+  w:dropWarning("none of today's cars were found in this game")   -- (harness: real catalogue, 8 fake models)
   w:assertClean()
 end)

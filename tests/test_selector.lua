@@ -38,21 +38,26 @@ t.test("during the dealership the selector lists today's cars at today's prices"
   t.ok(list and not list.native, "our list, not the game's")
   local c = byKey(list)
   t.eq(c["pickup/d15_M"], nil, "not in today's class")
-  t.eq(c["covet/base_M"].Value, 2100, "$4,200 x 0.5")
-  t.eq(c["covet/base_M"].Name, "Covet base_M ($2,100) - $1,600 as a Used")   -- ($2,100 x 0.75 = $1,575 -> $1,600)
+  t.eq(c["covet/base_M"], nil, "$4,200 x 0.5 = $2,100: over $2,000 as New - only the cars you can buy now (0.9.13)")
   t.eq(c["miramar/base_M"].Name, "Miramar base_M ($1,550)", "affordable: just the price")
+  t.eq(c["miramar/base_M"].aggregates.Value.min, 1550, "the Value filter uses our price")
   t.eq(c["covet/gtz_M"], nil, "even a $2,100 Death Trap is over $2,000: not shown")
   t.eq(c["covet/sport_M"], nil, "over budget at any condition: not shown")
-  t.eq(c["covet/base_M"].aggregates.Value.min, 2100, "the Value filter uses our price")
-  t.eq(c["covet/base_M"].preview, "/vehicles/covet/base_M.jpg", "thumbnails kept")
+  w:chat(B, "/tg condition used")   -- the selector follows the condition: the Covet is in reach as Used
+  w:step(1)                          -- (the new list arrives)
+  local usedList = open(w, B)
+  local used = byKey(usedList)
+  t.eq(used["covet/base_M"].Name, "Covet base_M ($1,600)", "($2,100 x 0.75 = $1,575 -> $1,600)")
+  t.eq(used["covet/base_M"].Value, 1600)
+  t.eq(used["covet/base_M"].preview, "/vehicles/covet/base_M.jpg", "thumbnails kept")
   local models = {}
-  for _, m in ipairs(list.models) do models[m.key] = m end
+  for _, m in ipairs(usedList.models) do models[m.key] = m end
   t.ok(models.covet and models.miramar and not models.pickup, "only models with a car for sale")
-  t.eq(models.covet.aggregates.Value.max, 2100, "a model's price range covers only the trims that can be bought")
-  t.ok(list.filters.Country.Japan and not list.filters.Country["United States"], "filters offer only what's for sale")
-  -- buying = spawning one from the list, at that price
+  t.eq(models.covet.aggregates.Value.max, 1600, "a model's price range covers only the trims that can be bought (as Used)")
+  t.ok(usedList.filters.Country.Japan and not usedList.filters.Country["United States"], "filters offer only what's for sale")
+  -- buying = spawning one from the list, at that price (as Used: $1,550 x 0.75 = $1,162.50 -> $1,200)
   t.ok(w:buy(B, "miramar", "base_M"))
-  t.eq(w:state(B).cash, 2000 - 1550)
+  t.eq(w:state(B).cash, 2000 - 1200)
   w:assertClean()
 end)
 
@@ -64,8 +69,9 @@ t.test("the Dealership tab's button opens it; the list follows the car condition
   w:step(0.5)
   t.eq(B.client.selectorOpened, 1)
   local before = byKey(B.client.selectorLists[#B.client.selectorLists])
-  t.eq(before["covet/gtz_M"].Name, "Covet gtz_M ($14,000) - $8,400 as a Needs work")   -- ($14,000 x 0.6)
+  t.eq(before["covet/gtz_M"], nil, "$14,000 as New is over the budget: not in the selector")
   w:chat(B, "/tg condition needs work")
+  w:step(1)
   local after = byKey(open(w, B))
   t.eq(after["covet/gtz_M"].Name, "Covet gtz_M ($8,400)", "as Needs work it's affordable - at the Needs work price")
   w:assertClean()
@@ -121,7 +127,7 @@ t.test("whatever sends the list (another game version) and even if the game swap
   t.ok(not open(w, B).native)
   w:chat(B, "/tg diag")
   w:step(1)
-  t.ok(w:chatHas(B, "Vehicle selector: BeamNG ? | today's list: 8 cars ready | hook on | selector lists 2, replaced 2 | lookups on (8 for sale, reloads "),
+  t.ok(w:chatHas(B, "Vehicle selector: BeamNG ? | today's list: 6 cars ready | hook on | selector lists 2, replaced 2 | lookups on (6 for sale, reloads "),
     "diag reports it")
   w:assertClean()
 end)
@@ -148,8 +154,11 @@ t.test("0.39 selector: while the dealership is open it only sees today's cars, p
   w:chat(A, "/tg setprice covet/gtz_M 14000")
   w:chat(B, "/tg condition used")
   w:step(1)
-  t.eq(B.client.selector039()["covet/gtz_M"].name, "gtz_M ($10,500) - $8,400 as a Needs work")   -- ($14,000 x 0.75 / x 0.6)
+  t.eq(B.client.selector039()["covet/gtz_M"], nil, "$14,000 x 0.75 = $10,500 as Used: still over $10,000 - not shown")
   t.eq(B.client.selector039()["covet/base_M"].name, "base_M ($3,200)", "$4,200 x 0.75 = $3,150 -> $3,200")
+  w:chat(B, "/tg condition needs work")
+  w:step(1)
+  t.eq(B.client.selector039()["covet/gtz_M"].name, "gtz_M ($8,400)", "as Needs work it's in reach ($14,000 x 0.6)")
   -- the dealership closes: the game's own list and functions again
   local cv = rawget(B.client.sb.env, "core_vehicles")
   w:buy(B, "covet", "base_M"); w:buy(A, "pessima", "base_M")

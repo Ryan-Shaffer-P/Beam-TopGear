@@ -1034,6 +1034,15 @@ function World:problems()
   return out
 end
 
+-- forget an expected client warning (e.g. the real car catalogue against the harness's 8 fake models: the
+-- vehicle selector finds none of the cars you can afford as New - in game the catalogue and the game match)
+function World:dropWarning(text)
+  for _, p in pairs(self.players) do
+    local c = p.client
+    if c then for i = #c.log, 1, -1 do if c.log[i].msg:find(text, 1, true) then table.remove(c.log, i) end end end
+  end
+end
+
 function World:assertClean()
   local pr = self:problems()
   if #pr > 0 then error("world has problems:\n  " .. table.concat(pr, "\n  "), 2) end
