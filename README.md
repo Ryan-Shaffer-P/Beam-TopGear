@@ -102,6 +102,7 @@ Race / Time trial**) or with `/tg setmode <n> race|trial`. The table shows each 
 | Economy run | race | least energy used - fuel or battery (inside the time limit) | start + checkpoints |
 | Slalom | time trial | time + 5 s per missed gate | start + gates |
 | Trailer delivery | race | most points out of 100: 70 for the share of the load kept + 30 for speed | start + checkpoints |
+| Star in a reasonably priced car | time trial (always) | fastest single lap of 3, everyone in the same car | start (= start/finish line) + checkpoints round the lap + laps + the car |
 
 - **Starting lights:** every countdown shows F1-style lights at the top of the screen - five
   reds, one per second, then all out (green) for GO. One-at-a-time runs show the runner's name.
@@ -139,6 +140,22 @@ Race / Time trial**) or with `/tg setmode <n> race|trial`. The table shows each 
   only counts once you've been at least 40 m away from it that lap); you loop until you've done the laps (`/tg setlaps <n> <laps>`,
   or the Laps box in the course builder, default 3). The HUD shows "Lap 2/3". A **destination
   race** is the original point-to-point race.
+- **Star in a reasonably priced car:** a lap of the same track as a circuit, but in the **same car for
+  everyone** and always one at a time. Everyone drives to the start in their own car and parks
+  beside the line. On your turn, a fresh **reasonably priced car** appears on the start line and the game
+  puts you in it; the countdown starts once it's there. You get the event's laps (3 by default) and
+  **your fastest single lap counts** - every lap time is announced. After the last lap you have 3
+  seconds to stop (`eventTypes.rpc.stopSeconds`), then the car is removed and you're back in your own
+  car, exactly as you left it - same damage, problems, parts and fuel (it isn't touched: you get a
+  second car rather than a swap). Crashed or stuck? **`/tg respawn`** (or `/tg unstick`) gives you a
+  fresh one on the start line, free - the lap you were on counts as one of your laps but gets no time
+  (on your last lap it ends your turn). No tows in the RPC; it costs nothing and its damage is never
+  billed. Out of time? Your best timed lap still counts. **The car:** an Ibishu Covet DXi (automatic)
+  unless the event picks another - `/tg setrpc <n> <model> [config]`, `/tg setrpc <n> mine` (the car
+  you're sitting in), `/tg setrpc <n> default`, or **Use the car I'm in** in the course builder.
+  **The server needs `MaxCars` of at least 2** (the runner has their own car plus the RPC for a
+  moment); if the car doesn't appear within 20 s that driver can't run (the chat says why) and the
+  next one goes.
 - **Slalom vs race:** a slalom runs one at a time, its gates are tight (4 m, vs 12 m race
   checkpoints), and a missed gate costs 5 s but you carry on; in a race you must hit every
   checkpoint in order or turn back. Place slalom gates close together in a weave.
@@ -187,7 +204,8 @@ Drive to each spot and type the command. Positions come from your current vehicl
 | Parking bays, in order (park in each, facing the right way) | `/tg addbay N`, `/tg undobay N`, `/tg clearbays N` |
 | Event time limit (per run for one-at-a-time events) | `/tg settime N <seconds>` |
 | Slalom gates, in order (last = finish) | `/tg addcp N` |
-| Change an event's type | `/tg settype N <race\|circuit\|speedtrap\|parking\|fragile\|economy\|slalom\|trailer>` |
+| Change an event's type | `/tg settype N <race\|circuit\|speedtrap\|parking\|fragile\|economy\|slalom\|trailer\|rpc>` |
+| The reasonably priced car (rpc events) | `/tg setrpc N <model> [config]`, `/tg setrpc N mine`, `/tg setrpc N default` |
 | Race or time trial mode | `/tg setmode N race` (everyone at once) / `/tg setmode N trial` (one at a time) |
 | Forced waypoints on the drive TO event N | `/tg addvia N` |
 | Finale finish + its route | `/tg setfinale`, `/tg addvia finale` |

@@ -48,7 +48,10 @@ Install = copy `Resources/` into the BeamMP server.
 - A course is a pool of events (`cfg.events`); `/tg start` snapshots the enabled ones into `game.events`
   (the session). `game.stage` indexes the session. Course edits use `cfg.events`; game flow uses `game.events`.
 - Event types: `race` (destination), `circuit` (start point = start/finish line, laps),
-  `speedtrap` (one run through the trap by default, `runs`), `parking` (multiple bays in order), `fragile`, `economy`, `slalom`, `trailer`.
+  `speedtrap` (one run through the trap by default, `runs`), `parking` (multiple bays in order), `fragile`, `economy`, `slalom`, `trailer`,
+  `rpc` (Star in a reasonably priced car: always time trial; laid out like a circuit; each runner gets a fresh RPC -
+  server `RPC` table: `p.rpc`, positions from the RPC's vid, `RPC.request/spawned/fresh/handOver/remove`; client `Rpc`
+  table spawns + places it (`safeTeleport`) and `tg_rpc_end` puts the driver back in `getCar()`; score = best lap).
   Every event has a **mode**: race (everyone at once) or time trial (one at a time) = `e.solo`
   (`isSolo`; nil = type default: speedtrap/parking/slalom trial, rest race). `/tg setmode`. There is no
   `timetrial` type since 0.8.4 - `migrateEvents` turns old ones into `race` + `solo = true`.
@@ -103,7 +106,7 @@ parts snapshots/diffs, reverting refused parts.
     (where it spawned / was last reset), i.e. it teleports it. To repair where it stands use `repairInPlace` (client):
     `spawn.safeTeleport(car, pos, quatFromDir(dir))`, BeamNG's own "reset here". A reset followed by our own placement
     (tow/unstick `startMove`) is fine. The harness models this (`requestReset` -> `v.resetPos`).
-12. **Lua allows at most 200 locals per chunk.** main.lua's top level is near it (~190), and so is topgear.lua's (198 in 0.9.12): group new helpers into a
+12. **Lua allows at most 200 locals per chunk.** main.lua's top level is near it (~190), and so is topgear.lua's (199 since the RPC event): group new helpers into a
     table (like `Class.*`) instead of adding many top-level `local function`s. Check with
     `luac -l -l -p Resources/Server/TopGear/main.lua | awk '/^main/{m=1} m&&/^locals \(/{print; exit}'`.
 13. **Don't assign to a `for` loop variable** (`for v in ... do v = ...`) - Lua 5.5 rejects it; use a new local.
@@ -124,7 +127,8 @@ copies cached per list in `selector.cache`) and calls `ui_vehicleSelector_genera
 `gameGetModel`. 0.39 Lua reference: github.com/wlkmanist/BeamNG_lua (lua/ge/extensions/ui/vehicleSelector/)), vlua `v.data.nodes[].partOrigin` +
 `obj:getNodePosition` (trailer load %), `quatFromDir` convention + `setPositionRotation` (tow/unstick,
 self-verifying), `energyStorage.getStorages` (fuel), `partCondition.initConditions` (mileage wear, vehicle Lua), `freeroam_facilities` (gas stations),
-`getSpawnWorldOOBB` / `be:getObjectOOBB*` (trailer placement), `beamstate.activateAutoCoupling`, vlua `hydros.hydros[]` steering mapping (`cOut`/`cIn`, alignment pull; is + steering input = right?),
+`getSpawnWorldOOBB` / `be:getObjectOOBB*` (trailer placement), switching the player between their car and the RPC
+(`spawnNewVehicle` autoEnter + `be:enterVehicle`, `MP.RemoveVehicle` of a car the player is driving), `beamstate.activateAutoCoupling`, vlua `hydros.hydros[]` steering mapping (`cOut`/`cIn`, alignment pull; is + steering input = right?),
 ImGui draw lists / tables / style pushes (lights, theme), `BeginChild1`/`EndChild` (System messages box, `drawMessages`;
 falls back to plain lines + a warn), sound playback (`Engine.Audio.playOnce` with a
 mod file path, `be:executeJS` HTML audio - three methods tried in order, `/tg soundtest next` cycles). When Ryan reports a bug in one of these, ask
@@ -145,7 +149,7 @@ for the `/tg diag` "Client error" line or the matching `[TopGear]` server-consol
    handler error, server console error, client warn() or UI imbalance. Vehicle Lua (`queueLuaCommand`) runs
    in a per-car sandbox with fake engine/brakes/fuel/reset (`World:freshPhysics`); `queueGameEngineLua`
    replies run in the client. Trailers with a load part get simulated bed/load nodes, so CARGO_VLUA really measures the load share.
-   Tests: `test_smoke.lua` (load, dealership, theme), `test_flag.lua` (finish flag), `test_traffic.lua` (admin traffic mode), `test_modes.lua` (race/time trial mode), `test_speedtrap.lua` (one run), `test_sounds.lua` (sound bites; the fake Engine.Audio checks the .ogg exists), `test_roadside.lua` (tow/respawn/unstick pricing), `test_parts.lua` (Parts tab; fake catalogue `World.partCatalogue`, `c.partsFormat = "tree"`), `test_faults.lua` (fault revamp; `w.rolls` pins the server's random draws), `test_classes.lua` (car classes; test cars carry BeamNG attributes in `MODELS[].info/trims`), `test_selector.lua` (the vehicle selector list; fake `requestList`/`guihooks` record `c.selectorLists`), `test_persistence.lua` (crash = `World.new` from the old world's files; resume, re-run, rejoin, timers), `test_catalogue.lua` (built-in cars.json, restarts, import/builtin, dealer list bandwidth), `test_settings.lua` (Settings tab; `tab(p, name)` slices one tab's text), `test_admin.lua` (Status tab Admin controls: player cash & points; `Score.findPlayer` loose names), `test_quickstart.lua` (Quick start tab; fake `im.selectedTabs` counts forced tab selections, combo previews are `kind = "combo"` items), `test_presets.lua` (no class = every car, ready-made classes, over-budget cars listed), `test_pricing.lua` (price estimates + props dropped; uses `tests/data/game-cars.json`, a real import from Ryan's game - 122 models, 1,711 trims - and checks estimate accuracy by hiding 1 in 6 real prices), `test_scoring.lua` (inspections, debt, faults, awards), `test_economy.lua` (energy: petrol vs electric), `test_trailer.lua` (cones + prebuilt load, hitching via
+   Tests: `test_smoke.lua` (load, dealership, theme), `test_flag.lua` (finish flag), `test_traffic.lua` (admin traffic mode), `test_modes.lua` (race/time trial mode), `test_speedtrap.lua` (one run), `test_sounds.lua` (sound bites; the fake Engine.Audio checks the .ogg exists), `test_roadside.lua` (tow/respawn/unstick pricing), `test_parts.lua` (Parts tab; fake catalogue `World.partCatalogue`, `c.partsFormat = "tree"`), `test_faults.lua` (fault revamp; `w.rolls` pins the server's random draws), `test_classes.lua` (car classes; test cars carry BeamNG attributes in `MODELS[].info/trims`), `test_selector.lua` (the vehicle selector list; fake `requestList`/`guihooks` record `c.selectorLists`), `test_persistence.lua` (crash = `World.new` from the old world's files; resume, re-run, rejoin, timers), `test_catalogue.lua` (built-in cars.json, restarts, import/builtin, dealer list bandwidth), `test_settings.lua` (Settings tab; `tab(p, name)` slices one tab's text), `test_admin.lua` (Status tab Admin controls: player cash & points; `Score.findPlayer` loose names), `test_quickstart.lua` (Quick start tab; fake `im.selectedTabs` counts forced tab selections, combo previews are `kind = "combo"` items), `test_presets.lua` (no class = every car, ready-made classes, over-budget cars listed), `test_pricing.lua` (price estimates + props dropped; uses `tests/data/game-cars.json`, a real import from Ryan's game - 122 models, 1,711 trims - and checks estimate accuracy by hiding 1 in 6 real prices), `test_scoring.lua` (inspections, debt, faults, awards), `test_economy.lua` (energy: petrol vs electric), `test_rpc.lua` (Star in a reasonably priced car: turns, best lap, fresh car, spawn failure, setrpc; the harness's `drive` moves whichever car the player is in), `test_trailer.lua` (cones + prebuilt load, hitching via
    `w:hitch`/`w:dropCargo`/`w:setLoad`, 70/30 scoring) and `test_session.lua` (full 5-event session, the
    successor of `sim13` - expected cash/points are hand-calculated in its comments; if a rule change
    moves them, recompute by hand rather than pasting the new output). Still to rebuild: workshop
@@ -177,7 +181,7 @@ Admins: `start [force] | next | stop | resume | discard | award <driver> <pts> [
 importprices [listed|builtin|models] | gameprices | setprice | class list/use/new/preset/delete/show/rule/unrule/include/exclude/clear/price/multiplier/values |
 course list/save/load/new/delete | addevent/delevent/enable/moveevent |
 setstart/addcp/undocp/clearcp/settrap/addbay/undobay/clearbays/addvia/undovia/clearvia/setfinale |
-settype/setmode/setlaps/settime/rename | addworkshop/undoworkshop/clearworkshops/importgas |
+settype/setmode/setlaps/setrpc/settime/rename | addworkshop/undoworkshop/clearworkshops/importgas |
 trailersave/trailercones/trailertest | fault test/testoff/caps`. The ImGui window exposes all of these.
 
 ## Roadmap - Ryan's next issues (one session each, any order)

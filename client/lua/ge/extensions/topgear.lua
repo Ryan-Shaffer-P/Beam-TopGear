@@ -73,6 +73,19 @@ local function getCar()
   return be:getPlayerVehicle(0)
 end
 
+-- Star in a reasonably priced car: the car for your turn (spawned here, allowed by the server). Your own car - getCar()
+-- - stays parked and keeps being the one that's reported, repaired and scored. (One table: 200-local limit.)
+local Rpc = { veh = nil, job = nil }
+function Rpc.car()   -- the RPC, while it exists
+  local v = Rpc.veh
+  if not v then return nil end
+  local ok, alive = pcall(function() return be:getObjectByID(v:getID()) ~= nil end)
+  if ok and alive then return v end
+  Rpc.veh = nil
+  return nil
+end
+function Rpc.driving() return Rpc.car() or getCar() end   -- what the HUD measures from
+
 local function getDamage(v)
   local o = map and map.objects and map.objects[v:getID()]
   return (o and o.damage) or 0
@@ -213,7 +226,7 @@ local function hud()
     local left = state.timeLeft - stateAge
     if left > 0 then bits[#bits + 1] = string.format("%d:%02d left", math.floor(left / 60), math.floor(left % 60)) end
   end
-  local t, v = state.target, getCar()
+  local t, v = state.target, Rpc.driving()
   if t and v then
     local pos = vec3(v:getPosition())
     local to = vec3(t.x, t.y, t.z) - pos
@@ -1437,6 +1450,60 @@ local function onTrailer(data)
   if ok and type(t) == "table" then trailerJob = { t = t, stage = "wait", timer = 0.5 } end
 end
 
+-- tg_rpc { model, config, pos, look }: your turn - a fresh RPC on the start line, facing the first checkpoint
+function Rpc.onStart(data)
+  local ok, t = pcall(jsonDecode, data)
+  if ok and type(t) == "table" and t.model and type(t.pos) == "table" then Rpc.job = { t = t, stage = "spawn", timer = 0.3 } end
+end
+function Rpc.onEnd()   -- tg_rpc_end: the turn is over - back into your own car
+  Rpc.job = nil
+  local v = Rpc.car()
+  if v then pcall(function() v:delete() end) end   -- (normally the server has removed it already)
+  Rpc.veh = nil
+  local own = getCar()
+  if own then pcall(function() be:enterVehicle(0, own) end) end
+end
+function Rpc.update(dt)
+  local job = Rpc.job
+  if not job then return end
+  job.timer = job.timer - dt
+  if job.timer > 0 then return end
+  local t = job.t
+  if job.stage == "spawn" then
+    local ok, err = pcall(function()
+      local pos = vec3(t.pos.x, t.pos.y, t.pos.z)
+      local dir
+      if type(t.look) == "table" then dir = vec3(t.look.x - pos.x, t.look.y - pos.y, 0) end
+      if not dir or dir:length() < 1 then local own = getCar(); dir = own and vec3(own:getDirectionVector()) or vec3(0, 1, 0); dir.z = 0 end
+      dir = dir:normalized()
+      local old = Rpc.car()
+      if old then pcall(function() old:delete() end) end
+      local opts = { pos = pos + vec3(0, 0, 0.5), rot = quatFromDir(dir, vec3(0, 0, 1)), autoEnterVehicle = true }
+      if t.config then opts.config = t.config end
+      Rpc.veh = core_vehicles.spawnNewVehicle(t.model, opts)
+      if not Rpc.veh then error("the game didn't spawn it") end
+      job.pos, job.dir, job.stage, job.timer = pos, dir, "place", 0.5
+    end)
+    if not ok then warn("reasonably priced car: couldn't spawn " .. tostring(t.model) .. ": " .. tostring(err)); Rpc.job = nil end
+  elseif job.stage == "place" then
+    local v = Rpc.car()
+    if not v then Rpc.job = nil; return end
+    -- BeamNG's own "reset here" on the brand-new car: on the ground, clear of the cars waiting at the start
+    local ok, err = pcall(function() spawn.safeTeleport(v, job.pos, quatFromDir(job.dir, vec3(0, 0, 1))) end)
+    if not ok then warn("reasonably priced car: placing it failed: " .. tostring(err)) end
+    pcall(function() be:enterVehicle(0, v) end)
+    job.stage, job.timer = "verify", 0.5
+  else   -- facing the wrong way? (quatFromDir's convention isn't confirmed on every version) - turn it round
+    local v = Rpc.car()
+    Rpc.job = nil
+    if not v then return end
+    pcall(function()
+      local d = vec3(v:getDirectionVector())
+      if d.x * job.dir.x + d.y * job.dir.y < 0 then spawn.safeTeleport(v, job.pos, quatFromDir(-job.dir, vec3(0, 0, 1))) end
+    end)
+  end
+end
+
 local function updateTrailer(dt)
   local job = trailerJob
   if not job then return end
@@ -2330,6 +2397,7 @@ local function drawAdmin(d)
       elseif e.type == "parking" then detail = "bays:" .. (e.bays or 0)
       elseif e.type == "slalom" then detail = "gates:" .. e.cps
       elseif e.type == "circuit" then detail = string.format("checkpoints:%d  laps:%d", e.cps, e.laps or 3)
+      elseif e.type == "rpc" then detail = string.format("checkpoints:%d  laps:%d  car:%s", e.cps, e.laps or 3, tostring(e.rpcCar))
       else detail = "checkpoints:" .. e.cps end
       local line = string.format("%s%s [%s]  start:%s  %s  route:%d", e.enabled and "" or "(off) ", e.name,
         e.typeLabel or e.type, e.start and "yes" or "NO", detail, e.via)
@@ -2357,10 +2425,15 @@ local function drawAdmin(d)
         button("Add " .. what, "addcp " .. target); same(); button("Undo " .. what, "undocp " .. target); same()
         button("Clear " .. what .. "s", "clearcp " .. target)
         if e.type == "slalom" then txt("Gates in order - the last one is the finish.")
-        elseif e.type == "circuit" then
+        elseif e.type == "circuit" or e.type == "rpc" then
           txt("Checkpoints round the lap, in order. The start point is the start/finish line - each lap ends by crossing it.")
           local lp = intPtr("laps" .. target, e.laps or 3)
           im.InputInt("Laps##laps", lp); same(); button("Set laps##setlaps", "setlaps " .. target .. " " .. lp[0])
+          if e.type == "rpc" then
+            txt("The reasonably priced car: " .. tostring(e.rpcCar) .. " - each driver gets a fresh one on the start line. Best lap wins.")
+            button("Use the car I'm in##rpcmine", "setrpc " .. target .. " mine"); same()
+            button("Default car##rpcdefault", "setrpc " .. target .. " default")
+          end
         else txt("Checkpoints in order - the last one is the finish.") end
       end
       button("Add route waypoint", "addvia " .. target); same(); button("Undo route waypoint", "undovia " .. target); same()
@@ -2368,9 +2441,12 @@ local function drawAdmin(d)
       local tl = intPtr("time" .. target, e.timeLimit or 600)
       im.InputInt("Time limit (s)##tl", tl); same(); button("Set time##settime", "settime " .. target .. " " .. tl[0])
       if e.solo then same(); txt("(per run)") end
-      txt("Mode:"); same()
-      button((e.solo and "" or "> ") .. "Race - everyone at once##moderace", "setmode " .. target .. " race"); same()
-      button((e.solo and "> " or "") .. "Time trial - one at a time##modetrial", "setmode " .. target .. " trial")
+      if e.type == "rpc" then txt("Mode: time trial - one at a time (always, for this type)")
+      else
+        txt("Mode:"); same()
+        button((e.solo and "" or "> ") .. "Race - everyone at once##moderace", "setmode " .. target .. " race"); same()
+        button((e.solo and "> " or "") .. "Time trial - one at a time##modetrial", "setmode " .. target .. " trial")
+      end
       txt("Event type:")
       for i, t in ipairs(c.types or {}) do
         local label = (t.id == e.type and "> " or "") .. t.label .. "##ty_" .. t.id
@@ -3126,6 +3202,8 @@ local function tryRegister(dt)
     add("tg_revertparts", onRevertParts)
     add("tg_trailersave", onTrailerSave)
     add("tg_hitchup", onHitchUp)
+    add("tg_rpc", Rpc.onStart)
+    add("tg_rpc_end", Rpc.onEnd)
   end)
   if not ok then warn("registering BeamMP events failed: " .. tostring(err)); return end
   registered = true
@@ -3443,6 +3521,7 @@ function M.onUpdate(dtReal)
   updateFaults(dtReal)
   updateMove(dtReal)
   updateTrailer(dtReal)
+  Rpc.update(dtReal)
   if rebuildCheckIn then
     rebuildCheckIn = rebuildCheckIn - dtReal
     if rebuildCheckIn <= 0 then rebuildCheckIn = nil; pcall(checkRebuild) end

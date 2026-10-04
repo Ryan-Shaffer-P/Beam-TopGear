@@ -181,7 +181,7 @@ local DEFAULT_CONFIG = {
   },
 
   -- The course is a pool of events; the session runs the ones with enabled ~= false, in order.
-  -- type: race | circuit | speedtrap | parking | fragile | economy | slalom | trailer
+  -- type: race | circuit | speedtrap | parking | fragile | economy | slalom | trailer | rpc
   -- solo: true = time trial mode (one at a time), false = race mode (everyone at once), nil = the type's default
   --       (speedtrap, parking and slalom default to time trial mode, the rest to race mode)
   events = {
@@ -205,12 +205,18 @@ local DEFAULT_CONFIG = {
       description = "Through every gate. Each one you miss costs 5 seconds.", via = {}, checkpoints = {} },
     { name = "Trailer Delivery", type = "trailer", timeLimit = 900, enabled = false,
       description = "Hitch up and deliver the load. 70 points for the load you keep, 30 for speed.", via = {}, checkpoints = {} },
+    { name = "Star in a Reasonably Priced Car", type = "rpc", laps = 3, timeLimit = 600, enabled = false,
+      description = "Everyone drives the same cheap car round the track, one at a time. Best lap of three wins.",
+      via = {}, checkpoints = {} },
   },
 
   eventTypes = {   -- tuning for each event type
     parking = { bayRadius = 5, stillSeconds = 1.5, stillSpeed = 0.3, distWeight = 10, angleWeight = 0.5, timeWeight = 0.1,
                 damageWeight = 0.01, missedBayPenalty = 50 },
     fragile = { damageWeight = 0.01 },   -- seconds added per point of damage picked up
+    rpc     = { model = "covet", config = "DXi_A",   -- the reasonably priced car (each event can pick its own: /tg setrpc)
+                spawnTimeout = 20,                   -- seconds to wait for it to appear (BeamMP MaxCars must be 2+)
+                stopSeconds = 3 },                   -- after the last lap: time to stop before you're back in your own car
     slalom  = { gateRadius = 4, gatePenalty = 5 },
     trailer = { setup = nil,   -- saved with /tg trailersave: a prebuilt trailer whose load is part of it (replaces the cones)
                 loadWeight = 0.7, speedWeight = 0.3,   -- score out of 100: share of the load kept + speed vs the fastest
@@ -1178,7 +1184,7 @@ end
 ---------------------------------------------------------------------------
 local function curEvent() return (game.events or {})[game.stage] end
 
-local TYPE_ORDER = { "race", "circuit", "speedtrap", "parking", "fragile", "economy", "slalom", "trailer" }
+local TYPE_ORDER = { "race", "circuit", "speedtrap", "parking", "fragile", "economy", "slalom", "trailer", "rpc" }
 local TYPE_INFO = {
   race      = { label = "Destination race",  name = "The Race" },
   circuit   = { label = "Circuit race",      name = "The Circuit" },
@@ -1188,11 +1194,13 @@ local TYPE_INFO = {
   economy   = { label = "Economy run",       name = "The Economy Run" },
   slalom    = { label = "Slalom",            name = "The Slalom" },
   trailer   = { label = "Trailer delivery",  name = "Trailer Delivery" },
+  rpc       = { label = "Star in a reasonably priced car", name = "Star in a Reasonably Priced Car" },
 }
 -- Mode: every event runs in race mode (everyone at once) or time trial mode (one at a time, in arrival
 -- order). e.solo stores an explicit choice; without one, speed traps, parking and slalom default to time trial mode.
 local SOLO_DEFAULT = { speedtrap = true, parking = true, slalom = true }
 local function isSolo(e)
+  if e.type == "rpc" then return true end   -- one reasonably priced car on track at a time, always
   if e.solo ~= nil then return e.solo and true or false end
   return SOLO_DEFAULT[e.type] or false
 end
@@ -1298,7 +1306,7 @@ local function currentTarget(p)
                label = trapRuns(e) == 1 and "Speed trap" or string.format("Speed trap (run %d/%d)", p.run.attempts + 1, trapRuns(e)) }
     end
     local cps = routePoints(e)
-    if e.type == "circuit" then
+    if e.type == "circuit" or e.type == "rpc" then
       local laps = math.max(1, math.floor(tonumber(e.laps) or 3))
       local last = p.run.cp >= #cps
       return { pos = cps[p.run.cp], r = e.cpRadius or cfg.defaults.cpRadius,
@@ -1519,7 +1527,7 @@ local function validate(events, finale, onlyEnabled)
         if #eventBays(e) == 0 then errs[#errs + 1] = string.format("Event %d: no parking bays - /tg addbay %d", i, i) end
       elseif #(e.checkpoints or {}) == 0 then
         errs[#errs + 1] = string.format("Event %d: no %s - /tg addcp %d", i, e.type == "slalom" and "gates" or "checkpoints", i)
-      elseif e.type == "circuit" and #(e.checkpoints or {}) < 1 then
+      elseif (e.type == "circuit" or e.type == "rpc") and #(e.checkpoints or {}) < 1 then
         errs[#errs + 1] = string.format("Event %d: a circuit needs checkpoints round the lap - /tg addcp %d", i, i)
       end
     end
@@ -1712,6 +1720,106 @@ local function endRun(p, status)
   end
 end
 
+-- Star in a reasonably priced car: on their turn each driver gets a fresh copy of the same car on the start line,
+-- spawned by their own game and allowed here; their own car stays parked, untouched (damage, problems, parts).
+-- p.rpc = { vid, want, allowUntil, model, removing }. Positions come from the RPC while p.rpc is set.
+local RPC = {}
+function RPC.car(e)   -- model, config name
+  local tc = typeCfg("rpc")
+  if e and e.rpcModel then return e.rpcModel, e.rpcConfig end
+  return tc.model or "covet", tc.config
+end
+function RPC.label(e)
+  local m, c = RPC.car(e)
+  return c and (m .. " / " .. c) or m
+end
+function RPC.request(p, e)   -- a fresh RPC on the start line (the old one, if any, already removed)
+  if not p.pid then return end
+  local model, config = RPC.car(e)
+  local look = (e.checkpoints or {})[1]
+  p.rpc = p.rpc or {}
+  p.rpc.want, p.rpc.vid, p.rpc.model = true, nil, model
+  p.rpc.allowUntil = now() + (tonumber(typeCfg("rpc").spawnTimeout) or 20)
+  p.pos, p.prevPos = nil, nil
+  MP.TriggerClientEvent(p.pid, "tg_rpc", Util.JsonEncode({ model = model,
+    config = config and ("vehicles/" .. model .. "/" .. config .. ".pc") or nil, pos = e.start, look = look }))
+end
+function RPC.remove(p)   -- the turn is over: the RPC goes, the driver goes back to their own car
+  local r = p.rpc
+  if not r then return end
+  p.rpc = nil
+  if r.vid and p.pid then r.removing = true; MP.RemoveVehicle(p.pid, r.vid) end
+  if p.pid then MP.TriggerClientEvent(p.pid, "tg_rpc_end", "") end
+  p.pos, p.prevPos = nil, nil
+end
+function RPC.spawned(p, vid, model)   -- TG_onVehicleSpawn: is this the RPC we asked for?
+  local r = p.rpc
+  if not (r and r.want and not r.vid and model == r.model and now() < (r.allowUntil or 0)) then return false end
+  r.vid, r.want = vid, false
+  local s, run = game.solo, p.run
+  if run.status == "staged" and s and s.runner == p and not s.countEnd then
+    s.countEnd, s.lastCount = now() + cfg.defaults.countdown, nil
+    say(p.pid, "Here's your reasonably priced car. Get ready!")
+  elseif run.status == "running" then   -- a fresh car mid-run: a new lap from the line
+    run.cp, run.lapStart, run.leftLine = 1, now(), false
+  end
+  pushAll()
+  return true
+end
+-- /tg respawn (or unstick) on your turn: a fresh car on the start line. The lap you were on counts as one of
+-- your laps but has no time; on the last lap it ends your turn.
+function RPC.fresh(p)
+  local e = curEvent()
+  local run = p.run
+  if not (e and e.type == "rpc" and game.solo and game.solo.runner == p) then return false end
+  if run.status == "running" then
+    local laps = math.max(1, math.floor(tonumber(e.laps) or 3))
+    if run.lap >= laps then
+      sayAll(string.format("%s gave up the last lap.", p.name))
+      RPC.endOnBest(p)
+      return true   -- (tickSolo ends the turn)
+    end
+    sayAll(string.format("%s needs a fresh car - lap %d doesn't count.", p.name, run.lap))
+    run.lap, run.cp, run.leftLine = run.lap + 1, 1, false
+  elseif run.status ~= "staged" then return false end
+  local vid = p.rpc and p.rpc.vid
+  if vid and p.pid then p.rpc.removing = true; MP.RemoveVehicle(p.pid, vid) end
+  RPC.request(p, e)
+  return true
+end
+-- the turn is over: on to the next driver - but leave a finished driver in the RPC for a few seconds to stop
+-- (it would vanish at full speed), then they're back in their own car
+function RPC.endOnBest(p)   -- the turn ends early: the best timed lap stands (none = DNF)
+  local run = p.run
+  if run.bestLap then
+    run.time = run.bestLap + (run.penalty or 0)
+    endRun(p)
+    sayAll(string.format("%s's best lap: %s", p.name, fmtTime(run.time)))
+  else run.status = "dnf" end
+end
+function RPC.handOver(p, e)
+  local s = game.solo
+  if e.type == "rpc" and p.rpc and p.rpc.vid and p.run.status == "finished" then
+    s.handBack = s.handBack or (now() + (tonumber(typeCfg("rpc").stopSeconds) or 3))
+    if now() < s.handBack then return end
+  end
+  s.handBack = nil
+  nextSoloRunner()
+end
+function RPC.tickRunner(p, e)   -- the car didn't arrive in time
+  local r = p.rpc
+  if not (r and r.want and not r.vid and now() >= (r.allowUntil or 0)) then return end
+  local why = "the reasonably priced car didn't appear (the server's MaxCars must be 2 or more)"
+  if p.run.status == "staged" then
+    p.run.status = "dns"
+    sayAll(string.format("%s can't run: %s.", p.name, why))
+  else
+    say(p.pid, "Your fresh car didn't appear: " .. why .. ".")
+    RPC.endOnBest(p)
+  end
+  log("rpc: " .. p.name .. ": " .. why)
+end
+
 beginCountdown = function()
   local e = curEvent()
   game.closeAt, game.trapRecord = nil, nil
@@ -1756,6 +1864,7 @@ end
 nextSoloRunner = function()
   local s = game.solo
   if not s then return false end
+  if s.runner and s.runner.rpc then RPC.remove(s.runner) end
   while true do
     s.idx = s.idx + 1
     local p = s.order[s.idx]
@@ -1765,6 +1874,12 @@ nextSoloRunner = function()
       p.run.status = "staged"
       local nxt = s.order[s.idx + 1]
       sayAll(string.format("%s is up%s.", p.name, nxt and (" - " .. nxt.name .. " is next") or " - last run"))
+      local e = curEvent()
+      if e and e.type == "rpc" then   -- the countdown starts once their car is on the line
+        s.countEnd = nil
+        RPC.request(p, e)
+        sayAll(string.format("%s's reasonably priced car is on its way to the start line.", p.name))
+      end
       pushAll()
       return true
     elseif p.run.status == "waiting" then
@@ -1822,7 +1937,7 @@ end
 
 routePoints = function(e)
   local cps = e.checkpoints or {}
-  if e.type ~= "circuit" or not v3(e.start) then return cps end
+  if (e.type ~= "circuit" and e.type ~= "rpc") or not v3(e.start) then return cps end
   local r = {}
   for i, c in ipairs(cps) do r[i] = c end
   r[#r + 1] = e.start   -- the start point is the start/finish line
@@ -1831,7 +1946,8 @@ end
 
 local function tickRoute(p, e)
   local cps = routePoints(e)
-  if e.type == "circuit" then
+  local lapped = e.type == "circuit" or e.type == "rpc"
+  if lapped then
     local line = v3(e.start)
     if line and p.pos and dist(p.pos, line) > math.max(40, (e.cpRadius or cfg.defaults.cpRadius) * 3) then p.run.leftLine = true end
     if p.run.cp >= #cps and not p.run.leftLine then return end
@@ -1839,10 +1955,12 @@ local function tickRoute(p, e)
   local cp = cps[p.run.cp]
   if not cp or not reached(p, cp, e.cpRadius or cfg.defaults.cpRadius) then return end
   local elapsed = now() - p.run.startT
-  if e.type == "circuit" and p.run.cp >= #cps then
+  if lapped and p.run.cp >= #cps then
     local laps = math.max(1, math.floor(tonumber(e.laps) or 3))
     local lapTime = now() - p.run.lapStart
     p.run.bestLap = math.min(p.run.bestLap or lapTime, lapTime)
+    p.run.lapsTimed = (p.run.lapsTimed or 0) + 1
+    if e.type == "rpc" then sayAll(string.format("%s: lap %d - %s", p.name, p.run.lap, fmtTime(lapTime))) end
     if p.run.lap < laps then
       say(p.pid, string.format("Lap %d/%d done: %s. Lap %d!", p.run.lap, laps, fmtTime(lapTime), p.run.lap + 1))
       p.run.lap, p.run.cp, p.run.lapStart, p.run.leftLine = p.run.lap + 1, 1, now(), false
@@ -1852,6 +1970,7 @@ local function tickRoute(p, e)
   end
   if p.run.cp >= #cps then
     p.run.time = elapsed + (p.run.penalty or 0)
+    if e.type == "rpc" then p.run.time = p.run.bestLap + (p.run.penalty or 0) end   -- the best lap counts
     if e.type == "trailer" then
       if p.eventVeh and p.eventVeh.prebuilt then
         local tc = typeCfg("trailer")
@@ -1871,7 +1990,8 @@ local function tickRoute(p, e)
       cargoTxt = p.run.cargoFrac and string.format(" with %d%% of the load", math.floor(p.run.cargoFrac * 100 + 0.5))
                  or string.format(" with %d/%d cargo", p.run.cargoLeft, p.run.cargoTotal)
     end
-    sayAll(string.format("%s crosses the line! %s%s", p.name, fmtTime(p.run.time), cargoTxt))
+    if e.type == "rpc" then sayAll(string.format("%s's best lap: %s", p.name, fmtTime(p.run.time)))
+    else sayAll(string.format("%s crosses the line! %s%s", p.name, fmtTime(p.run.time), cargoTxt)) end
   else
     say(p.pid, string.format("Checkpoint %d/%d - %s", p.run.cp, #cps - 1, fmtTime(elapsed)))
     p.run.cp = p.run.cp + 1
@@ -1974,6 +2094,7 @@ local function settleUnfinished(p, e)
   local r = p.run
   if r.status == "running" then
     if e.type == "speedtrap" and r.attempts > 0 then endRun(p)
+    elseif e.type == "rpc" and r.bestLap then RPC.endOnBest(p)
     elseif e.type == "parking" and next(r.parks or {}) then
       r.time = now() - r.startT + (r.penalty or 0)
       endRun(p)
@@ -2001,20 +2122,26 @@ local function tickSolo(e)
   local st = p.run.status
   if st == "staged" then
     if not racing(p) then p.run.status = "dnf"; nextSoloRunner(); return end
+    if e.type == "rpc" then
+      RPC.tickRunner(p, e)
+      if p.run.status ~= "staged" then nextSoloRunner(); return end
+      if not s.countEnd then return end   -- (still waiting for the car)
+    end
     local left = s.countEnd - now()
     local sec = math.ceil(left)
     if sec > 0 and sec ~= s.lastCount then s.lastCount = sec; bigAll(p.name .. ": " .. sec) end
     falseStartCheck(p, e)
     if left <= 0 then startRun(p); bigAll(p.name .. ": GO!"); playSound("go"); pushAll() end
   elseif st == "running" then
-    if racing(p) and p.pos then tickRun(p, e) end
+    if e.type == "rpc" then RPC.tickRunner(p, e) end
+    if racing(p) and p.pos and p.run.status == "running" then tickRun(p, e) end
     if p.run.status == "running" and now() - p.run.startT > (e.timeLimit or cfg.defaults.eventTimeLimit) then
       settleUnfinished(p, e)
       sayAll(p.name .. " is out of time.")
     end
-    if p.run.status ~= "running" then nextSoloRunner() end
+    if p.run.status ~= "running" then RPC.handOver(p, e) end
   else
-    nextSoloRunner()   -- towed (DSQ) or lost before/while running
+    RPC.handOver(p, e)   -- finished (an RPC driver stops first), or towed (DSQ) / lost before or while running
   end
 end
 
@@ -2097,6 +2224,11 @@ local function finalizeScore(p, e, ctx)
                  or string.format("%d/%d cargo", math.floor(r.cargoLeft or 0), math.floor(r.cargoTotal or 0))
     r.perf = string.format("%s, %s: load %.1f + speed %.1f = %.1f pts", fmtTime(t), load, loadPts, speedPts, pts)
     r.short = string.format("%.1f pts (%d%%, %s)", pts, pct, fmtTime(t))
+  elseif e.type == "rpc" then   -- the best single lap
+    r.score = t
+    r.perf = string.format("best lap %s (%d lap%s timed)%s", fmtTime(t), r.lapsTimed or 1, (r.lapsTimed or 1) == 1 and "" or "s",
+      (r.penalty or 0) > 0 and string.format(" incl. +%ss jump start", tostring(r.penalty)) or "")
+    r.short = fmtTime(t)
   elseif e.type == "circuit" then
     r.score = t
     r.perf = string.format("%s (%d laps, best lap %s)", fmtTime(t), r.lap or 1, fmtTime(r.bestLap or t))
@@ -2117,6 +2249,7 @@ local function cleanupEventVehicles()
       for _, vid in ipairs(ev.cargo or {}) do MP.RemoveVehicle(p.pid, vid) end
     end
     p.eventVeh, p.spawnAllow = nil, nil
+    if p.rpc then RPC.remove(p) end
   end
 end
 
@@ -2375,7 +2508,8 @@ function TG_onTick()
   Save.tickRestore()
   for _, p in pairs(game.players) do
     if racing(p) then
-      local raw = MP.GetPositionRaw(p.pid, p.carVid)
+      local rpcVid = p.rpc and p.rpc.vid   -- on a reasonably priced car turn, the run follows the RPC
+      local raw = (not p.rpc or rpcVid) and MP.GetPositionRaw(p.pid, rpcVid or p.carVid)
       local pos = type(raw) == "table" and v3(raw.pos)
       if pos then
         p.prevPos = p.pos or pos
@@ -2383,9 +2517,11 @@ function TG_onTick()
         local vel = v3(raw.vel)
         p.speed = vel and math.sqrt(vel.x * vel.x + vel.y * vel.y + vel.z * vel.z) or 0
         p.yaw = yawFromQuat(raw.rot) or p.yaw
-        p.lastPos = { x = pos.x, y = pos.y, z = pos.z }   -- (saved: where the car comes back after a crash)
-        local dx, dy = pos.x - p.prevPos.x, pos.y - p.prevPos.y
-        if dx * dx + dy * dy > 0.25 then p.lastDir = { x = dx, y = dy, z = 0 } end
+        if not rpcVid then   -- (your own car's place - not the RPC's)
+          p.lastPos = { x = pos.x, y = pos.y, z = pos.z }   -- (saved: where the car comes back after a crash)
+          local dx, dy = pos.x - p.prevPos.x, pos.y - p.prevPos.y
+          if dx * dx + dy * dy > 0.25 then p.lastDir = { x = dx, y = dy, z = 0 } end
+        end
       end
     end
   end
@@ -2408,7 +2544,7 @@ Save.PATH = PLUGIN_DIR .. "session.json"
 Save.EVERY = 5   -- seconds between saves while a challenge runs (and at every phase change)
 Save.TIMERS = { "closeAt", "workshopEnd", "countdownEnd", "phaseStart", "eventStart" }
 -- per-player runtime state that means nothing after a restart (game ids, positions, short time windows)
-Save.TRANSIENT = { "pid", "carVid", "pos", "prevPos", "speed", "eventVeh", "spawnAllow", "towPending", "repairPending",
+Save.TRANSIENT = { "pid", "carVid", "pos", "prevPos", "speed", "eventVeh", "spawnAllow", "rpc", "towPending", "repairPending",
   "respawnPending", "unstickPending", "faultEditUntil", "lastEditAt", "outsideEditAt", "putBackAt", "swapAt", "lastUnstick",
   "lastCrashSound", "pendingCharge", "restoring", "restoreAt", "restoreTries" }
 
@@ -2616,6 +2752,7 @@ function TG_onVehicleSpawn(pid, vid, data)
   if game.phase == "idle" then return 0 end
   local name = MP.GetPlayerName(pid)
   local p = playerByPid(pid)
+  if p and p.rpc and RPC.spawned(p, vid, (parseVehicle(data))) then return 0 end   -- the reasonably priced car
   -- trailer + cargo for a trailer event (requested by the server moments ago)
   if p and p.spawnAllow and now() < p.spawnAllow.untilT and p.eventVeh then
     local m = parseVehicle(data)
@@ -2745,6 +2882,13 @@ end
 
 function TG_onVehicleDeleted(pid, vid)
   local p = playerByPid(pid)
+  if p and p.rpc and p.rpc.vid == vid then   -- the RPC: removed by us at the end of a turn, or deleted by the driver
+    if not p.rpc.removing then
+      p.rpc.vid, p.pos, p.prevPos = nil, nil, nil
+      say(pid, "Your reasonably priced car is gone - /tg respawn for a fresh one on the start line.")
+    end
+    return
+  end
   if not p or p.carVid ~= vid then return end
   if game.phase == "dealer" then
     local price = (p.carPrice or 0) + (p.dealerParts or 0)
@@ -3076,7 +3220,7 @@ PLAYER_CMDS.help = function(pid, name)
     say(pid, "Course: /tg setstart <n> | addcp <n> | undocp <n> | clearcp <n> | settrap <n> | settype <n> <type> | settime <n> <s>")
     say(pid, "Parking: /tg addbay <n> | undobay <n> | clearbays <n>  (park facing the way the bay faces)")
     say(pid, "Workshops: /tg importgas | addworkshop [name] | undoworkshop | clearworkshops  (none = anywhere)")
-    say(pid, "Session: /tg addevent <type> [name] | delevent <n> | enable <n> on|off | moveevent <n> up|down | setlaps <n> <laps>")
+    say(pid, "Session: /tg addevent <type> [name] | delevent <n> | enable <n> on|off | moveevent <n> up|down | setlaps <n> <laps> | setrpc <n> <model> [config]|mine|default")
     say(pid, "Trailers: /tg trailersave (sit in your built trailer) | trailercones | trailertest [off]")
     say(pid, "        /tg addvia <n|finale> | clearvia <n|finale> | setfinale | rename <n|finale> <name> | courses | save")
     say(pid, "        /tg undovia <n|finale> | clearcourse <n|finale|all> | reload (undo unsaved changes)")
@@ -3421,6 +3565,7 @@ local TOW_PHASES = { travel = true, countdown = true, event = true, finale = tru
 
 PLAYER_CMDS.tow = function(pid)
   local p = playerByPid(pid)
+  if p and p.rpc then say(pid, "You're in the reasonably priced car - /tg respawn gets you a fresh one on the start line (free)."); return end
   if not (p and p.carVid) then say(pid, "You don't have a car out to tow - respawn it from the vehicle menu (that counts as a tow)."); return end
   if not TOW_PHASES[game.phase] then say(pid, game.phase == "workshop" and "You're in the workshop - use /tg repair." or "No tow truck needed right now."); return end
   if p.finaleTowed or (game.phase == "finale" and p.leg.arrived) then say(pid, "You've already finished."); return end
@@ -3430,6 +3575,10 @@ end
 PLAYER_CMDS.respawn = function(pid)
   local p = playerByPid(pid)
   if not p then say(pid, "You're not in the challenge."); return end
+  if p.rpc then   -- your turn in the reasonably priced car: a fresh one on the start line, free
+    if not RPC.fresh(p) then say(pid, "Wait a moment - your car is on its way.") end
+    return
+  end
   if not p.carVid then
     if not p.carModel then say(pid, "You haven't bought a car yet."); return end
     -- the car was lost: spawn it again here (that's a tow, as before: upgrades restored, tow fee)
@@ -3474,6 +3623,7 @@ end
 
 PLAYER_CMDS.unstick = function(pid)
   local p = playerByPid(pid)
+  if p and p.rpc then return PLAYER_CMDS.respawn(pid) end   -- (stuck in the RPC: a fresh one)
   if not (p and p.carVid) then say(pid, "You don't have a car out."); return end
   if game.phase == "idle" or game.phase == "countdown" then say(pid, "Not during the countdown."); return end
   if (p.speed or 0) > (cfg.economy.unstickMaxSpeed or 3) then say(pid, "Stop first - unstick only works when you're (nearly) stationary."); return end
@@ -4186,6 +4336,7 @@ ADMIN_CMDS.setmode = function(pid, _, args)
   if m == "race" or m == "together" then solo = false
   elseif m == "trial" or m == "timetrial" or m == "solo" then solo = true
   else say(pid, "Usage: /tg setmode <event> race|trial  (race = everyone at once, trial = one at a time)"); return end
+  if e.type == "rpc" then say(pid, label .. " is always time trial mode - there's one reasonably priced car on track at a time."); return end
   if (game.phase == "countdown" or game.phase == "event") and curEvent() == e then
     say(pid, "That event is running right now - change its mode after it's finished."); return
   end
@@ -4213,7 +4364,7 @@ ADMIN_CMDS.setlaps = function(pid, _, args)
   e.laps = math.floor(n)
   markDirty()
   say(pid, string.format("%s: %d lap%s (/tg course save)%s", label, e.laps, e.laps == 1 and "" or "s",
-    e.type ~= "circuit" and " - note: laps only count on a circuit race" or ""))
+    (e.type ~= "circuit" and e.type ~= "rpc") and " - note: laps only count on a circuit race or a reasonably priced car" or ""))
 end
 
 local function placeBay(pid, e, label, replace)
@@ -4246,6 +4397,29 @@ ADMIN_CMDS.clearbays = function(pid, _, args)
   e.bays, e.bay = {}, nil
   markDirty()
   say(pid, label .. " bays cleared.")
+end
+-- /tg setrpc <event> <model> [config] | mine | default: which car is the reasonably priced car
+ADMIN_CMDS.setrpc = function(pid, _, args)
+  local e, label = eventArg(pid, args[3]); if not e then return end
+  local m = args[4]
+  if not m then say(pid, "Usage: /tg setrpc <event> <model> [config] | mine (the car you're in) | default"); return end
+  if m:lower() == "default" then
+    e.rpcModel, e.rpcConfig = nil, nil
+  elseif m:lower() == "mine" then
+    local p = playerByPid(pid)
+    local data
+    local vehs = MP.GetPlayerVehicles(pid) or {}
+    if p and p.carVid then data = vehs[p.carVid] end
+    if not data then for _, d in pairs(vehs) do data = d; break end end
+    local model, config = parseVehicle(data)
+    if not model then say(pid, "Get in the car you want first (spawn it from the vehicle menu)."); return end
+    e.rpcModel, e.rpcConfig = model, config
+  else
+    e.rpcModel, e.rpcConfig = m, args[5]
+  end
+  markDirty()
+  say(pid, string.format("%s: the reasonably priced car is %s%s (/tg course save)%s", label, RPC.label(e),
+    e.rpcModel and "" or " (the default)", e.type ~= "rpc" and (" - note: it's only used by a Star in a reasonably priced car event (/tg settype " .. tostring(args[3]) .. " rpc)") or ""))
 end
 ADMIN_CMDS.settime = function(pid, _, args)
   local e, label = eventArg(pid, args[3]); if not e then return end
@@ -4744,7 +4918,7 @@ local function buildUi(pid)
                       cps = #(e.checkpoints or {}), trap = v3(e.trap) ~= nil, bays = #eventBays(e), via = #(e.via or {}),
                       timeLimit = e.timeLimit or cfg.defaults.eventTimeLimit,
                       enabled = e.enabled ~= false, solo = isSolo(e), typeLabel = (TYPE_INFO[e.type or "race"] or {}).label,
-                      laps = e.laps }
+                      laps = e.laps, rpcCar = e.type == "rpc" and RPC.label(e) or nil }
     end
     local lib = {}
     for n, c in pairs(library) do lib[#lib + 1] = { name = n, problems = c.problems or 0, savedAt = c.savedAt } end
