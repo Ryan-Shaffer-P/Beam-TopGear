@@ -1222,13 +1222,6 @@ local function allSpots()
   if #out > 0 then for _, sp in ipairs(game.dealerSpots or {}) do out[#out + 1] = sp end end
   return out
 end
-local function nearDealership(p)
-  if not p.pos then return true end   -- no position yet: still where they bought it
-  for _, sp in ipairs(game.dealerSpots or {}) do
-    if dist(p.pos, v3(sp)) <= (cfg.workshop.radius or 30) then return true end
-  end
-  return false
-end
 local function nearestSpot(pos)
   local best, bestD
   for _, sp in ipairs(allSpots()) do
@@ -1243,10 +1236,7 @@ end
 -- can this player use workshop services right now? (the dealership counts once they own a car)
 local function inWorkshop(p)
   if game.phase == "dealer" then return p.carVid ~= nil end
-  -- after the doors close you can keep working on the car until you drive away from the dealership
-  if p.dealerGrace and (game.phase == "travel" or game.phase == "countdown") and game.stage == 1 then
-    return p.carVid ~= nil and nearDealership(p)
-  end
+  -- (0.9.13, Ryan: parts only in the dealership and workshop phases - no more grace after the doors close)
   if game.phase ~= "workshop" then return false end
   if #workshopSpots() == 0 then return true end
   return p.inShop == true
@@ -1611,9 +1601,8 @@ local function lockDealer()
       for _, sp in ipairs(game.dealerSpots) do if dist(v3(sp), p.pos) < 40 then dup = true end end
       if not dup then game.dealerSpots[#game.dealerSpots + 1] = { x = p.pos.x, y = p.pos.y, z = p.pos.z, name = "the dealership" } end
     end
-    p.dealerGrace = true
   end
-  sayAll("The dealership is closed - you can keep fitting parts and painting until you drive away from it. Today's cars:")
+  sayAll("The dealership is closed - parts and paint are closed until the next workshop. Today's cars:")
   for _, p in pairs(game.players) do
     sayAll(string.format("  %s - %s (%s), %s left over", p.name, p.carName, money(p.carPrice), money(p.cash)))
   end
@@ -1645,13 +1634,6 @@ end
 
 local function tickTravel()
   local e = curEvent()
-  for _, p in pairs(game.players) do
-    if p.dealerGrace and racing(p) and p.pos and not nearDealership(p) then
-      p.dealerGrace = false
-      say(p.pid, "You've left the dealership - parts and paint are closed until the next workshop.")
-      pushState(p)
-    end
-  end
   local total, arrived = 0, 0
   for _, p in pairs(game.players) do
     if racing(p) then

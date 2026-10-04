@@ -65,7 +65,8 @@ Install = copy `Resources/` into the BeamMP server.
   `respawnFee` 500, and -`towPenaltyPoints` (2) each at the results; an unstick that repairs the car
   bills the roadside repair once (reset event or damage drop, `billUnstickRepair`).
 - Workshops: anywhere, or at course `workshopSpots` (imported gas stations / placed) + the dealership.
-  The dealership stays a workshop after the doors close until the player drives away.
+  Parts/paint only in the dealer and workshop phases (0.9.13 dropped the "until you drive away" grace: it billed
+  parts mid-leg); outside them the Parts box is greyed (`canFit`).
 
 **Client:** receives `tg_state` (phase, cash, target, allow-flags, lights) and renders the HUD,
 ground arrows, target beacon, ImGui window (tabs Start | Status | Dealership | Admin | Settings | Results; since the UI

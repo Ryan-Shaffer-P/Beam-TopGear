@@ -380,9 +380,10 @@ Player commands: `/tg menu`, `/tg go`, `/tg unstick`, `/tg tow`, `/tg respawn`, 
   workshop opens, the arrows point to the nearest one, and repairs, problem fixes, parts, paint and
   tuning only work while you're within 30 m of it. A course with no locations keeps the old
   "workshop anywhere" behaviour. Locations are saved with the course.
-  **The dealership is workshop mode too:** once you've bought a car, the parts menu is open until
-  you drive away from the dealership after it closes (and if the course has workshop locations, the
-  dealership counts as one in every workshop). Outside a workshop, paint is simply accepted and a
+  **The dealership is workshop mode too:** once you've bought a car, the parts menu is open until the
+  dealership closes (and if the course has workshop locations, the dealership counts as one in every
+  workshop). Parts only work in the dealership and workshop phases - at any other time the Parts box
+  is greyed out (prices shown, Fit does nothing). Outside a workshop, paint is simply accepted and a
   part/tuning change is put back by the game (any damage that rebuild wiped is billed as a repair) -
   the server never cancels an edit, because BeamMP removes the car when it does. At the dealership - upgrades are billed like a workshop, paint is free, and returning the
   car refunds its upgrades with it. Swapping to another stock trim is priced as a trim, not as parts.

@@ -85,7 +85,7 @@ t.test("parts tab: the newer parts-tree format lists and fits the same way", fun
   w:assertClean()
 end)
 
-t.test("parts tab: a read-only price list away from the dealership and workshops", function()
+t.test("parts box: a read-only (greyed) price list away from the dealership and workshops", function()
   local w = World.new({ files = F.files(F.twoRaces()) })
   local A = w:join("Alice")
   buyCovet(w, A)
@@ -94,7 +94,10 @@ t.test("parts tab: a read-only price list away from the dealership and workshops
   w:step(2.5)
   t.match(text(A), "Price list %- parts can be fitted at the dealership or in a workshop%.")
   t.match(text(A), "1%.5L I4 Turbo   %+%$1,200", "prices still shown")
-  t.ok(not A.client.im.hasButton("Fit"), "no Fit buttons")
+  t.ok(A.client.im.hasButton("Fit"), "Fit buttons greyed out (0.9.13), not hidden")
+  local cash = w:state(A).cash
+  fit(w, A, "/covet_engine/", "covet_engine_turbo")
+  t.eq(w:state(A).cash, cash, "and they do nothing")
   w:assertClean()
 end)
 
@@ -145,4 +148,20 @@ t.test("free or billed: looks-only slots are free, wings/spoilers/hoods are bill
                           "/covet_coilover_F/", "/covet_exhaust/" }) do
     t.ok(not free(slot), slot .. " should be billed")
   end
+end)
+
+t.test("parts only in the dealership and workshop phases: on a leg the Parts box is greyed and Fit does nothing", function()
+  local w = World.new({ files = F.files(F.twoRaces()) })
+  local A = w:join("Alice")
+  buyCovet(w, A)
+  w:chat(A, "/tg ready"); w:step(2.5)          -- leg 1, still parked at the dealership
+  t.eq(w:state(A).phase, "travel")
+  t.match(text(A), "Price list %- parts can be fitted at the dealership or in a workshop%.")
+  t.ok(A.client.im.hasButton("Fit"), "Fit is shown, greyed")
+  local cash = w:state(A).cash
+  fit(w, A, "/covet_engine/", "covet_engine_turbo")
+  t.eq(w:state(A).cash, cash, "nothing fitted, nothing charged")
+  t.eq(A.current.parts["/covet_engine/"], "covet_engine", "the engine is unchanged")
+  t.noLine(A.chat, "Workshop labour")
+  w:assertClean()
 end)

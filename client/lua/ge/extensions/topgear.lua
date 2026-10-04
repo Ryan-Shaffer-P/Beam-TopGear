@@ -2711,7 +2711,8 @@ local function drawParts(d)
     else shop.cat, shop.err = nil, sanitize(res); warn("parts list: " .. tostring(res)) end
   end
   local sh = d.shop or {}
-  local canFit = state.allowParts and true or false
+  -- Fit only in the dealership and workshop phases (and in a workshop); otherwise the list is greyed out
+  local canFit = (state.allowParts and (state.phase == "dealer" or state.phase == "workshop")) and true or false
   if canFit then
     colored(0.4, 1, 0.4, "Workshop open: click Fit. The price shown is what you're charged.")
   else
@@ -2725,6 +2726,16 @@ local function drawParts(d)
   if shop.err then colored(1, 0.4, 0.4, "Couldn't list your car's parts: " .. shop.err); return end
   local cat = shop.cat
   if not cat then return end
+  local rec = { c = 0 }
+  if not canFit then
+    local g = { 0.30, 0.32, 0.34, 1 }
+    pcall(pushColors, { Text = { 0.50, 0.52, 0.55, 1 }, Button = g, ButtonHovered = g, ButtonActive = g }, rec)
+  end
+  local ok, err = pcall(Tabs.partList, cat, sh, canFit)
+  popColors(rec)
+  if not ok then error(err, 0) end
+end
+Tabs.partList = function(cat, sh, canFit)   -- the slots and their parts (greyed, Fit inert, when canFit is false)
   local inFree = nil
   for _, e in ipairs(cat.slots) do
     if inFree ~= e.free then
@@ -2739,12 +2750,12 @@ local function drawParts(d)
         else
           local cost, label = quote(e, o, sh)
           local over = cost > 0 and sh.credit and (cost + (sh.labourPaid and 0 or (sh.labour or 0))) > sh.credit
-          if canFit and not over then
-            if im.Button("Fit##fit_" .. e.key .. "_" .. o.part) then fitPart(e.key, o.part) end
+          if not over then
+            if im.Button("Fit##fit_" .. e.key .. "_" .. o.part) and canFit then fitPart(e.key, o.part) end
             same()
           end
           if over then colored(1, 0.45, 0.45, "      " .. o.name .. "   " .. label .. " - over your limit")
-          else txt((canFit and "" or "      ") .. o.name .. "   " .. label) end
+          else txt(o.name .. "   " .. label) end
         end
       end
     end
