@@ -70,7 +70,8 @@ newest at the bottom and brightest.
   with an optional reason - a negative number takes cash or points away), **Money & timers** (budget,
   workshop timer, workshop frequency, price import), **Car classes**, **Course** - the course builder, as
   boxes: **Pick a course** (load / save as / new), **Event type** (the selected event's type buttons + rename),
-  **Events** (always open: pick the one to edit, **Delete event**; under it big **Set start here / Add
+  **Events** (always open: each event tagged **RACE** - everyone at once - or **TIME TRIAL** - one at a time;
+  pick the one to edit, **Delete event**; under it big **Set start here / Add
   checkpoint / Undo / Clear** buttons and **# of laps** for laps events - drive to the spot first, the (?)
   explains), **Waypoints** (the route on the drive to the event: Add / Undo / Clear route), **Event options**
   (the reasonably priced car, race or time trial, **Time to complete event (s)** + Set Time) and **Save course**

@@ -242,3 +242,23 @@ t.test("course builder layout: Pick a course / Event type / Events + big buttons
   t.eq(#w:serverConfig().events[1].checkpoints, 0, "cleared")
   w:assertClean()
 end)
+
+t.test("course builder: each event in the list says RACE or TIME TRIAL", function()
+  local cfg = F.config({
+    { name = "Drag", type = "race", timeLimit = 120, start = p(500), checkpoints = { p(900) }, via = {} },
+    { name = "Hill Climb", type = "race", solo = true, timeLimit = 120, start = p(1500), checkpoints = { p(1900) }, via = {} },
+    { name = "Star in a Reasonably Priced Car", type = "rpc", laps = 3, timeLimit = 300, start = p(2500), checkpoints = { p(2800) }, via = {} },
+  })
+  local w = World.new({ files = F.files(cfg) })
+  local A = w:join("Alice")
+  w:chat(A, "/tg menu"); w:step(2.5)
+  local items, tags = A.client.im.items("Top Gear Challenge"), {}
+  for i, it in ipairs(items) do
+    if it.text == "RACE" or it.text == "TIME TRIAL" then
+      local nxt = items[i + 2]   -- (SameLine, then the event's line)
+      tags[#tags + 1] = it.text .. ": " .. tostring(nxt and nxt.text):match("^(.-) %[")
+    end
+  end
+  t.eq(table.concat(tags, " | "), "RACE: Drag | TIME TRIAL: Hill Climb | TIME TRIAL: Star in a Reasonably Priced Car")
+  w:assertClean()
+end)

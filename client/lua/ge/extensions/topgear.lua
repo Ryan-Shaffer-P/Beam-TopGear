@@ -2899,7 +2899,8 @@ Tabs.courseBuilder = function(c)
 
   Tabs.box("Events", "cevents", function()   -- (always open: this is where you are in the builder)
     txt("Pick the one to edit:")
-    Tabs.help("Drive to the spot, then press a button below - positions come from the car you're in.")
+    Tabs.help("Drive to the spot, then press a button below - positions come from the car you're in.\n" ..
+      "RACE = everyone at once, TIME TRIAL = one at a time (Event options: Mode).")
     for _, ev in ipairs(c.events) do
       if im.Button(((ui.sel == ev.n) and "> " or "") .. ev.n .. "##ev" .. ev.n) then ui.sel = ev.n end
       same()
@@ -2910,6 +2911,9 @@ Tabs.courseBuilder = function(c)
       elseif ev.type == "circuit" then detail = string.format("checkpoints:%d  laps:%d", ev.cps, ev.laps or 3)
       elseif ev.type == "rpc" then detail = string.format("checkpoints:%d  laps:%d  car:%s", ev.cps, ev.laps or 3, tostring(ev.rpcCar))
       else detail = "checkpoints:" .. ev.cps end
+      -- race (everyone at once) or time trial (one at a time): a coloured tag first
+      if ev.solo then colored(0.35, 0.60, 1.00, "TIME TRIAL") else colored(1.00, 0.55, 0.15, "RACE") end
+      same()
       local line = string.format("%s%s [%s]  start:%s  %s  route:%d", ev.enabled and "" or "(off) ", ev.name,
         ev.typeLabel or ev.type, ev.start and "yes" or "NO", detail, ev.via)
       if ev.enabled then txt(line) else colored(0.6, 0.6, 0.6, line) end
