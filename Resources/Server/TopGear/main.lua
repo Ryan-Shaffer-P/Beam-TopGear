@@ -2431,6 +2431,7 @@ finishEvent = function()
   end
   cleanupEventVehicles()   -- (no free repair after a fragile delivery since 0.9.12: the dents are yours to pay for)
   game.solo, game.closeAt = nil, nil
+  if game.test and game.testFinish then return game.testFinish() end   -- (a test event: the course builder's Test event)
   local n = game.stage
   local every = tonumber(cfg.workshopEvery) or 2
   if every > 0 and n % every == 0 and n < #game.events then beginWorkshop()
@@ -2776,6 +2777,7 @@ function Save.clear() Save.write() end   -- (idle: nothing to resume)
 
 -- called every tick: save at phase changes and every few seconds while a challenge runs
 function Save.tick()
+  if game.test then return end   -- (a test event isn't a challenge: nothing to resume)
   if game.phase == "idle" then
     if Save.lastPhase and Save.lastPhase ~= "idle" then Save.write() end
     return
@@ -3097,7 +3099,7 @@ function TG_onVehicleReset(pid, vid, data)
     return
   end
   local ph = game.phase
-  if ph == "idle" or ph == "dealer" or ph == "results" then return end
+  if ph == "idle" or ph == "dealer" or ph == "results" or game.test then return end
   log(string.format("illegal reset by %s in phase %s: fined", p.name, ph))
   p.cash = p.cash - cfg.economy.resetPenalty
   spend(p, "fines", cfg.economy.resetPenalty)
@@ -4648,6 +4650,72 @@ ADMIN_CMDS.setrpc = function(pid, _, args)
   say(pid, string.format("%s: the reasonably priced car is %s%s (/tg course save)%s", label, RPC.label(e),
     e.rpcModel and "" or " (the default)", e.type ~= "rpc" and (" - note: it's only used by a Star in a reasonably priced car event (/tg settype " .. tostring(args[3]) .. " rpc)") or ""))
 end
+-- Test event (course builder): one event on its own, from its countdown - everyone in a car takes part in the car
+-- they're in; results, then back to normal. No money, workshop, finale, reset fines or saving. /tg testevent <n> | stop
+ADMIN_CMDS.testevent = function(pid, _, args)
+  local sub = (args[3] or ""):lower()
+  if sub == "stop" then
+    if not game.test then say(pid, "No test event is running."); return end
+    cleanupEventVehicles()
+    game = { phase = "idle", stage = 0, players = {} }
+    pushIdle(-1)
+    sayAll("Test event stopped - back to normal.")
+    return
+  end
+  if game.phase ~= "idle" then say(pid, "Test events only run when no challenge is going (/tg stop first)."); return end
+  local e, label = eventArg(pid, args[3]); if not e then return end
+  local errs = {}
+  for _, er in ipairs(validate({ e }, { pos = { x = 0, y = 0, z = 0 } })) do errs[#errs + 1] = (er:gsub("^Event 1", label)) end
+  if #errs > 0 then say(pid, "Can't test " .. label .. " yet: " .. table.concat(errs, "; ")); return end
+  local players, n = {}, 0
+  for qpid, qname in pairs(MP.GetPlayers() or {}) do
+    local vehs = MP.GetPlayerVehicles(qpid) or {}
+    local vid = activeVeh[qpid]
+    if not (vid and vehs[vid] ~= nil) then
+      vid = nil
+      for v in pairs(vehs) do if not vid or v < vid then vid = v end end
+    end
+    if vid then
+      local q = newPlayer(qname, qpid)
+      local model = parseVehicle(vehs[vid])
+      q.carVid, q.carModel, q.carName = vid, model, tostring(model or "car")
+      q.leg, q.run = { via = 1, arrived = true }, newRun()
+      n = n + 1
+      players[qname] = q
+    end
+  end
+  if n == 0 then say(pid, "Nobody's in a car - get in one first."); return end
+  -- the running order (time trials): whoever pressed Test event first, then everyone else by name
+  local order, me = {}, MP.GetPlayerName(pid)
+  for qname in pairs(players) do order[#order + 1] = qname end
+  table.sort(order, function(a, b)
+    if (a == me) ~= (b == me) then return a == me end
+    return a:lower() < b:lower()
+  end)
+  for i, qname in ipairs(order) do players[qname].arrivalRank = i end
+  game = { phase = "travel", stage = 1, events = { deepcopy(e) }, players = players, test = true, phaseStart = now(),
+           arrivals = n, allHere = true }
+  game.testFinish = function()
+    game = { phase = "idle", stage = 0, players = {} }
+    pushIdle(-1)
+    sayAll("Test event over - back to normal.")
+  end
+  sayAll(string.format("TEST EVENT: %s (%s) - %d driver%s, from the start line. /tg testevent stop ends it.", e.name, label, n, n == 1 and "" or "s"))
+  if e.type == "trailer" then for _, q in pairs(players) do requestTrailer(q) end end
+  beginCountdown()
+end
+-- Quick travel (course builder): your car to an event's start (or the finale), facing the first checkpoint. Not during a
+-- challenge. /tg quicktravel <n|finale>
+ADMIN_CMDS.quicktravel = function(pid, _, args)
+  if game.phase ~= "idle" then say(pid, "Quick travel only works when no challenge is going."); return end
+  local e, label = eventArg(pid, args[3], true); if not e then return end
+  local pos = v3(e.start or e.pos)
+  local what = label == "finale" and "finish" or "start"
+  if not pos then say(pid, label .. " has no " .. what .. " yet."); return end
+  local look = v3((e.checkpoints or {})[1] or e.trap or (eventBays(e)[1]) or (e.via or {})[1])
+  MP.TriggerClientEvent(pid, "tg_quicktravel", Util.JsonEncode({ pos = pos, look = look }))
+  say(pid, "Off to " .. label .. "'s " .. what .. ".")
+end
 ADMIN_CMDS.settime = function(pid, _, args)
   local e, label = eventArg(pid, args[3]); if not e then return end
   local n = tonumber(args[4])
@@ -5183,7 +5251,7 @@ local function buildUi(pid)
       or string.format("%s with %d x %s (loose cargo)", tostring(typeCfg("trailer").trailerModel), typeCfg("trailer").cargoCount or 5,
                        tostring(typeCfg("trailer").cargoModel))
     d.course = { events = ev, problems = #validate(nil, nil, true), library = lib, active = cfg.activeCourse, dirty = courseDirty,
-                 trailer = trailerInfo,
+                 trailer = trailerInfo, testing = game.test or nil,
                  workshops = #workshopSpots(),
                  types = types, workshopEvery = tonumber(cfg.workshopEvery) or 2, idle = game.phase == "idle",
                  finale = { name = cfg.finale.name, pos = v3(cfg.finale.pos) ~= nil, via = #(cfg.finale.via or {}) } }

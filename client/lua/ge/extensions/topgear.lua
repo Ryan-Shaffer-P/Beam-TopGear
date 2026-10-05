@@ -1521,6 +1521,21 @@ function Rpc.unwatch()
   local own = getCar()
   if own then pcall(function() be:enterVehicle(0, own) end) end
 end
+-- Quick travel (course builder, admins, no challenge running): the car you're in to an event's start, facing its first
+-- checkpoint - BeamNG's own "reset here" (spawn.safeTeleport: on the ground, clear of other cars)
+function Rpc.quickTravel(data)
+  local ok, t = pcall(jsonDecode, data)
+  if not (ok and type(t) == "table" and type(t.pos) == "table") then return end
+  local okT, err = pcall(function()
+    local v = be:getPlayerVehicle(0)
+    if not v then error("you're not in a car") end
+    local pos = vec3(t.pos.x, t.pos.y, t.pos.z)
+    local dir = type(t.look) == "table" and vec3(t.look.x - pos.x, t.look.y - pos.y, 0) or nil
+    if not dir or dir:length() < 1 then dir = vec3(v:getDirectionVector()); dir.z = 0 end
+    spawn.safeTeleport(v, pos, quatFromDir(dir:normalized(), vec3(0, 0, 1)))
+  end)
+  if not okT then warn("quick travel: " .. tostring(err)); addLog("Quick travel didn't work: " .. tostring(err)) end
+end
 function Rpc.update(dt)
   local job = Rpc.job
   if not job then return end
@@ -2969,6 +2984,13 @@ Tabs.courseBuilder = function(c)
     Tabs.help("Checkpoints round the lap, in order. The start is the start/finish line - each lap ends by crossing it.")
   elseif e and e.type == "slalom" then Tabs.help("Gates in order - the last one is the finish.")
   elseif e and e.type ~= "speedtrap" and e.type ~= "parking" then Tabs.help("Checkpoints in order - the last one is the finish.") end
+  -- try it out without a whole challenge: the event on its own (everyone in a car), your car to its start, stop
+  Tabs.bigButtons({
+    { label = "Test\nevent", id = "testevent", cmd = "testevent " .. target, off = not e or not c.idle },
+    { label = "Quick\ntravel", id = "quicktravel", cmd = "quicktravel " .. target, off = not c.idle },
+    { label = "Stop\nevent", id = "teststop", cmd = "testevent stop", off = not c.testing } }, 44)
+  Tabs.help("Test event: this event on its own, from its countdown - everyone in a car takes part (no money, no saving).\n" ..
+    "Quick travel: your car to its start, facing the first checkpoint. Both need no challenge running. Stop event ends a test.")
   pcall(im.Dummy, im.ImVec2(1, 6))
 
   Tabs.box("Waypoints", "cvia", function()
@@ -3548,6 +3570,7 @@ local function tryRegister(dt)
     add("tg_rpc", Rpc.onStart)
     add("tg_rpc_end", Rpc.onEnd)
     add("tg_watch", Rpc.onWatch)
+    add("tg_quicktravel", Rpc.quickTravel)
     add("tg_watch_end", Rpc.unwatch)
   end)
   if not ok then warn("registering BeamMP events failed: " .. tostring(err)); return end

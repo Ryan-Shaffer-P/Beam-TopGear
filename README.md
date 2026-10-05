@@ -73,7 +73,11 @@ newest at the bottom and brightest.
   **Events** (always open: each event tagged **RACE** - everyone at once - or **TIME TRIAL** - one at a time;
   pick the one to edit, **Delete event**; under it big **Set start here / Add
   checkpoint / Undo / Clear** buttons and **# of laps** for laps events - drive to the spot first, the (?)
-  explains), **Waypoints** (the route on the drive to the event: Add / Undo / Clear route), **Event options**
+  explains; under them **Test event** - that event on its own, from its countdown, with everyone who's in a car
+  taking part in it (no money, workshop, finale, reset fines or saving; results, then back to normal) - **Quick
+  travel** - the car you're in to the event's start, facing its first checkpoint - and **Stop event**; Test event
+  and Quick travel only work when no challenge is going: `/tg testevent <n>`, `/tg testevent stop`,
+  `/tg quicktravel <n|finale>`), **Waypoints** (the route on the drive to the event: Add / Undo / Clear route), **Event options**
   (the reasonably priced car, race or time trial, **Time to complete event (s)** + Set Time) and **Save course**
   (big Save / Revert / Clear buttons); then workshop locations and the session's events - and **Tools**
   (soundboard, fault tests). Stop and Clear ALL need a second click.

@@ -193,7 +193,7 @@ Players: `/tg menu | status | dealer | ready | go | repair | fix <id> | tow | re
 condition [name] | faults | fault take [n] | quote | standings | diag | partsdiag | lights | lightstest | flag | flagtest | sounds on|off|list | soundtest [clip|next] | theme`.
 Admins: `start [force] | next | stop | resume | discard | award <driver> <pts> [reason] | traffic on|off | play <clip> | budget | setcash | give | workshop <min> | workshopevery <n> |
 importprices [listed|builtin|models] | gameprices | setprice | class list/use/new/preset/delete/show/rule/unrule/include/exclude/clear/price/multiplier/values |
-course list/save/load/new/delete | addevent/delevent/enable/moveevent |
+course list/save/load/new/delete | addevent/delevent/enable/moveevent | testevent <n>|stop | quicktravel <n|finale> |
 setstart/addcp/undocp/clearcp/settrap/addbay/undobay/clearbays/addvia/undovia/clearvia/setfinale |
 settype/setmode/setlaps/setrpc/settime/rename | addworkshop/undoworkshop/clearworkshops/importgas |
 trailersave/trailercones/trailertest | fault test [id] [as <condition>]/testoff/caps`. The ImGui window exposes all of these.
