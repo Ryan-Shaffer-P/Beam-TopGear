@@ -1495,6 +1495,26 @@ function Rpc.onEnd()   -- tg_rpc_end: the turn is over - back into your own car
   local own = getCar()
   if own then pcall(function() be:enterVehicle(0, own) end) end
 end
+-- watching the time trial driver on track (tg_watch { sid = "pid-vid", name }): the camera goes to that exact car
+-- (BeamMP: entering someone else's car is spectating it); tg_watch_end / Back to my car: back in your own car
+function Rpc.onWatch(data)
+  local ok, t = pcall(jsonDecode, data)
+  if not (ok and type(t) == "table" and t.sid) then return end
+  local okW, err = pcall(function()
+    local gid = MPVehicleGE.getGameVehicleID(t.sid)
+    local v = gid and gid ~= -1 and be:getObjectByID(gid)
+    if not v then error("that car isn't in this game (yet)") end
+    be:enterVehicle(0, v)
+    Rpc.watching = { sid = t.sid, name = t.name }
+  end)
+  if not okW then warn("watching " .. tostring(t.name) .. ": " .. tostring(err)) end
+end
+function Rpc.unwatch()
+  if not Rpc.watching then return end
+  Rpc.watching = nil
+  local own = getCar()
+  if own then pcall(function() be:enterVehicle(0, own) end) end
+end
 function Rpc.update(dt)
   local job = Rpc.job
   if not job then return end
@@ -1968,6 +1988,9 @@ local function drawSettings(d)
   end)
   Tabs.box("Window", "window", function()
   button((ui.noTheme and "Colour theme: OFF - turn on" or "Colour theme: ON - turn off") .. "##theme", "theme")
+  button((d.watchOn == false and "Watch the driver on track: OFF - turn on" or "Watch the driver on track: ON - turn off") .. "##watch",
+    d.watchOn == false and "watch on" or "watch off")
+  Tabs.help("In time trials your camera follows whoever's on track, and puts you back in your car when their run ends.")
   end)
   Tabs.box("Troubleshooting", "trouble", function()
   button("Diagnostics##diag", "diag"); same(); button("Parts diagnostics##partsdiag", "partsdiag")
@@ -2042,6 +2065,11 @@ end
 local function drawStatus(d)
   local me = d.me
   Tabs.box("My car", "mycar", function()
+  if Rpc.watching then   -- spectating the time trial driver on track
+    colored(0.6, 0.8, 1, "Watching " .. tostring(Rpc.watching.name) .. " - you're back in your car when their run ends.")
+    if im.Button("Back to my car##unwatch") then Rpc.unwatch() end
+    Tabs.help("Settings > Window: turn watching off (/tg watch off).")
+  end
   txt(state.title or "")
   if not me then
     txt("You're not in this challenge.")
@@ -3498,6 +3526,8 @@ local function tryRegister(dt)
     add("tg_hitchup", onHitchUp)
     add("tg_rpc", Rpc.onStart)
     add("tg_rpc_end", Rpc.onEnd)
+    add("tg_watch", Rpc.onWatch)
+    add("tg_watch_end", Rpc.unwatch)
   end)
   if not ok then warn("registering BeamMP events failed: " .. tostring(err)); return end
   registered = true

@@ -336,12 +336,18 @@ function World:loadClient(p)
 
   -- vehicles as the game sees them
   local be = {}
-  function be:getPlayerVehicle() return p.current and p.current.obj or nil end
+  -- (every player's cars exist in everyone's game: entering someone else's = spectating it - p.viewing; you
+  -- can't drive it, so p.current stays your own)
+  function be:getPlayerVehicle() local v = p.viewing or p.current; return v and v.obj or nil end
   function be:getObjectByID(gid)
     for _, v in pairs(p.vehicles) do if v.gid == gid then return v.obj end end
+    for _, q in pairs(w.players) do for _, v in pairs(q.vehicles) do if v.gid == gid then return v.obj end end end
     return nil
   end
-  function be:enterVehicle(_, obj) if obj and obj.veh then p.current = obj.veh end end
+  function be:enterVehicle(_, obj)
+    if not (obj and obj.veh) then return end
+    if p.vehicles[obj.veh.vid] == obj.veh then p.current, p.viewing = obj.veh, nil else p.viewing = obj.veh end
+  end
   function be:executeJS(js)
     local path = js:match('new Audio%("local://local(.-)"%)')
     c.sounds[#c.sounds + 1] = { clip = path and clipFile(path), via = "js", js = js }
@@ -353,8 +359,8 @@ function World:loadClient(p)
   end }) })
   sb.set("MPVehicleGE", { getGameVehicleID = function(serverId)
     local spid, svid = tostring(serverId):match("^(%d+)%-(%d+)$")
-    if tonumber(spid) ~= p.pid then return -1 end
-    local v = p.vehicles[tonumber(svid)]
+    local owner = w.players[tonumber(spid)]   -- (another player's car too: it exists in this game)
+    local v = owner and owner.vehicles[tonumber(svid)]
     return v and v.gid or -1
   end, getServerVehicleID = function(gid)   -- BeamMP: game vehicle id -> "pid-vid"
     for vid, v in pairs(p.vehicles) do if v.gid == gid then return p.pid .. "-" .. vid end end

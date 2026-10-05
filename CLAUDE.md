@@ -137,7 +137,9 @@ copies cached per list in `selector.cache`) and calls `ui_vehicleSelector_genera
 `gameGetModel`. 0.39 Lua reference: github.com/wlkmanist/BeamNG_lua (lua/ge/extensions/ui/vehicleSelector/)), vlua `v.data.nodes[].partOrigin` +
 `obj:getNodePosition` (trailer load %), `quatFromDir` convention + `setPositionRotation` (tow/unstick,
 self-verifying), `energyStorage.getStorages` (fuel), `partCondition.initConditions` (mileage wear, vehicle Lua), `freeroam_facilities` (gas stations),
-`getSpawnWorldOOBB` / `be:getObjectOOBB*` (trailer placement), switching the player between their car and the RPC
+`getSpawnWorldOOBB` / `be:getObjectOOBB*` (trailer placement), spectating the time trial driver (`tg_watch` {sid}: `MPVehicleGE.getGameVehicleID` + `be:enterVehicle` on another player's
+car = BeamMP's spectate, like its own `focusCameraOnPlayer`; `tg_watch_end` / Back to my car = enter `getCar()`; `RPC.watch/
+unwatch`, `RPC.watchOff`; harness: `p.viewing`), switching the player between their car and the RPC
 (`spawnNewVehicle` autoEnter + `be:enterVehicle`, `MP.RemoveVehicle` of a car the player is driving), `beamstate.activateAutoCoupling`, vlua `hydros.hydros[]` steering mapping (`cOut`/`cIn`, alignment pull; is + steering input = right?),
 ImGui draw lists / tables / style pushes (lights, theme), `BeginChild1`/`EndChild` (System messages box, `drawMessages`;
 falls back to plain lines + a warn), sound playback (`Engine.Audio.playOnce` with a

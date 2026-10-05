@@ -152,6 +152,7 @@ local DEFAULT_CONFIG = {
     countdown = 5, falseStartPenalty = 5, eventTimeLimit = 600,
     readyCountdown = 5,   -- seconds from "everyone's ready" at the dealership to the dealership closing (leg 1)
     soloGo = true,        -- time trial mode: each driver after the first starts when GO is pressed (by them or an admin)
+    watchRunner = true,   -- time trial mode: everyone else watches the driver on track (their camera; /tg watch off)
   },
 
   dealer = {
@@ -1814,6 +1815,24 @@ end
 -- spawned by their own game and allowed here; their own car stays parked, untouched (damage, problems, parts).
 -- p.rpc = { vid, want, allowUntil, model, removing }. Positions come from the RPC while p.rpc is set.
 local RPC = {}
+-- Spectating: while a time trial driver is on track, everyone else's game points its camera at that car (BeamMP:
+-- "entering" someone else's car = watching it, you can't drive it). The exact car is sent - an RPC driver has two.
+RPC.watchOff = {}   -- player name -> true: /tg watch off (kept while the server runs, like /tg sounds off)
+function RPC.watch(p, vid)
+  if cfg.defaults.watchRunner == false or not (p.pid and vid) then return end
+  local s = game.solo
+  if s then s.watching = true end
+  local msg = Util.JsonEncode({ sid = tostring(p.pid) .. "-" .. tostring(vid), name = p.name })
+  for pid, name in pairs(MP.GetPlayers() or {}) do
+    if pid ~= p.pid and not RPC.watchOff[name] then MP.TriggerClientEvent(pid, "tg_watch", msg) end
+  end
+end
+function RPC.unwatch()   -- the run's over: everyone back to their own car
+  local s = game.solo
+  if not (s and s.watching) then return end
+  s.watching = nil
+  MP.TriggerClientEvent(-1, "tg_watch_end", "")
+end
 -- a time trial turn begins (its GO pressed, or straight away): the countdown - or for an RPC, the car first
 function RPC.beginTurn(p, e)
   local s = game.solo
@@ -1824,6 +1843,7 @@ function RPC.beginTurn(p, e)
     sayAll(string.format("%s's reasonably priced car is on its way to the start line.", p.name))
   else
     s.countEnd, s.countTotal, s.lastCount = now() + cfg.defaults.countdown, nil, nil
+    RPC.watch(p, p.carVid)
   end
   pushAll()
 end
@@ -1864,8 +1884,10 @@ function RPC.spawned(p, vid, model)   -- TG_onVehicleSpawn: is this the RPC we a
     local secs = tonumber(typeCfg("rpc").readySeconds) or 10
     s.countEnd, s.countTotal, s.lastCount = now() + secs, secs, nil
     say(p.pid, string.format("Here's your reasonably priced car - %d seconds to get settled, then GO!", math.floor(secs)))
-  elseif run.status == "running" then   -- a fresh car mid-run: a new lap from the line
+    RPC.watch(p, vid)
+  elseif run.status == "running" then   -- a fresh car mid-run: a new lap from the line (watchers follow it)
     run.cp, run.lapStart, run.leftLine = 1, now(), false
+    if s and s.runner == p then RPC.watch(p, vid) end
   end
   pushAll()
   return true
@@ -1970,6 +1992,7 @@ end
 nextSoloRunner = function(go)
   local s = game.solo
   if not s then return false end
+  RPC.unwatch()   -- (the last run's over)
   if s.runner and s.runner.rpc then RPC.remove(s.runner) end
   while true do
     s.idx = s.idx + 1
@@ -2364,6 +2387,7 @@ local function cleanupEventVehicles()
     p.eventVeh, p.spawnAllow = nil, nil
     if p.rpc then RPC.remove(p) end
   end
+  RPC.unwatch()
 end
 
 finishEvent = function()
@@ -3870,6 +3894,16 @@ PLAYER_CMDS.sounds = function(pid, name, args)
   say(pid, off and "Sounds OFF for you. /tg sounds on to hear them again." or "Sounds ON. /tg soundtest plays one to check you can hear it.")
 end
 
+PLAYER_CMDS.watch = function(pid, name, args)   -- /tg watch on|off: watch the driver on track in time trials
+  local want = (args[3] or ""):lower()
+  local off
+  if want == "off" then off = true elseif want == "on" then off = false else off = not RPC.watchOff[name] end
+  RPC.watchOff[name] = off or nil
+  say(pid, off and "You won't be switched to watch the driver on track. /tg watch on to watch again."
+    or "In time trials your camera follows the driver on track; you're back in your car when their run ends.")
+  if off then MP.TriggerClientEvent(pid, "tg_watch_end", "") end
+end
+
 PLAYER_CMDS.soundtest = function(pid, _, args)
   local arg = (args[3] or ""):lower()
   local clips = (cfg.sounds or {}).clips or {}
@@ -4999,6 +5033,7 @@ local function buildUi(pid)
       and { name = game.solo.runner.name, canGo = (p == game.solo.runner) or isAdmin(name) } or nil,
     traffic = inTrafficMode(name),
     soundsOn = not soundsOff[name], soundClips = (cfg.sounds or {}).clips or {},
+    watchOn = not RPC.watchOff[name],
     shop = p and {   -- the Parts tab prices options exactly the way TG_onRebuild bills them
       markup = cfg.workshop.partsMarkup or 1, resale = cfg.workshop.resaleRate or 0.5,
       flat = cfg.workshop.flatPartPrice or 500, labour = cfg.workshop.laborFee or 0,

@@ -140,7 +140,11 @@ Race / Time trial**) or with `/tg setmode <n> race|trial`. The table shows each 
   first ("GO: Bob") and starts their countdown; after that, every driver waits until **their** GO is pressed
   - the button on their Status tab reads "GO: Alice" - by them, or by an admin (Admin tab, Challenge box),
   and everyone else sees "Waiting for Alice to press GO". In Star in a reasonably priced car, that GO is what
-  brings their car. (`defaults.soloGo`: false = the next driver starts by themselves.) The time limit is per run. An admin's `/tg next` ends just the
+  brings their car. (`defaults.soloGo`: false = the next driver starts by themselves.) **Everyone else watches:**
+  when a driver's countdown starts, every other player's camera switches to that driver's car (for the reasonably
+  priced car, the RPC itself) - BeamMP's own spectating: you can look, not drive. When the run ends you're back in
+  your own car. **Back to my car** (Status tab) leaves early; **Watch the driver on track** in the Settings tab (or
+  `/tg watch off` / `on`) turns it off for you; `defaults.watchRunner` false turns it off for everyone. The time limit is per run. An admin's `/tg next` ends just the
   current run. The mode is stored as `"solo": true/false` on the event in config.json. An event's
   mode can't be changed while that event is counting down or running.
 - **Parking:** a course of one or more bays, parked in the order they were added. Add each bay by
