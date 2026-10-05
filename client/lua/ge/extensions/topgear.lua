@@ -249,6 +249,34 @@ local function drawTarget()
   local t = state.target
   if not t or state.phase == "idle" then return end
   local p, r = vec3(t.x, t.y, t.z), t.r or 10
+  if tonumber(t.yaw) then   -- a parking bay: a car-sized box on the ground, lined up the way the bay runs (nose in or
+    -- backed in both count). The heading came from the car parked there; a BeamNG car points along its local -y.
+    local okB = pcall(function()
+      local th = math.rad(tonumber(t.yaw))
+      local f, rt = vec3(math.sin(th), -math.cos(th), 0), vec3(math.cos(th), math.sin(th), 0)
+      local hl, hw, z = 2.6, 1.3, vec3(0, 0, 0.1)
+      local c = { p + f * hl + rt * hw, p + f * hl - rt * hw, p - f * hl - rt * hw, p - f * hl + rt * hw }
+      local col = ColorF(1, 0.45, 0, 0.8)
+      for i = 1, 4 do debugDrawer:drawCylinder(c[i] + z, c[i % 4 + 1] + z, 0.08, col) end   -- the outline
+      debugDrawer:drawCylinder(p - f * (hl - 0.6) + z, p + f * (hl - 0.6) + z, 0.05, ColorF(1, 1, 1, 0.6))   -- its axis
+      debugDrawer:drawCylinder(p, p + vec3(0, 0, 120), 0.8, ColorF(1, 0.45, 0, 0.6))
+      debugDrawer:drawTextAdvanced(p + vec3(0, 0, 3), String(t.label or ""), ColorF(1, 1, 1, 1), true, false, ColorI(0, 0, 0, 180))
+    end)
+    if okB then return end
+  end
+  if type(t.line) == "table" and tonumber(t.line.ax) then   -- a line checkpoint: two posts and a bar across the road
+    local okL = pcall(function()
+      local a, b = vec3(t.line.ax, t.line.ay, t.z), vec3(t.line.bx, t.line.by, t.z)
+      local col, bar = ColorF(1, 0.45, 0, 0.7), ColorF(1, 0.45, 0, 0.45)
+      debugDrawer:drawCylinder(a, a + vec3(0, 0, 4), 0.35, col)
+      debugDrawer:drawCylinder(b, b + vec3(0, 0, 4), 0.35, col)
+      debugDrawer:drawCylinder(a + vec3(0, 0, 0.15), b + vec3(0, 0, 0.15), 0.15, bar)   -- the line on the ground
+      debugDrawer:drawCylinder(a + vec3(0, 0, 3.8), b + vec3(0, 0, 3.8), 0.15, bar)     -- and a bar overhead
+      debugDrawer:drawCylinder(p, p + vec3(0, 0, 120), 0.8, ColorF(1, 0.45, 0, 0.6))
+      debugDrawer:drawTextAdvanced(p + vec3(0, 0, 5), String(t.label or ""), ColorF(1, 1, 1, 1), true, false, ColorI(0, 0, 0, 180))
+    end)
+    if okL then return end
+  end
   local ok = pcall(function()
     debugDrawer:drawCylinder(p, p + vec3(0, 0, 6), r, ColorF(1, 0.45, 0, 0.18))
     debugDrawer:drawCylinder(p, p + vec3(0, 0, 120), 0.8, ColorF(1, 0.45, 0, 0.6))  -- beacon, visible from afar
@@ -2180,6 +2208,16 @@ local function drawStatus(d)
         button("Fix this problem: " .. f.name .. " (" .. commas(d.faults.fix) .. ")##fix_" .. f.id, "fix " .. f.id)
       end
       txt("Spent in this workshop: " .. commas(me.upgrade or 0) .. " (parts charged as fitted; paint, cosmetics and tuning free)")
+      if d.readyToGo then   -- done here? I'm ready - once everyone is, GO starts the next leg (the timer still runs)
+        if not me.wsReady then bigButton("I'm ready - done in the workshop", "ready")
+        elseif #(d.wsNotReady or {}) == 0 then
+          colored(0.4, 1, 0.4, "Everyone's done!")
+          bigButton("GO! On to the next leg", "go")
+        else
+          colored(0.4, 1, 0.4, "You're ready.")
+          colored(1, 0.85, 0.3, "Waiting for " .. table.concat(d.wsNotReady or {}, ", ") .. " to press I'm ready.")
+        end
+      end
     end
     drawDriverButtons(d, me)
   end
@@ -3003,7 +3041,8 @@ Tabs.courseBuilder = function(c)
       row[#row + 1] = { label = "Clear\nbays", id = "clearbays", cmd = "clearbays " .. target, confirm = true }
     else
       local what = (e.type == "slalom") and "gate" or "checkpoint"
-      row[#row + 1] = { label = "Add\n" .. what, id = "addcp", cmd = "addcp " .. target }
+      local size = (e.type ~= "slalom" and ui.cpSize) and (" " .. ui.cpSize) or ""
+      row[#row + 1] = { label = "Add\n" .. what, id = "addcp", cmd = "addcp " .. target .. size }
       row[#row + 1] = { label = "Undo\n" .. what, id = "undocp", cmd = "undocp " .. target }
       row[#row + 1] = { label = "Clear\n" .. what .. "s", id = "clearcp", cmd = "clearcp " .. target, confirm = true }
     end
@@ -3024,11 +3063,22 @@ Tabs.courseBuilder = function(c)
     Tabs.help("Checkpoints round the lap, in order. The start is the start/finish line - each lap ends by crossing it.")
   elseif e and e.type == "slalom" then Tabs.help("Gates in order - the last one is the finish.")
   elseif e and e.type ~= "speedtrap" and e.type ~= "parking" then Tabs.help("Checkpoints in order - the last one is the finish.") end
+  -- the size of the next checkpoint (not slalom gates - eventTypes.slalom.gateRadius)
+  if e and e.type ~= "speedtrap" and e.type ~= "parking" and e.type ~= "slalom" then
+    txt("Next checkpoint:"); same()
+    for i, o in ipairs({ { "5 m", "5" }, { "10 m", "10" }, { "20 m", "20" }, { "Line", "line" } }) do
+      if i > 1 then same() end
+      if im.Button(((ui.cpSize or "5") == o[2] and "> " or "") .. o[1] .. "##cpsize_" .. o[2]) then ui.cpSize = o[2] end
+    end
+    Tabs.help("How big the next checkpoint is: a 5, 10 or 20 m circle, or a Line - a 20 m gate across the road (good\n" ..
+      "for a start/finish), set at right angles to the way from the point before it (the last checkpoint, or the start).")
+  end
   -- try it out without a whole challenge: the event on its own (everyone in a car), your car to its start, stop
   Tabs.bigButtons({
     { label = "Test\nevent", id = "testevent", cmd = "testevent " .. target, off = not e or not c.idle },
     { label = "Quick\ntravel", id = "quicktravel", cmd = "quicktravel " .. target, off = not c.idle },
     { label = "Stop\nevent", id = "teststop", cmd = "testevent stop", off = not c.testing } }, 44)
+  Tabs.help("Set start here moves the start - your checkpoints stay where they are.")
   Tabs.help("Test event: this event on its own, from its countdown - everyone in a car takes part (no money, no saving).\n" ..
     "Quick travel: your car to its start, facing the first checkpoint. Both need no challenge running. Stop event ends a test.")
   pcall(im.Dummy, im.ImVec2(1, 6))

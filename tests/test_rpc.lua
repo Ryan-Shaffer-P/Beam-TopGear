@@ -216,7 +216,7 @@ t.test("the course builder takes positions from the car you're in (not a parked 
   t.ok(w:chatHas(A, "Careful: checkpoint 2 is on top of the start (5 m)."), "a checkpoint on the start line is flagged")
   w:chat(A, "/tg traffic off"); w:chat(A, "/tg setfinale")
   w:chat(A, "/tg start")
-  t.ok(w:chatHas(A, "Event 1 (RPC): checkpoint 2 is on top of the start (5 m) - /tg clearcp 1 and place them again"))
+  t.ok(w:chatHas(A, "Event 1 (RPC): checkpoint 2 is on top of the start (5 m) - move the start (/tg setstart 1, or Set start here: your checkpoints stay)"))
   t.eq(w:state(A) and w:state(A).phase or "idle", "idle", "won't start like that")
   w:assertClean()
 end)

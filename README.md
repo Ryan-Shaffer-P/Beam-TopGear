@@ -71,6 +71,10 @@ newest at the bottom and brightest.
   workshop timer, workshop frequency, price import), **Car classes**, **Course** - the course builder, as
   boxes: **Pick a course** (load / save as / new), **Event type** (the selected event's type buttons + rename),
   **Events** (always open: each event tagged **RACE** - everyone at once - or **TIME TRIAL** - one at a time;
+  under the checkpoint buttons, **Next checkpoint: 5 m / 10 m / 20 m / Line** sets the size of the next one you
+  add - a Line is a 20 m gate across the road (`defaults.lineWidth`), at right angles to the way from the point
+  before it, and counts when you cross it; `/tg addcp <n> [5|10|20|line]`. **Set start here** moves the start -
+  your checkpoints stay;
   pick the one to edit, **Delete event**; under it big **Set start here / Add
   checkpoint / Undo / Clear** buttons and **# of laps** for laps events - drive to the spot first, the (?)
   explains; under them **Test event** - that event on its own, from its countdown, with everyone who's in a car
@@ -146,7 +150,9 @@ Race / Time trial**) or with `/tg setmode <n> race|trial`. The table shows each 
   everyone else waits at the start. **Every start is I'm ready, then GO** (`defaults.readyToGo`): at a **race**
   start everyone presses **I'm ready** (Status tab) and once everyone is, anyone's **GO** starts the countdown;
   in a **time trial** the turns begin by themselves once everyone's there, and each driver presses **I'm ready**,
-  then **GO** (them or an admin) - the same for Test event. With `readyToGo` false, the older starts below apply.
+  then **GO** (them or an admin) - the same for Test event. **Workshops** too: when you're done, press **I'm
+  ready** (Status tab); once everyone is, anyone's **GO** closes the workshop and starts the next leg (the
+  workshop timer still closes it at the end). With `readyToGo` false, the older starts below apply.
   **Each driver starts with a GO:** the event's GO button says who goes
   first ("GO: Bob") and starts their countdown; after that, every driver waits until **their** GO is pressed
   - the button on their Status tab reads "GO: Alice" - by them, or by an admin (Admin tab, Challenge box),
@@ -158,7 +164,9 @@ Race / Time trial**) or with `/tg setmode <n> race|trial`. The table shows each 
   `/tg watch off` / `on`) turns it off for you; `defaults.watchRunner` false turns it off for everyone. The time limit is per run. An admin's `/tg next` ends just the
   current run. The mode is stored as `"solo": true/false` on the event in config.json. An event's
   mode can't be changed while that event is counting down or running.
-- **Parking:** a course of one or more bays, parked in the order they were added. Add each bay by
+- **Parking:** the bay is drawn on the ground as a car-sized box lined up the way the bay runs (from the car
+  you parked there when you added it), so drivers can see which way to park - nose in or backed in.
+  A course of one or more bays, parked in the order they were added. Add each bay by
   parking in it the way it should face (`/tg addbay <n>`, `/tg undobay <n>`, `/tg clearbays <n>`,
   or the course builder buttons). A bay counts once you've been stopped inside it (5 m) for
   1.5 s; then drive off to the next one (the HUD says "Bay 2/3"). Nose-in or reversed in are

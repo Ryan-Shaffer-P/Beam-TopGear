@@ -149,6 +149,7 @@ local DEFAULT_CONFIG = {
 
   defaults = {
     startRadius = 20, cpRadius = 5, viaRadius = 25,   -- (checkpoints: 12 m until 0.9.13 - Ryan: tighter)
+    lineWidth = 20,       -- a line checkpoint (course builder: Line): this wide, across the way from the point before it
     countdown = 5, falseStartPenalty = 5, eventTimeLimit = 600,
     readyCountdown = 5,   -- seconds from "everyone's ready" at the dealership to the dealership closing (leg 1)
     soloGo = true,        -- time trial mode: each driver after the first starts when GO is pressed (by them or an admin)
@@ -1387,7 +1388,7 @@ local function currentTarget(p)
     if e.type == "parking" then
       local bays = eventBays(e)
       local i = p.run.bay or 1
-      return { pos = bays[i], r = typeCfg("parking").bayRadius or 5,
+      return { pos = bays[i], r = typeCfg("parking").bayRadius or 5, yaw = type(bays[i]) == "table" and tonumber(bays[i].yaw) or nil,
                label = p.run.needMove and string.format("Bay %d/%d - drive on", i, #bays)
                        or (#bays == 1 and "Park in the bay and stop" or string.format("Bay %d/%d - park and stop", i, #bays)) }
     end
@@ -1404,11 +1405,15 @@ local function currentTarget(p)
     if e.type == "circuit" or e.type == "rpc" then
       local laps = math.max(1, math.floor(tonumber(e.laps) or 3))
       local last = p.run.cp >= #cps
-      return { pos = cps[p.run.cp], r = e.cpRadius or cfg.defaults.cpRadius,
+      local c = cps[p.run.cp]
+      return { pos = c, r = (type(c) == "table" and tonumber(c.r)) or e.cpRadius or cfg.defaults.cpRadius,
+               line = type(c) == "table" and c.line or nil,
                label = string.format("Lap %d/%d - %s", p.run.lap or 1, laps,
                  last and ((p.run.lap or 1) >= laps and "FINISH" or "Start/finish line") or string.format("Checkpoint %d/%d", p.run.cp, #cps - 1)) }
     end
-    return { pos = cps[p.run.cp], r = e.cpRadius or cfg.defaults.cpRadius,
+    local c = cps[p.run.cp]
+    return { pos = c, r = (type(c) == "table" and tonumber(c.r)) or e.cpRadius or cfg.defaults.cpRadius,
+             line = type(c) == "table" and c.line or nil,
              label = (p.run.cp >= #cps) and "FINISH" or string.format("Checkpoint %d/%d", p.run.cp, #cps - 1) }
   elseif ph == "finale" then return finaleTarget(p)
   elseif ph == "workshop" and #workshopSpots() > 0 and p.pos then   -- nearest of the spots and the dealership
@@ -1467,7 +1472,7 @@ local function stateFor(p)
   end
   local tgt = currentTarget(p)
   local tp = tgt and v3(tgt.pos)
-  if tp then s.target = { x = tp.x, y = tp.y, z = tp.z, r = tgt.r, label = tgt.label } end
+  if tp then s.target = { x = tp.x, y = tp.y, z = tp.z, r = tgt.r, label = tgt.label, line = tgt.line, yaw = tgt.yaw } end
   return s
 end
 local function pushState(p)
@@ -1621,14 +1626,31 @@ end
 local Course = {}
 -- a checkpoint on top of the start (or of the checkpoint before it) is reached the moment the run starts - e.g. one
 -- placed from a parked car instead of the one being driven. Returns why, or nil.
+-- a checkpoint reached: within its own radius (cp.r - 5/10/20 m from the course builder), or for a line checkpoint
+-- (cp.line = { ax, ay, bx, by }) the car's path since the last sample crossed the line
+function Course.reachedCp(p, cp, r)
+  if type(cp) == "table" and type(cp.line) == "table" and p.pos then
+    local L = cp.line
+    if not p.prevPos then return segDist(p.pos, { x = L.ax, y = L.ay, z = p.pos.z }, { x = L.bx, y = L.by, z = p.pos.z }) <= 2 end
+    local function side(ax, ay, bx, by, px, py) return (bx - ax) * (py - ay) - (by - ay) * (px - ax) end
+    local a, b, c, d = p.prevPos, p.pos, { x = L.ax, y = L.ay }, { x = L.bx, y = L.by }
+    local d1, d2 = side(c.x, c.y, d.x, d.y, a.x, a.y), side(c.x, c.y, d.x, d.y, b.x, b.y)
+    local d3, d4 = side(a.x, a.y, b.x, b.y, c.x, c.y), side(a.x, a.y, b.x, b.y, d.x, d.y)
+    if ((d1 <= 0 and d2 >= 0) or (d1 >= 0 and d2 <= 0)) and ((d3 <= 0 and d4 >= 0) or (d3 >= 0 and d4 <= 0)) and (d1 ~= d2) then
+      return true
+    end
+    return segDist(p.pos, { x = L.ax, y = L.ay, z = p.pos.z }, { x = L.bx, y = L.by, z = p.pos.z }) <= 1
+  end
+  return reached(p, cp, (type(cp) == "table" and tonumber(cp.r)) or r)
+end
 function Course.stacked(e, cps)
   cps = cps or e.checkpoints or {}
   local start, near = v3(e.start), 2 * (e.cpRadius or cfg.defaults.cpRadius or 12)
   for k, cp in ipairs(cps) do
     local c = v3(cp)
-    if c and start and dist(c, start) < near then return string.format("checkpoint %d is on top of the start (%.0f m)", k, dist(c, start)) end
+    if c and start and dist(c, start) < near then return string.format("checkpoint %d is on top of the start (%.0f m)", k, dist(c, start)), "start" end
     local prev = k > 1 and v3(cps[k - 1])
-    if c and prev and dist(c, prev) < near then return string.format("checkpoints %d and %d are on top of each other (%.0f m)", k - 1, k, dist(c, prev)) end
+    if c and prev and dist(c, prev) < near then return string.format("checkpoints %d and %d are on top of each other (%.0f m)", k - 1, k, dist(c, prev)), "each" end
   end
   return nil
 end
@@ -1647,8 +1669,12 @@ local function validate(events, finale, onlyEnabled)
       elseif (e.type == "circuit" or e.type == "rpc") and #(e.checkpoints or {}) < 1 then
         errs[#errs + 1] = string.format("Event %d: a circuit needs checkpoints round the lap - /tg addcp %d", i, i)
       else
-        local why = Course.stacked(e)
-        if why then errs[#errs + 1] = string.format("Event %d (%s): %s - /tg clearcp %d and place them again", i, e.name, why, i) end
+        local why, kind = Course.stacked(e)
+        if why then   -- (0.9.13: say how to fix just that - moving the start keeps every checkpoint)
+          errs[#errs + 1] = string.format("Event %d (%s): %s - %s", i, e.name, why, kind == "start"
+            and string.format("move the start (/tg setstart %d, or Set start here: your checkpoints stay)", i)
+            or string.format("/tg undocp %d takes the last one back, /tg clearcp %d all of them", i, i))
+        end
       end
     end
   end
@@ -1892,8 +1918,23 @@ function RPC.allReady()
   table.sort(names)
   return #names == 0, names
 end
+function RPC.wsAllReady()   -- the workshop: who hasn't pressed I'm ready yet
+  local names = {}
+  for _, q in pairs(game.players) do if racing(q) and not q.wsReady then names[#names + 1] = q.name end end
+  table.sort(names)
+  return #names == 0, names
+end
 function RPC.ready(p)
   local s, e = game.solo, curEvent()
+  if game.phase == "workshop" then   -- done in the workshop: once everyone is, anyone's GO starts the next leg
+    if p.wsReady then say(p.pid, "You're already ready."); return end
+    p.wsReady = true
+    local all, waiting = RPC.wsAllReady()
+    sayAll(all and string.format("%s is done - everyone is: anyone can press GO for the next leg.", p.name)
+      or string.format("%s is done in the workshop (waiting for %s).", p.name, table.concat(waiting, ", ")))
+    pushAll()
+    return
+  end
   if game.phase == "event" and s and s.runner == p and s.waitGo then   -- a time trial: this driver's run
     if e and e.type == "rpc" and not (p.rpc and p.rpc.vid) then say(p.pid, "Wait for your reasonably priced car first."); return end
     if p.run.ready then say(p.pid, "You're ready - GO when you like."); return end
@@ -2160,7 +2201,7 @@ local function tickRoute(p, e)
     if p.run.cp >= #cps and not p.run.leftLine then return end
   end
   local cp = cps[p.run.cp]
-  if not cp or not reached(p, cp, e.cpRadius or cfg.defaults.cpRadius) then return end
+  if not cp or not Course.reachedCp(p, cp, e.cpRadius or cfg.defaults.cpRadius) then return end
   if e.type == "rpc" then   -- (in the server console: where each one was reached, to check a course in game)
     log(string.format("rpc: %s lap %d, point %d/%d reached %.0f m from it at (%.0f, %.0f)", p.name, p.run.lap or 1, p.run.cp, #cps,
       dist(p.pos, v3(cp)), p.pos.x, p.pos.y))
@@ -2519,7 +2560,7 @@ end
 beginWorkshop = function()
   game.phase, game.workshopEnd, game.warned = "workshop", now() + cfg.workshop.minutes * 60, false
   game.workshopNo = (game.workshopNo or 0) + 1
-  for _, p in pairs(game.players) do p.wsLabour, p.wsSpent, p.wsCharged = false, 0, p.partsValue end
+  for _, p in pairs(game.players) do p.wsLabour, p.wsSpent, p.wsCharged, p.wsReady = false, 0, p.partsValue, nil end
   if #workshopSpots() > 0 then
     sayAll(string.format("WORKSHOP open for %s minutes: drive to any workshop (the arrows show the nearest). " ..
       "Repairs, problem fixes, parts, paint and tuning work while you're parked there.", tostring(cfg.workshop.minutes)))
@@ -3588,7 +3629,9 @@ end
 
 PLAYER_CMDS.ready = function(pid)
   local p = playerByPid(pid)
-  if p and (game.phase == "travel" or game.phase == "event") and cfg.defaults.readyToGo ~= false then return RPC.ready(p) end
+  if p and (game.phase == "travel" or game.phase == "event" or game.phase == "workshop") and cfg.defaults.readyToGo ~= false then
+    return RPC.ready(p)
+  end
   if not p or game.phase ~= "dealer" then say(pid, "Nothing to be ready for right now."); return end
   if not p.carVid then say(pid, "Buy a car first!"); return end
   if p.ready then say(pid, "You're already marked ready."); return end
@@ -3665,6 +3708,13 @@ end
 PLAYER_CMDS.go = function(pid, name)
   local p = playerByPid(pid)
   local s = game.solo
+  if game.phase == "workshop" and cfg.defaults.readyToGo ~= false then   -- everyone done: on to the next leg
+    local all, waiting = RPC.wsAllReady()
+    if not all then say(pid, "Waiting for " .. table.concat(waiting, ", ") .. " to press I'm ready."); return end
+    sayAll(string.format("%s closes the workshop - on to the next leg!", p and p.name or name))
+    endWorkshop()
+    return
+  end
   if game.phase == "event" and s and s.runner and s.waitGo then   -- a time trial: the waiting driver's GO
     local r = s.runner
     if p ~= r and not isAdmin(name or MP.GetPlayerName(pid)) then
@@ -4611,13 +4661,30 @@ ADMIN_CMDS.setstart = function(pid, _, args)
   local e, label = eventArg(pid, args[3]); if not e then return end
   withPos(pid, function(pos) e.start = pos; markDirty(); say(pid, label .. " start set " .. fmtPos(pos) .. " (/tg save)") end)
 end
-ADMIN_CMDS.addcp = function(pid, _, args)
+ADMIN_CMDS.addcp = function(pid, _, args)   -- /tg addcp <n> [5|10|20|line]: the checkpoint's size (default: defaults.cpRadius)
   local e, label = eventArg(pid, args[3]); if not e then return end
+  local size = (args[4] or ""):lower()
+  if size ~= "" and size ~= "line" and not tonumber(size) then say(pid, "Usage: /tg addcp <event> [5|10|20|line]"); return end
   withPos(pid, function(pos)
     e.checkpoints = e.checkpoints or {}
-    e.checkpoints[#e.checkpoints + 1] = pos
+    local cp = { x = pos.x, y = pos.y, z = pos.z }
+    local what = "a " .. tostring(e.cpRadius or cfg.defaults.cpRadius) .. " m checkpoint"
+    if tonumber(size) then
+      cp.r = math.max(1, math.min(50, tonumber(size)))
+      what = "a " .. tostring(cp.r) .. " m checkpoint"
+    elseif size == "line" then   -- across the way from the point before it (the last checkpoint, or the start)
+      local prev = v3(e.checkpoints[#e.checkpoints] or e.start)
+      local dx, dy = prev and (pos.x - prev.x) or 0, prev and (pos.y - prev.y) or 0
+      local len = math.sqrt(dx * dx + dy * dy)
+      if len < 3 then say(pid, "A line goes across the way from the point before it - set the start (or the checkpoint before) first, a bit back."); return end
+      local half = (tonumber(cfg.defaults.lineWidth) or 20) / 2
+      local rx, ry = -dy / len * half, dx / len * half
+      cp.line = { ax = pos.x + rx, ay = pos.y + ry, bx = pos.x - rx, by = pos.y - ry }
+      what = string.format("a %d m line", math.floor(half * 2))
+    end
+    e.checkpoints[#e.checkpoints + 1] = cp
     markDirty()
-    say(pid, string.format("%s checkpoint %d set %s - the last one is the finish (/tg save)", label, #e.checkpoints, fmtPos(pos)))
+    say(pid, string.format("%s checkpoint %d set %s (%s) - the last one is the finish (/tg save)", label, #e.checkpoints, fmtPos(pos), what))
     local why = Course.stacked(e)
     if why then say(pid, "Careful: " .. why .. ". Positions come from the car you're in - /tg undocp " .. tostring(args[3]) .. " to take it back.") end
   end)
@@ -5240,7 +5307,7 @@ local function buildUi(pid)
       dentsOnly = (repairQuote(p) == 0 and CONDITION.dents(p) > 0 and (p.damage or 0) > 0) or nil,
       towCost = (roadsideCost(p, "tow")), respawnCost = (roadsideCost(p, "respawn")),
       arrived = p.leg.arrived and true or false, hasCar = p.carVid ~= nil, tows = p.tows or 0,
-      startReady = (p.run and p.run.ready) and true or false,
+      startReady = (p.run and p.run.ready) and true or false, wsReady = p.wsReady and true or false,
       canTow = p.carVid ~= nil and TOW_PHASES[game.phase] and not p.finaleTowed and not (game.phase == "finale" and p.leg.arrived) or false,
       canUnstick = p.carVid ~= nil and game.phase ~= "countdown" or false,
       respawns = p.respawns or 0, hasCarModel = p.carModel ~= nil, inShop = inWorkshop(p),
@@ -5284,6 +5351,10 @@ local function buildUi(pid)
   end
   d.ready = { n = nReady, total = nIn }
   -- the event's own GO in time trial mode starts the first driver: its button says who (the first to arrive)
+  if game.phase == "workshop" and cfg.defaults.readyToGo ~= false then
+    local _, waiting = RPC.wsAllReady()
+    d.wsNotReady = waiting
+  end
   if game.phase == "travel" and cfg.defaults.readyToGo ~= false and curEvent() and not isSolo(curEvent()) then
     local _, waiting = RPC.allReady()
     d.notReady = waiting   -- (the race start: who still has to press I'm ready)
