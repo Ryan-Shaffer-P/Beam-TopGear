@@ -35,7 +35,7 @@ local RESET_ACTIONS = {
 local VEHSEL_ACTIONS = { "vehicle_selector" }
 local PARTS_ACTIONS  = { "parts_selector" }
 
-local VERSION = "0.9.15"
+local VERSION = "0.9.16"
 local recentErrors = {}
 local function warn(msg)
   log("W", "topgear", tostring(msg))
@@ -2915,6 +2915,14 @@ local function section(name, fn, d)  -- a broken section shows an error instead 
   end
 end
 
+-- an ImGui vector's x, or nil: BeamNG's ImGui hands back C structs (cdata), the test fake Lua tables - read it either
+-- way (0.9.15: a type(v) == "table" check left the box borders, the orange frame and button widths off in game)
+Tabs.vx = function(v)
+  if v == nil or type(v) == "number" then return nil end
+  local ok, x = pcall(function() return tonumber(v.x) end)
+  return ok and x or nil
+end
+
 -- A box: a collapsible section (ImGui's own header - its arrow folds it) with a rounded border round the header and
 -- its contents. Every tab is a short stack of these. closed = starts folded. If the border can't be drawn on this
 -- BeamNG version it's left off (plain headers), never breaking the window.
@@ -2937,7 +2945,7 @@ Tabs.box = function(title, id, fn, closed, fixed)   -- fixed = can't be folded: 
     if indent then pcall(im.Unindent, 8) end
     if not ok then error(err, 0) end
   end
-  if not ui.noBoxes and okP and type(at) == "table" and okW and type(avail) == "table" and tonumber(avail.x) then
+  if not ui.noBoxes and okP and Tabs.vx(at) and okW and Tabs.vx(avail) then
     local okD, errD = pcall(function()
       local bottom = im.GetCursorScreenPos()
       im.ImDrawList_AddRect(im.GetWindowDrawList(), im.ImVec2(at.x - 4, at.y - 3), im.ImVec2(at.x + avail.x + 4, bottom.y + 2),
@@ -2956,7 +2964,7 @@ Tabs.centred = function(label)
   for line in (label .. "\n"):gmatch("(.-)\n") do lines[#lines + 1] = line end
   local function width(t)
     local ok, v = pcall(function() return im.CalcTextSize(t) end)
-    if ok and type(v) == "table" and tonumber(v.x) then return v.x end
+    if ok and Tabs.vx(v) then return v.x end
     return #t
   end
   local sp = math.max(1e-6, width(" "))
@@ -2973,7 +2981,7 @@ Tabs.bigButtons = function(items, height, extra)
   local n = #items
   if n == 0 then return end
   local okW, avail = pcall(function() return im.GetContentRegionAvail() end)
-  local w = (okW and type(avail) == "table" and tonumber(avail.x)) or 480
+  local w = (okW and Tabs.vx(avail)) or 480
   w = math.max(60, math.floor((w - (extra or 0) - (n - 1) * 8) / n))
   for i, it in ipairs(items) do
     if i > 1 then same() end
@@ -3174,7 +3182,7 @@ Tabs.framed = function(fn, col)
   pcall(im.Dummy, im.ImVec2(1, 4))
   local ok, err = pcall(fn)
   pcall(im.Dummy, im.ImVec2(1, 4))
-  if not ui.noBoxes and okP and type(at) == "table" and okW and type(avail) == "table" and tonumber(avail.x) then
+  if not ui.noBoxes and okP and Tabs.vx(at) and okW and Tabs.vx(avail) then
     local okD, errD = pcall(function()
       local bottom = im.GetCursorScreenPos()
       local c = col or Tabs.ORANGE
@@ -3369,7 +3377,7 @@ Tabs.quick = function(d)
   local rd = d.ready
   if dealer and rd and (rd.total or 0) > 0 then   -- top right of the box: how many are ready
     local okW, avail = pcall(function() return im.GetContentRegionAvail() end)
-    local x = okW and type(avail) == "table" and tonumber(avail.x) or nil
+    local x = okW and Tabs.vx(avail) or nil
     if x and x > 260 then pcall(im.SameLine, x - 170) else same() end
     local line = string.format("%d/%d player%s ready", rd.n or 0, rd.total, rd.total == 1 and " is" or "s are")
     if (rd.n or 0) >= rd.total then colored(0.4, 1, 0.4, line) else colored(1, 0.85, 0.3, line) end

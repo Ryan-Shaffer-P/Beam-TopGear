@@ -8,6 +8,18 @@
 --   im.problems                   list of balance violations seen so far
 local M = {}
 
+-- BeamNG's ImGui returns vectors as C structs (cdata); under LuaJIT the fake does too, so a type(v) == "table" check
+-- in the mod fails here as it does in game
+local vec2 = function(x, y) return { x = x, y = y } end
+do
+  local okF, ffi = pcall(require, "ffi")
+  if okF and ffi then
+    pcall(ffi.cdef, "typedef struct { float x, y; } tgFakeVec2;")
+    local okT = pcall(ffi.new, "tgFakeVec2", 0, 0)
+    if okT then vec2 = function(x, y) return ffi.new("tgFakeVec2", x, y) end end
+  end
+end
+
 local function visible(label) return (tostring(label):gsub("##.*$", "")) end
 
 local function newState()
@@ -152,7 +164,7 @@ function M.new()
 
   -- drawing ---------------------------------------------------------------------
   function im.GetWindowDrawList() return {} end
-  function im.GetCursorScreenPos() return { x = 0, y = 0 } end
+  function im.GetCursorScreenPos() return vec2(0, 0) end
   function im.GetColorU322(c) return c end
   function im.ImDrawList_AddCircleFilled(_, center, r, col)
     frame.circles[#frame.circles + 1] = { x = center.x, y = center.y, r = r, color = col }
@@ -163,7 +175,7 @@ function M.new()
   function im.ImDrawList_AddRect(_, a, b, col, rounding)   -- an outline (the boxes round each section)
     frame.rects[#frame.rects + 1] = { x1 = a.x, y1 = a.y, x2 = b.x, y2 = b.y, color = col, outline = true, rounding = rounding }
   end
-  function im.GetContentRegionAvail() return { x = 520, y = 400 } end
+  function im.GetContentRegionAvail() return vec2(520, 400) end
   im.TreeNodeFlags_DefaultOpen = 32   -- (its real value; the generated constants below wrap to 0 after 30)
   function im.Indent() end
   function im.Unindent() end
