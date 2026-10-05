@@ -174,23 +174,44 @@ t.test("moving the start keeps every checkpoint; a stacked one says how to fix j
   w:assertClean()
 end)
 
-t.test("parking: the bay's direction goes to the player's game (it draws a car-sized box lined up with the bay)", function()
+t.test("parking: the bay's box and arrow follow the way the car faced when it was added (from its own game)", function()
+  local cfg = F.config({ { name = "Parking", type = "parking", timeLimit = 300, start = p(500), bays = {}, via = {} } })
+  local w = World.new({ files = F.files(cfg) })
+  local A = w:join("Alice")
+  w:buy(A, "covet", "base_M")
+  w:place(A, p(600, 20), math.pi / 2); w:step(1.5)   -- parked facing +y (the harness car points along (cos, sin) of its yaw)
+  w:chat(A, "/tg addbay 1")
+  local bay = w:serverConfig().events[1].bays[1]
+  t.ok(math.abs(bay.dx) < 0.01 and math.abs(bay.dy - 1) < 0.01, "the direction her game reported")
+  w:drive(A, p(500), 40); w:step(1.5)
+  w:chat(A, "/tg testevent 1")
+  w:waitFor(function() return w:sawMessage(A, "Alice: GO!") end, 10, "her run")
+  w:step(0.5)
+  local d = w:state(A).target.dir
+  t.ok(d and math.abs(d.y - 1) < 0.01, "the bay's direction goes to her game")
+  -- an arrowhead at the front end of the bay's centre line: facing +y, so its tip is 2.2 m up y from the bay
+  local heads = 0
+  for _, cy in ipairs(A.client.cylinders) do
+    if math.abs(cy.a.x - 600) < 0.01 and math.abs(cy.a.y - 22.2) < 0.01 and cy.b.y < cy.a.y and math.abs(cy.b.x - 600) > 0.5 then heads = heads + 1 end
+  end
+  t.eq(heads, 2, "two arrowhead strokes back from the tip at the +y end")
+  -- straightness is scored from the same directions: backed in, 30 degrees off
+  w:place(A, p(600, 20), -math.pi / 2 + math.pi / 6); w:step(3)
+  t.ok(w:chatHas(A, "Bay 1/1 parked: 0 cm off centre, 30 degrees skew."))
+  w:assertClean()
+end)
+
+t.test("parking: a bay added before 0.9.19 (no direction) is a plain marker - no skewed box, no arrow", function()
   local cfg = F.config({ { name = "Parking", type = "parking", timeLimit = 300, start = p(500),
                            bays = { { x = 600, y = 0, z = 0, yaw = 90 } }, via = {} } })
   local w = World.new({ files = F.files(cfg) })
   local A = w:join("Alice")
   w:buy(A, "covet", "base_M"); w:drive(A, p(500), 40); w:step(1.5)
   w:chat(A, "/tg testevent 1")
-  w:waitFor(function() return w:state(A).phase == "event" end, 10, "GO")
   w:waitFor(function() return w:sawMessage(A, "Alice: GO!") end, 10, "her run")
   w:step(0.5)
-  t.eq(w:state(A).target.yaw, 90, "the bay's heading")
-  -- an arrowhead at the front end of the bay's centre line: yaw 90 = facing +x (a BeamNG car points along local -y)
-  local heads = 0
-  for _, cy in ipairs(A.client.cylinders) do
-    if math.abs(cy.a.x - 602.2) < 0.01 and math.abs(cy.a.y) < 0.01 and cy.b.x < cy.a.x and math.abs(cy.b.y) > 0.5 then heads = heads + 1 end
-  end
-  t.eq(heads, 2, "two arrowhead strokes back from the tip at the +x end")
+  t.eq(w:state(A).target.dir, nil)
+  for _, cy in ipairs(A.client.cylinders) do t.ok(cy.r ~= 0.05, "no centre line or arrow") end
   w:assertClean()
 end)
 

@@ -7,7 +7,7 @@
   In game, type /tg help.
 ]]
 
-local SERVER_VERSION = "0.9.18"
+local SERVER_VERSION = "0.9.19"
 local PLUGIN_DIR  = "Resources/Server/TopGear/"
 local CONFIG_PATH = PLUGIN_DIR .. "config.json"
 local COURSES_PATH = PLUGIN_DIR .. "courses.json"   -- saved course library
@@ -1389,7 +1389,9 @@ local function currentTarget(p)
     if e.type == "parking" then
       local bays = eventBays(e)
       local i = p.run.bay or 1
-      return { pos = bays[i], r = typeCfg("parking").bayRadius or 5, yaw = type(bays[i]) == "table" and tonumber(bays[i].yaw) or nil,
+      local b = type(bays[i]) == "table" and bays[i] or {}
+      return { pos = bays[i], r = typeCfg("parking").bayRadius or 5,
+               dir = (tonumber(b.dx) and tonumber(b.dy)) and { x = b.dx, y = b.dy } or nil,   -- (older bays: none - a plain marker)
                label = p.run.needMove and string.format("Bay %d/%d - drive on", i, #bays)
                        or (#bays == 1 and "Park in the bay and stop" or string.format("Bay %d/%d - park and stop", i, #bays)) }
     end
@@ -1473,7 +1475,7 @@ local function stateFor(p)
   end
   local tgt = currentTarget(p)
   local tp = tgt and v3(tgt.pos)
-  if tp then s.target = { x = tp.x, y = tp.y, z = tp.z, r = tgt.r, label = tgt.label, line = tgt.line, yaw = tgt.yaw } end
+  if tp then s.target = { x = tp.x, y = tp.y, z = tp.z, r = tgt.r, label = tgt.label, line = tgt.line, dir = tgt.dir } end
   return s
 end
 local function pushState(p)
@@ -2298,7 +2300,11 @@ local function tickParking(p, e)
     p.run.stillSince = p.run.stillSince or now()
     if now() - p.run.stillSince >= (tc.stillSeconds or 1.5) then
       local ang = 0
-      if p.yaw and bay.yaw then
+      local cd = Course.activeDir[p.pid]   -- the way the car points, from its own game (0.9.19)
+      if cd and cd.vid == p.carVid and tonumber(bay.dx) and tonumber(bay.dy) then
+        local dot = math.abs((cd.x * bay.dx + cd.y * bay.dy) / math.sqrt((cd.x * cd.x + cd.y * cd.y) * (bay.dx * bay.dx + bay.dy * bay.dy)))
+        ang = math.deg(math.acos(math.min(1, dot)))   -- nose-in or reversed in both count as straight
+      elseif p.yaw and bay.yaw then
         ang = math.abs(p.yaw - bay.yaw) % 180
         if ang > 90 then ang = 180 - ang end   -- nose-in or reversed in both count as straight
       end
@@ -3455,9 +3461,15 @@ end
 -- the car each player is sitting in (their game reports it - tg_activeveh): the course builder takes positions from it.
 -- Before 0.9.13 it took the challenge car or the first vehicle, so with two cars out every checkpoint could land on a
 -- parked one - e.g. on the start line.
+-- 0.9.19: "pid-vid|dx|dy" - also the way that car points (from the game itself: the rotation BeamMP reports here
+-- doesn't follow the convention we assumed - Ryan: bay boxes skewed, arrows backwards)
 local activeVeh = {}
+Course.activeDir = {}   -- pid -> { vid, x, y } (a table field: the chunk is at Lua's 200 locals)
 function TG_onActiveVeh(pid, data)
-  activeVeh[pid] = tonumber(tostring(data or ""):match("(%d+)%s*$"))
+  local sid, dx, dy = tostring(data or ""):match("^([^|]*)|?([^|]*)|?([^|]*)")
+  activeVeh[pid] = tonumber(tostring(sid or ""):match("(%d+)%s*$"))
+  dx, dy = tonumber(dx), tonumber(dy)
+  Course.activeDir[pid] = (activeVeh[pid] and dx and dy and (dx * dx + dy * dy) > 0.01) and { vid = activeVeh[pid], x = dx, y = dy } or nil
 end
 local function adminVehicles(pid)
   local list, own = {}, nil
@@ -3482,11 +3494,12 @@ local function adminPos(pid)
   return nil
 end
 
-local function adminPose(pid)
+local function adminPose(pid)   -- position, yaw (BeamMP's rotation - for scoring), the way the car points (its game)
   for _, vid in adminVehicles(pid) do
     local raw = MP.GetPositionRaw(pid, vid)
     local pos = type(raw) == "table" and v3(raw.pos)
-    if pos then return roundPos(pos), yawFromQuat(raw.rot) end
+    local d = Course.activeDir[pid]
+    if pos then return roundPos(pos), yawFromQuat(raw.rot), (d and d.vid == vid) and d or nil end
   end
   return nil
 end
@@ -4763,9 +4776,13 @@ ADMIN_CMDS.setlaps = function(pid, _, args)
 end
 
 local function placeBay(pid, e, label, replace)
-  local pos, yaw = adminPose(pid)
+  local pos, yaw, dir = adminPose(pid)
   if not pos then say(pid, "Park your car in the bay, facing the way it should face, first."); return end
   local bay = { x = pos.x, y = pos.y, z = pos.z, yaw = yaw and math.floor(yaw * 10 + 0.5) / 10 or nil }
+  if dir then   -- (what the box and its arrow are drawn from)
+    local len = math.sqrt(dir.x * dir.x + dir.y * dir.y)
+    bay.dx, bay.dy = math.floor(dir.x / len * 1000 + 0.5) / 1000, math.floor(dir.y / len * 1000 + 0.5) / 1000
+  end
   e.bays = replace and {} or eventBays(e)
   e.bay = nil
   e.bays[#e.bays + 1] = bay

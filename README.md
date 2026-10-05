@@ -167,6 +167,8 @@ Race / Time trial**) or with `/tg setmode <n> race|trial`. The table shows each 
 - **Parking:** the bay is drawn on the ground as a car-sized box lined up the way the bay runs (from the car
   you parked there when you added it), so drivers can see which way to park. An arrow on its centre line
   points the way the car faced when the bay was added. (Scoring still counts nose in or backed in as straight.)
+  Bays added before 0.9.19 show as a plain marker - add them again (`/tg clearbays`, then park and add)
+  for the box and arrow.
   A course of one or more bays, parked in the order they were added. Add each bay by
   parking in it the way it should face (`/tg addbay <n>`, `/tg undobay <n>`, `/tg clearbays <n>`,
   or the course builder buttons). A bay counts once you've been stopped inside it (5 m) for

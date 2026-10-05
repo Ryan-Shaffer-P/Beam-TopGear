@@ -35,7 +35,7 @@ local RESET_ACTIONS = {
 local VEHSEL_ACTIONS = { "vehicle_selector" }
 local PARTS_ACTIONS  = { "parts_selector" }
 
-local VERSION = "0.9.18"
+local VERSION = "0.9.19"
 local recentErrors = {}
 local function warn(msg)
   log("W", "topgear", tostring(msg))
@@ -249,11 +249,12 @@ local function drawTarget()
   local t = state.target
   if not t or state.phase == "idle" then return end
   local p, r = vec3(t.x, t.y, t.z), t.r or 10
-  if tonumber(t.yaw) then   -- a parking bay: a car-sized box on the ground, lined up the way the bay runs (nose in or
-    -- backed in both count). The heading came from the car parked there; a BeamNG car points along its local -y.
+  if type(t.dir) == "table" and tonumber(t.dir.x) and tonumber(t.dir.y) then   -- a parking bay: a car-sized box on the
+    -- ground, lined up with the car parked there when it was added (its game's own direction vector), and an arrow the
+    -- way that car faced. (0.9.18 worked it out from BeamMP's rotation: skewed boxes, backwards arrows in game.)
     local okB = pcall(function()
-      local th = math.rad(tonumber(t.yaw))
-      local f, rt = vec3(math.sin(th), -math.cos(th), 0), vec3(math.cos(th), math.sin(th), 0)
+      local f = vec3(t.dir.x, t.dir.y, 0):normalized()
+      local rt = vec3(f.y, -f.x, 0)
       local hl, hw, z = 2.6, 1.3, vec3(0, 0, 0.1)
       local c = { p + f * hl + rt * hw, p + f * hl - rt * hw, p - f * hl - rt * hw, p - f * hl + rt * hw }
       local col = ColorF(1, 0.45, 0, 0.8)
@@ -4051,7 +4052,16 @@ function M.onUpdate(dtReal)
       local v = be:getPlayerVehicle(0)
       return v and MPVehicleGE and MPVehicleGE.getServerVehicleID and MPVehicleGE.getServerVehicleID(v:getID()) or nil
     end)
-    if ok and sid and sid ~= ui.vehSent then ui.vehSent = sid; TriggerServerEvent("tg_activeveh", tostring(sid)) end
+    if ok and sid then   -- (with the way it points - parking bays are drawn from it; sent again when it turns)
+      local okD, d = pcall(function() local v = vec3(be:getPlayerVehicle(0):getDirectionVector()); return v end)
+      local dx, dy = okD and d and d.x or 0, okD and d and d.y or 0
+      local last = ui.vehDir
+      local turned = not last or (dx * last.x + dy * last.y) < 0.999
+      if sid ~= ui.vehSent or turned then
+        ui.vehSent, ui.vehDir = sid, { x = dx, y = dy }
+        TriggerServerEvent("tg_activeveh", string.format("%s|%.3f|%.3f", tostring(sid), dx, dy))
+      end
+    end
   end
   if rebuildCheckIn then
     rebuildCheckIn = rebuildCheckIn - dtReal
