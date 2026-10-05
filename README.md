@@ -196,7 +196,13 @@ Race / Time trial**) or with `/tg setmode <n> race|trial`. The table shows each 
   trailer for everyone, with the load as part of it. Each player's game measures how much of the
   load is still on the bed; the results show e.g. "72% of the load". `/tg trailertest` spawns it
   behind you and reports the load reading;
-  `/tg trailercones` goes back to the empty trailer + loose cones below.
+  `/tg trailercones` goes back to the empty trailer + loose cones below. The course builder's Event options
+  for a trailer event show which trailer is set and have **Set trailer (the one I'm in)** next to Test / Remove.
+- **Trailer with no load (a caravan, a travel trailer):** save it the same way - `/tg trailersave` or **Set
+  trailer** while you're in it. With nothing in a load slot it's **delivered in one piece**: the 70 load points
+  become how undamaged it arrives - 1 - its damage / `eventTypes.trailer.wreckDamage` (10,000), so a trailer
+  at 4,000 damage is 60% intact = 42 points. The results say e.g. "trailer 60% intact". It still has to be
+  hitched to you at the finish.
 - **Trailer (cones):** when you arrive at the start, a trailer (default `tsfb`, the small flatbed)
   appears 7 m behind your car with loose cargo on it (default 5 x `cones`). Reverse up and
   hitch it before `/tg go`: your car is put into auto-couple mode, so reversing onto the

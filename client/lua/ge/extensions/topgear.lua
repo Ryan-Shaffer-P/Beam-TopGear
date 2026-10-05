@@ -1463,6 +1463,12 @@ obj:queueGameEngineLua("extensions.topgear.onCargo(" .. string.format("%%.3f", #
 ]==]
 local function measureCargo()
   if not (activeTrailer and activeLoad) then return end
+  if activeLoad.wreck then   -- a trailer with no load: how intact it is (1 - its damage / the wreck threshold)
+    local okD, dmg = pcall(getDamage, activeTrailer)
+    if okD and tonumber(dmg) then cargoValue = math.max(0, 1 - tonumber(dmg) / activeLoad.wreck)
+    else activeTrailer, activeLoad, cargoValue = nil, nil, nil end
+    return
+  end
   local items = {}
   for _, name in ipairs(activeLoad) do items[#items + 1] = string.format("[%q]=true", name) end
   local ok = pcall(function() activeTrailer:queueLuaCommand(string.format(CARGO_VLUA, "{" .. table.concat(items, ",") .. "}")) end)
@@ -1594,7 +1600,7 @@ local function updateTrailer(dt)
     if t.test then spawnedTest[#spawnedTest + 1] = job.trailer end
     if type(t.setup) == "table" then
       -- the load is part of the trailer: nothing to place, just couple and measure it once it settles
-      activeTrailer, activeLoad, cargoValue = job.trailer, t.setup.loadParts or {}, nil
+      activeTrailer, activeLoad, cargoValue = job.trailer, tonumber(t.wreck) and { wreck = tonumber(t.wreck) } or (t.setup.loadParts or {}), nil
       couple(car, job.trailer)
       job.stage, job.timer = "measure", 3
       return
@@ -1628,6 +1634,11 @@ local function updateTrailer(dt)
   elseif job.stage == "measure" then
     measureCargo()
     job.stage, job.timer = "measured", 0.5
+  elseif job.stage == "measured" and tonumber(t.wreck) then   -- (no load: delivered in one piece)
+    if TriggerServerEvent then
+      TriggerServerEvent("tg_trailer_report", jsonEncode({ ok = true, trailer = true, prebuilt = true, intact = true, load = cargoValue }))
+    end
+    trailerJob = nil
   elseif job.stage == "measured" then
     local hasLoad = nil
     pcall(function()
@@ -2987,7 +2998,13 @@ Tabs.courseBuilder = function(c)
       if imGet("SetNextItemWidth") then pcall(im.SetNextItemWidth, 110) end
       im.InputInt("##tl", tl); same(); button("Set Time##settime", "settime " .. target .. " " .. tl[0])
       if e.solo then Tabs.help("Per run: one at a time, each driver gets this long.") end
-      if e.type == "trailer" then button("Test trailer spawn##tt", "trailertest"); same(); button("Remove test trailer##tto", "trailertest off") end
+      if e.type == "trailer" then
+        txt("Trailer: " .. tostring(c.trailer))
+        Tabs.help("Set trailer saves the trailer you're sitting in, exactly as built. With a load fitted, the 70 load points are\n" ..
+          "the share of the load kept; with no load (a caravan), how undamaged it arrives. /tg trailercones goes back to cones.")
+        button("Test trailer spawn##tt", "trailertest"); same(); button("Remove test trailer##tto", "trailertest off"); same()
+        button("Set trailer (the one I'm in)##tsave", "trailersave")
+      end
     end)
   end
 

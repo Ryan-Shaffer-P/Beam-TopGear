@@ -230,7 +230,10 @@ local DEFAULT_CONFIG = {
     trailer = { setup = nil,   -- saved with /tg trailersave: a prebuilt trailer whose load is part of it (replaces the cones)
                 loadWeight = 0.7, speedWeight = 0.3,   -- score out of 100: share of the load kept + speed vs the fastest
                 trailerModel = "tsfb", cargoModel = "cones", cargoCount = 5,
-                cargoRadius = 5, hitchRadius = 15, trailerBack = 7, cargoSpacing = 0.7, cargoHeight = 0.8 },
+                cargoRadius = 5, hitchRadius = 15, trailerBack = 7, cargoSpacing = 0.7, cargoHeight = 0.8,
+                -- a saved trailer with no load (a caravan): delivered in one piece - the 70 is the share still intact,
+                -- 1 - its damage / wreckDamage (0.9.13)
+                wreckDamage = 10000 },
   },
 
   finale = { name = "The Test Track", radius = 25, timeLimit = 1200, via = {} },
@@ -645,7 +648,8 @@ end
 -- trailer event vehicles ---------------------------------------------------------
 local function trailerPayload(tc)
   if type(tc.setup) == "table" and tc.setup.model then
-    return { trailer = tc.setup.model, setup = tc.setup, count = 0, back = tc.trailerBack or 7 }
+    return { trailer = tc.setup.model, setup = tc.setup, count = 0, back = tc.trailerBack or 7,
+             wreck = tc.setup.mode == "damage" and (tonumber(tc.wreckDamage) or 10000) or nil }
   end
   return { trailer = tc.trailerModel, cargo = tc.cargoModel, count = tc.cargoCount or 5,
            back = tc.trailerBack or 7, spacing = tc.cargoSpacing or 0.7, height = tc.cargoHeight or 0.8 }
@@ -656,7 +660,7 @@ local function requestTrailer(p)
   local tc = (cfg.eventTypes or {}).trailer or {}
   local payload = trailerPayload(tc)
   p.spawnAllow = { untilT = now() + 30, trailer = payload.trailer, cargo = payload.cargo, count = payload.count or 0 }
-  p.eventVeh = { cargo = {}, prebuilt = payload.setup ~= nil }
+  p.eventVeh = { cargo = {}, prebuilt = payload.setup ~= nil, intact = payload.wreck ~= nil }
   p.cargoFrac = nil
   MP.TriggerClientEvent(p.pid, "tg_trailer", Util.JsonEncode(payload))
   say(p.pid, "Your trailer and its load are being dropped behind you - reverse up, hitch it, and don't lose the cargo. " ..
@@ -2114,6 +2118,7 @@ local function tickRoute(p, e)
         local withYou = tpos and p.pos and dist(tpos, p.pos) <= (tc.hitchRadius or 15)
         local frac = withYou and (p.cargoFrac or 1) or 0
         p.run.cargoFrac = frac
+        p.run.intact = p.eventVeh.intact or nil   -- (no load: the share is how much of the trailer is intact)
         p.run.cargoLeft, p.run.cargoTotal = frac * (tc.cargoCount or 5), (tc.cargoCount or 5)
       else
         p.run.cargoLeft, p.run.cargoTotal = countCargo(p)
@@ -2122,7 +2127,8 @@ local function tickRoute(p, e)
     endRun(p)
     local cargoTxt = ""
     if e.type == "trailer" then
-      cargoTxt = p.run.cargoFrac and string.format(" with %d%% of the load", math.floor(p.run.cargoFrac * 100 + 0.5))
+      cargoTxt = p.run.cargoFrac and string.format(p.run.intact and " with the trailer %d%% intact" or " with %d%% of the load",
+        math.floor(p.run.cargoFrac * 100 + 0.5))
                  or string.format(" with %d/%d cargo", p.run.cargoLeft, p.run.cargoTotal)
     end
     if e.type == "rpc" then sayAll(string.format("%s's best lap: %s", p.name, fmtTime(p.run.time)))
@@ -2356,7 +2362,7 @@ local function finalizeScore(p, e, ctx)
     local pts = loadPts + speedPts
     r.score = -pts + t * 1e-9   -- higher points win; on an exact tie the faster run does
     local pct = math.floor(frac * 100 + 0.5)
-    local load = r.cargoFrac and string.format("%d%% of the load", pct)
+    local load = r.cargoFrac and string.format(r.intact and "trailer %d%% intact" or "%d%% of the load", pct)
                  or string.format("%d/%d cargo", math.floor(r.cargoLeft or 0), math.floor(r.cargoTotal or 0))
     r.perf = string.format("%s, %s: load %.1f + speed %.1f = %.1f pts", fmtTime(t), load, loadPts, speedPts, pts)
     r.short = string.format("%.1f pts (%d%%, %s)", pts, pct, fmtTime(t))
@@ -4710,9 +4716,12 @@ function TG_onTrailerSave(pid, data)
   if not ok or type(t) ~= "table" then return end
   log("trailersave from " .. tostring(MP.GetPlayerName(pid)) .. ": " .. tostring(data):sub(1, 600))
   if t.err or not t.model then say(pid, "Couldn't read the trailer: " .. tostring(t.err or "no vehicle")); return end
-  if not t.loadPart then
-    say(pid, "Not saved: no load found on your " .. tostring(t.model) .. ". Pick one in the parts menu's Load slot first.")
-    say(pid, "Slots I can see: " .. table.concat(t.slots or {}, ", "))
+  if not t.loadPart then   -- no load (a caravan): delivered in one piece - scored on how undamaged it arrives
+    cfg.eventTypes.trailer.setup = { model = t.model, mode = "damage", loadParts = {}, parts = t.parts, vars = t.vars }
+    saveConfig()
+    say(pid, string.format("Saved your %s - it has no load, so it's delivered in one piece: the 70 load points are how undamaged " ..
+      "it arrives (a wreck at %s damage). /tg trailertest to check it; /tg trailercones to go back.", tostring(t.model),
+      tostring(typeCfg("trailer").wreckDamage or 10000)))
     return
   end
   cfg.eventTypes.trailer.setup = { model = t.model, loadSlot = t.loadSlot, loadPart = t.loadPart, loadParts = t.loadParts or { t.loadPart },
@@ -4738,7 +4747,7 @@ ADMIN_CMDS.trailertest = function(pid, _, args)
   payload.test = true
   MP.TriggerClientEvent(pid, "tg_trailer", Util.JsonEncode(payload))
   if payload.setup then
-    say(pid, "Spawning your saved trailer (" .. tostring(payload.trailer) .. " with its load) behind you...")
+    say(pid, "Spawning your saved trailer (" .. tostring(payload.trailer) .. (payload.wreck and ", no load - in one piece" or " with its load") .. ") behind you...")
   else
     say(pid, string.format("Spawning a test %s with %d x %s behind you (no challenge needed)...", tostring(tc.trailerModel),
       tc.cargoCount or 5, tostring(tc.cargoModel)))
@@ -4750,6 +4759,11 @@ function TG_onTrailerReport(pid, data)
   local ok, t = pcall(Util.JsonDecode, data)
   if not ok or type(t) ~= "table" then return end
   log(string.format("trailer for %s: %s", tostring(MP.GetPlayerName(pid)), tostring(data)))
+  if t.ok and t.prebuilt and t.intact then
+    say(pid, string.format("Trailer OK - deliver it in one piece: no load, so it's scored on how undamaged it arrives%s.",
+      tonumber(t.load) and string.format(" (%d%% intact now)", math.floor(t.load * 100 + 0.5)) or ""))
+    return
+  end
   if t.ok and t.prebuilt and t.hasLoad == false then
     say(pid, "The trailer spawned WITHOUT its load on this BeamNG version - send the admin the [TopGear] trailer line from the server console.")
     return
@@ -5162,7 +5176,14 @@ local function buildUi(pid)
     table.sort(lib, function(a, b) return a.name:lower() < b.name:lower() end)
     local types = {}
     for i, t in ipairs(TYPE_ORDER) do types[i] = { id = t, label = TYPE_INFO[t].label } end
+    local tset = typeCfg("trailer").setup
+    local trailerInfo = (type(tset) == "table" and tset.model)
+      and string.format("%s - %s", tset.model, tset.mode == "damage" and "no load: delivered in one piece (scored on damage)"
+                                               or ("built-in load " .. tostring(tset.loadPart)))
+      or string.format("%s with %d x %s (loose cargo)", tostring(typeCfg("trailer").trailerModel), typeCfg("trailer").cargoCount or 5,
+                       tostring(typeCfg("trailer").cargoModel))
     d.course = { events = ev, problems = #validate(nil, nil, true), library = lib, active = cfg.activeCourse, dirty = courseDirty,
+                 trailer = trailerInfo,
                  workshops = #workshopSpots(),
                  types = types, workshopEvery = tonumber(cfg.workshopEvery) or 2, idle = game.phase == "idle",
                  finale = { name = cfg.finale.name, pos = v3(cfg.finale.pos) ~= nil, via = #(cfg.finale.via or {}) } }

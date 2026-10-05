@@ -103,3 +103,29 @@ t.test("saved trailer events get the new description; custom ones are left alone
   t.eq(saved.eventTypes.trailer.loadWeight, 0.7, "new weights added to an existing config")
   w:assertClean()
 end)
+
+t.test("a trailer with no load (a caravan): saved as is, delivered in one piece - the 70 is how intact it arrives", function()
+  -- saving: sit in a trailer with nothing in a load slot and press Set trailer (/tg trailersave)
+  local w0 = World.new({ files = F.files(trailerCourse()) })
+  local A0 = w0:join("Alice")
+  w0:buy(A0, "tsfb", "base"); w0:step(1)
+  w0:chat(A0, "/tg trailersave"); w0:step(1)
+  t.ok(w0:chatHas(A0, "Saved your tsfb - it has no load, so it's delivered in one piece"), "saved, not refused")
+  t.eq(w0:serverConfig().eventTypes.trailer.setup.mode, "damage")
+
+  local setup = { model = "tsfb", mode = "damage", parts = { tsfb_straps = "" }, vars = {}, loadParts = {} }
+  local w = World.new({ files = F.files(trailerCourse({ eventTypes = { trailer = { setup = setup } } })) })
+  local A, B, C = w:join("Alice"), w:join("Bob"), w:join("Carol")
+  w:chat(A, "/tg start")
+  lineUp(w, A, B, C)
+  t.ok(w:chatHas(A, "Trailer OK - deliver it in one piece: no load, so it's scored on how undamaged it arrives (100% intact now)."))
+  for _, v in pairs(A.vehicles) do if v.model == "tsfb" then v.damage = 4000 end end   -- Alice clips a kerb with it
+  w:step(2.5)
+  w:driveAll({ { A, p(900), 40 }, { B, p(900), 25 }, { C, p(900), 20 } })
+  w:waitFor(function() return w:state(A).phase ~= "event" end, 10, "results")
+  -- Alice: 1 - 4000/10000 = 60% intact -> 42.0 + fastest 30.0 = 72.0; Bob and Carol: 70 + their speed share
+  t.match(resultLine(A, "Alice"), "trailer 60%% intact: load 42%.0 %+ speed 30%.0 = 72%.0 pts")
+  t.match(resultLine(A, "Bob"), "%] 1st .*trailer 100%% intact: load 70%.0")
+  t.ok(w:chatHas(A, "Alice crosses the line! ") and w:chatHas(A, "with the trailer 60% intact"))
+  w:assertClean()
+end)
