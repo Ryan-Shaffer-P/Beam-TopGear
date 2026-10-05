@@ -125,10 +125,10 @@ local DEFAULT_CONFIG = {
     clips = { "baby-jesus", "clarkson-poop-shot-out", "clarksooon", "grunt-yes", "happy-yes", "james-may-says-cheese",
               "jeremy-clarkson-oh-for-gods-sake", "jeremy-clarkson-yeeeeeesss", "oh-cock-james-may", "oh-for-gods-sake",
               "oh-no-anyway", "poweeerr-jeremy-clarkson", "speed-and-power", "this-is-mp3", "top-gear-theme-intro", "yes-no-yes",
-              "workshop-intro" },
+              "workshop-intro", "lights-out" },
     events = {
       start      = { to = "all",    clips = { "top-gear-theme-intro" } },                          -- challenge starts
-      go         = { to = "all",    clips = { "speed-and-power", "poweeerr-jeremy-clarkson" } },   -- GO (each run in time trial mode)
+      go         = { to = "all",    clips = { "lights-out" } },                                    -- GO: the lights go out (each run in time trial mode)
       finish     = { to = "self",   clips = { "happy-yes", "grunt-yes" } },                        -- you complete a run
       win        = { to = "self",   clips = { "jeremy-clarkson-yeeeeeesss" } },                    -- you win an event
       winOthers  = { to = "others", clips = { "yes-no-yes" } },                                    -- ...and everyone else hears
@@ -428,6 +428,18 @@ local function loadConfig()
       cfg.migrations.alignmentPull3, changed = true, true
       for _, f in ipairs((cfg.faults or {}).list or {}) do
         if f.id == "alignment" and f.pull == 0.018 then f.pull = 0.028 end
+      end
+    end
+    if not cfg.migrations.lightsOut then   -- 0.9.13, Ryan: a lights-out clip as the start lights go out (GO)
+      cfg.migrations.lightsOut, changed = true, true
+      local snd = cfg.sounds or {}
+      local have = false
+      for _, c in ipairs(snd.clips or {}) do if c == "lights-out" then have = true end end
+      if snd.clips and not have then snd.clips[#snd.clips + 1] = "lights-out" end
+      local go = (snd.events or {}).go
+      if type(go) == "table" and type(go.clips) == "table" and #go.clips == 2 and go.clips[1] == "speed-and-power"
+         and go.clips[2] == "poweeerr-jeremy-clarkson" then
+        go.clips = { "lights-out" }   -- (only the old default; an admin's own choice is kept)
       end
     end
     if not cfg.migrations.workshopIntro then   -- 0.9.13, Ryan: a workshop-intro clip when the workshop opens

@@ -285,7 +285,7 @@ Top Gear clips play at key moments. Who hears each one:
 | Moment | Clip(s) (one picked at random) | Who hears it |
 |---|---|---|
 | Challenge starts | top-gear-theme-intro | everyone |
-| GO (every run in time trial mode) | speed-and-power, poweeerr-jeremy-clarkson | everyone |
+| GO - the start lights go out (every run in time trial mode) | lights-out | everyone |
 | You complete a run | happy-yes, grunt-yes | you |
 | You win an event | jeremy-clarkson-yeeeeeesss | you |
 | ...someone else wins | yes-no-yes | everyone else |

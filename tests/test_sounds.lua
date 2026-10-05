@@ -29,7 +29,7 @@ end
 t.test("every configured clip ships in the client mod and the zip", function()
   local w = World.new()
   local clips = w:serverConfig().sounds.clips
-  t.eq(#clips, 17)
+  t.eq(#clips, 18)
   local zf = assert(io.open("Resources/Client/topgear.zip", "rb"))
   local zip = zf:read("*a")   -- a zip keeps its file names as plain text
   zf:close()
@@ -55,7 +55,7 @@ t.test("start, GO, finish, win: the right people hear the right clips", function
   clear(A, B, S)
   w:chat(A, "/tg go")
   w:waitFor(function() return w:state(A).phase == "event" end, 10, "GO")
-  for _, pl in ipairs({ A, B, S }) do t.ok(has(w:heard(pl), "speed-and-power", "poweeerr-jeremy-clarkson"), pl.name .. " hears GO") end
+  for _, pl in ipairs({ A, B, S }) do t.ok(has(w:heard(pl), "lights-out"), pl.name .. " hears the lights go out at GO") end
 
   clear(A, B, S)
   w:drive(A, p(900), 40)
@@ -185,7 +185,7 @@ t.test("sound config: moments and clips can be changed or switched off in config
   w:resetCar(B)
   t.ok(has(w:heard(B), "oh-for-gods-sake", "jeremy-clarkson-oh-for-gods-sake"), "Bob hears his own fine")
   t.eq(#w:heard(A), 0, "changed audience: only the driver it's about")
-  t.eq(#w:serverConfig().sounds.events.go.clips, 2, "the other defaults are kept")
+  t.eq(w:serverConfig().sounds.events.go.clips[1], "lights-out", "the other defaults are kept")
 
   local cfg2 = oneRace(); cfg2.sounds = { enabled = false }
   local w2 = World.new({ files = F.files(cfg2) })
@@ -226,4 +226,18 @@ t.test("the workshop-intro clip plays for everyone when a workshop opens; saved 
   t.eq(sc.events.workshop.clips[1], "workshop-intro")
   t.ok(has(sc.clips, "workshop-intro"), "in the clip list (the soundboard too)")
   w:assertClean()
+end)
+
+t.test("saved configs: the old GO clips move to lights-out once (an admin's own choice kept)", function()
+  local function load(goClips)
+    local cfg = oneRace(); cfg.sounds = World.new():serverConfig().sounds
+    for i = #cfg.sounds.clips, 1, -1 do if cfg.sounds.clips[i] == "lights-out" then table.remove(cfg.sounds.clips, i) end end
+    cfg.sounds.events.go.clips = goClips
+    return World.new({ files = F.files(cfg) }):serverConfig().sounds
+  end
+  local sc = load({ "speed-and-power", "poweeerr-jeremy-clarkson" })
+  t.eq(#sc.events.go.clips, 1); t.eq(sc.events.go.clips[1], "lights-out")
+  t.ok(has(sc.clips, "lights-out"), "in the clip list (the soundboard too)")
+  sc = load({ "baby-jesus" })
+  t.eq(sc.events.go.clips[1], "baby-jesus", "a custom GO clip isn't touched")
 end)
