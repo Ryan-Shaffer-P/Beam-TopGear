@@ -189,8 +189,8 @@ Race / Time trial**) or with `/tg setmode <n> race|trial`. The table shows each 
   **The server needs `MaxCars` of at least 2** (the runner has their own car plus the RPC for a
   moment); if the car doesn't appear within 20 s that driver can't run (the chat says why) and the
   next one goes.
-- **Slalom vs race:** a slalom runs one at a time, its gates are tight (4 m, vs 12 m race
-  checkpoints), and a missed gate costs 5 s but you carry on; in a race you must hit every
+- **Slalom vs race:** a slalom runs one at a time, its gates are tight (4 m, vs 5 m race
+  checkpoints - `defaults.cpRadius`; 12 m until 0.9.13), and a missed gate costs 5 s but you carry on; in a race you must hit every
   checkpoint in order or turn back. Place slalom gates close together in a weave.
 - **Trailer, prebuilt load (recommended):** build the trailer once in game - spawn the small
   flatbed (`tsfb`), pick a load in the parts menu's Load slot and remove the straps - then, while

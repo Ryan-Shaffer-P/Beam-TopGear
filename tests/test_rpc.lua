@@ -51,8 +51,16 @@ t.test("star in a reasonably priced car: one at a time, a fresh RPC each, best o
   t.ok(w:chatHas(A, "Lap 1/3 done:"))
   lap(w, A, 50)     -- ~13 s: the best
   lap(w, A, 30)     -- ~21 s
-  t.ok(w:chatHas(A, "Alice: lap 2 - 0:13.25"))   -- (the line counts within 12 m: each lap starts where the last was seen)
-  t.ok(w:chatHas(A, "Alice's best lap: 0:13.25"), "the best lap counts, not the total")
+  -- (exact times depend on the harness's 4 Hz positions and the checkpoint radius: check the rule, not the digits)
+  local laps = {}
+  for _, l in ipairs(A.chat) do
+    local n, tm = l:match("Alice: lap (%d) %- (%d+:%d%d%.%d%d)")
+    if n then laps[tonumber(n)] = tm end
+  end
+  t.ok(laps[1] and laps[2] and laps[3], "three timed laps")
+  t.ok(laps[2] < laps[1] and laps[2] < laps[3], "lap 2 (the quickest drive) is the best: " .. table.concat(laps, ", "))
+  t.ok(w:chatHas(A, "Alice's best lap: " .. laps[2]), "the best lap counts, not the total")
+  local aliceBest = laps[2]
   t.eq(ownA.pos.x, parkedAt, "her own car never moved")
 
   w:waitFor(function() return w:sawMessage(B, "Bob: GO!") end, 30, "Bob's GO")
@@ -66,7 +74,7 @@ t.test("star in a reasonably priced car: one at a time, a fresh RPC each, best o
   w:waitFor(function() return w:state(A).phase ~= "event" end, 15, "the results")
   t.eq(B.current, ownB, "Bob is back in his own car")
   t.ok(w:chatHas(A, "1st  Bob - best lap 0:1"), "Bob's quicker lap wins")
-  t.ok(w:chatHas(A, "2nd  Alice - best lap 0:13.25"))
+  t.ok(w:chatHas(A, "2nd  Alice - best lap " .. aliceBest))
   t.ok(w:chatHas(A, "(3 laps timed)"))
   t.noLine(A.chat, "illegal reset")
   t.eq(w:state(A).cash, 10000 - 5000 + 500 + 3000, "nothing charged for the RPC: car, 1st to arrive, 2nd place")

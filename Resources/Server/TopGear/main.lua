@@ -148,7 +148,7 @@ local DEFAULT_CONFIG = {
   workshopEvery = 2,              -- a workshop after every Nth event (never after the last one); 0 = none
 
   defaults = {
-    startRadius = 20, cpRadius = 12, viaRadius = 25,
+    startRadius = 20, cpRadius = 5, viaRadius = 25,   -- (checkpoints: 12 m until 0.9.13 - Ryan: tighter)
     countdown = 5, falseStartPenalty = 5, eventTimeLimit = 600,
     readyCountdown = 5,   -- seconds from "everyone's ready" at the dealership to the dealership closing (leg 1)
     soloGo = true,        -- time trial mode: each driver after the first starts when GO is pressed (by them or an admin)
@@ -428,6 +428,10 @@ local function loadConfig()
       for _, f in ipairs((cfg.faults or {}).list or {}) do
         if f.id == "alignment" and f.pull == 0.015 then f.pull = 0.018 end
       end
+    end
+    if not cfg.migrations.cpRadius5 then   -- 0.9.13, Ryan: checkpoints 5 m (were 12 m); an admin's own value is kept
+      cfg.migrations.cpRadius5, changed = true, true
+      if cfg.defaults and cfg.defaults.cpRadius == 12 then cfg.defaults.cpRadius = 5 end
     end
     if not cfg.migrations.alignmentPull3 then   -- 0.9.13, Ryan: +1 point (Beater 1.8% -> 2.8%; Death Trap 3.64%)
       cfg.migrations.alignmentPull3, changed = true, true

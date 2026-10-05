@@ -74,3 +74,13 @@ t.test("Quick travel: your car to the event's start, facing the first checkpoint
   t.ok(w:chatHas(A, "event 3 has no start yet."))
   w:assertClean()
 end)
+
+t.test("checkpoints are 5 m (12 m until 0.9.13): saved configs at 12 move once, an admin's own value stays", function()
+  t.eq(World.new():serverConfig().defaults.cpRadius, 5)
+  local function load(r)
+    local cfg = course(); cfg.defaults.cpRadius = r
+    return World.new({ files = F.files(cfg) }):serverConfig().defaults.cpRadius
+  end
+  t.eq(load(12), 5)
+  t.eq(load(8), 8, "a custom radius isn't touched")
+end)
