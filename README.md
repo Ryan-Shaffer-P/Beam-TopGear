@@ -136,7 +136,11 @@ Race / Time trial**) or with `/tg setmode <n> race|trial`. The table shows each 
   it up so you can drag it by its title bar - the game remembers where - and `/tg flag` again hides
   it. `/tg flagtest` shows a sample.
 - **Time trial mode:** runners go in the order they arrived, each with their own countdown;
-  everyone else waits at the start. The time limit is per run. An admin's `/tg next` ends just the
+  everyone else waits at the start. **Each driver starts with a GO:** the event's GO button says who goes
+  first ("GO: Bob") and starts their countdown; after that, every driver waits until **their** GO is pressed
+  - the button on their Status tab reads "GO: Alice" - by them, or by an admin (Admin tab, Challenge box),
+  and everyone else sees "Waiting for Alice to press GO". In Star in a reasonably priced car, that GO is what
+  brings their car. (`defaults.soloGo`: false = the next driver starts by themselves.) The time limit is per run. An admin's `/tg next` ends just the
   current run. The mode is stored as `"solo": true/false` on the event in config.json. An event's
   mode can't be changed while that event is counting down or running.
 - **Parking:** a course of one or more bays, parked in the order they were added. Add each bay by

@@ -151,6 +151,7 @@ local DEFAULT_CONFIG = {
     startRadius = 20, cpRadius = 12, viaRadius = 25,
     countdown = 5, falseStartPenalty = 5, eventTimeLimit = 600,
     readyCountdown = 5,   -- seconds from "everyone's ready" at the dealership to the dealership closing (leg 1)
+    soloGo = true,        -- time trial mode: each driver after the first starts when GO is pressed (by them or an admin)
   },
 
   dealer = {
@@ -1363,7 +1364,9 @@ local function currentTarget(p)
   elseif ph == "event" and e and (p.run.status == "waiting" or (p.run.status == "staged" and isSolo(e))) then
     local runner = game.solo and game.solo.runner
     return { pos = e.start, r = e.startRadius or cfg.defaults.startRadius,
-             label = p.run.status == "staged" and "Your run - get ready" or ("Wait at the start" .. (runner and (" - " .. runner.name .. " is running") or "")) }
+             label = (p.run.status == "staged" and game.solo and game.solo.waitGo) and "Your turn - press GO when ready"
+               or p.run.status == "staged" and "Your run - get ready"
+               or ("Wait at the start" .. (runner and (" - " .. runner.name .. ((game.solo and game.solo.waitGo) and "'s turn (waiting for GO)" or " is running")) or "")) }
   elseif ph == "event" and e and p.run.status == "running" then
     if e.type == "parking" then
       local bays = eventBays(e)
@@ -1811,6 +1814,19 @@ end
 -- spawned by their own game and allowed here; their own car stays parked, untouched (damage, problems, parts).
 -- p.rpc = { vid, want, allowUntil, model, removing }. Positions come from the RPC while p.rpc is set.
 local RPC = {}
+-- a time trial turn begins (its GO pressed, or straight away): the countdown - or for an RPC, the car first
+function RPC.beginTurn(p, e)
+  local s = game.solo
+  s.waitGo = nil
+  if e.type == "rpc" then   -- the countdown starts once their car is on the line
+    s.countEnd = nil
+    RPC.request(p, e)
+    sayAll(string.format("%s's reasonably priced car is on its way to the start line.", p.name))
+  else
+    s.countEnd, s.countTotal, s.lastCount = now() + cfg.defaults.countdown, nil, nil
+  end
+  pushAll()
+end
 function RPC.car(e)   -- model, config name
   local tc = typeCfg("rpc")
   if e and e.rpcModel then return e.rpcModel, e.rpcConfig end
@@ -1941,7 +1957,7 @@ beginCountdown = function()
     for i, p in ipairs(order) do names[i] = p.name end
     game.solo = { order = order, idx = 0 }
     sayAll(string.format("%s!%s One at a time - running order: %s.", e.name, desc, table.concat(names, ", ")))
-    nextSoloRunner()
+    nextSoloRunner(true)   -- (this GO is the first driver's)
   else
     game.phase, game.countdownEnd, game.lastCount = "countdown", now() + cfg.defaults.countdown, nil
     sayAll(string.format("%s!%s Starting in %s seconds...", e.name, desc, tostring(cfg.defaults.countdown)))
@@ -1949,7 +1965,9 @@ beginCountdown = function()
   pushAll()
 end
 
-nextSoloRunner = function()
+-- go = true: the next driver starts right away (the event's own GO); otherwise, with defaults.soloGo, they wait
+-- for GO - pressed by them or an admin (PLAYER_CMDS.go)
+nextSoloRunner = function(go)
   local s = game.solo
   if not s then return false end
   if s.runner and s.runner.rpc then RPC.remove(s.runner) end
@@ -1958,17 +1976,19 @@ nextSoloRunner = function()
     local p = s.order[s.idx]
     if not p then s.runner = nil; pushAll(); return false end
     if p.run.status == "waiting" and racing(p) then
-      s.runner, s.countEnd, s.countTotal, s.lastCount = p, now() + cfg.defaults.countdown, nil, nil
+      s.runner, s.countEnd, s.countTotal, s.lastCount = p, nil, nil, nil
       p.run.status = "staged"
       local nxt = s.order[s.idx + 1]
-      sayAll(string.format("%s is up%s.", p.name, nxt and (" - " .. nxt.name .. " is next") or " - last run"))
       local e = curEvent()
-      if e and e.type == "rpc" then   -- the countdown starts once their car is on the line
-        s.countEnd = nil
-        RPC.request(p, e)
-        sayAll(string.format("%s's reasonably priced car is on its way to the start line.", p.name))
+      if go or cfg.defaults.soloGo == false then
+        sayAll(string.format("%s is up%s.", p.name, nxt and (" - " .. nxt.name .. " is next") or " - last run"))
+        RPC.beginTurn(p, e)
+      else
+        s.waitGo = true
+        sayAll(string.format("%s is up%s - %s presses GO when ready.", p.name, nxt and (" (" .. nxt.name .. " next)") or " (last run)", p.name))
+        bigAll(p.name .. " is up - GO when ready")
+        pushAll()
       end
-      pushAll()
       return true
     elseif p.run.status == "waiting" then
       p.run.status = "dns"
@@ -2213,7 +2233,8 @@ local function tickSolo(e)
   if not p then return closeWhenSettled() end
   local st = p.run.status
   if st == "staged" then
-    if not racing(p) then p.run.status = "dnf"; nextSoloRunner(); return end
+    if not racing(p) then p.run.status = "dnf"; s.waitGo = nil; nextSoloRunner(); return end
+    if s.waitGo then return end   -- (waiting for their GO)
     if e.type == "rpc" then
       RPC.tickRunner(p, e)
       if p.run.status ~= "staged" then nextSoloRunner(); return end
@@ -3525,8 +3546,18 @@ function TG_onDiag(pid, data)
   for _, e in ipairs(t.errors or {}) do say(pid, "Client error: " .. tostring(e)) end
 end
 
-PLAYER_CMDS.go = function(pid)
+PLAYER_CMDS.go = function(pid, name)
   local p = playerByPid(pid)
+  local s = game.solo
+  if game.phase == "event" and s and s.runner and s.waitGo then   -- a time trial: the waiting driver's GO
+    local r = s.runner
+    if p ~= r and not isAdmin(name or MP.GetPlayerName(pid)) then
+      say(pid, string.format("It's %s's turn - %s presses GO (or an admin).", r.name, r.name)); return
+    end
+    sayAll(p == r and string.format("%s - GO!", r.name) or string.format("%s starts %s's run.", p and p.name or name, r.name))
+    RPC.beginTurn(r, curEvent())
+    return
+  end
   if not p then say(pid, "You're not in the challenge."); return end
   if game.phase == "countdown" or game.phase == "event" then say(pid, "It's already under way!"); return end
   if game.phase ~= "travel" then say(pid, "There's no event waiting to start."); return end
@@ -4963,6 +4994,9 @@ local function buildUi(pid)
     workshopMinutes = cfg.workshop.minutes,
     gamePrices = cfg.dealer.useGamePrices and true or false, allHere = game.allHere and true or false,
     readyGo = game.dealerGo and math.max(0, math.ceil(game.dealerGo - now())) or nil,
+    -- time trial: the driver waiting for their GO, and whether this player may press it (them, or an admin)
+    soloWait = (game.phase == "event" and game.solo and game.solo.waitGo and game.solo.runner)
+      and { name = game.solo.runner.name, canGo = (p == game.solo.runner) or isAdmin(name) } or nil,
     traffic = inTrafficMode(name),
     soundsOn = not soundsOff[name], soundClips = (cfg.sounds or {}).clips or {},
     shop = p and {   -- the Parts tab prices options exactly the way TG_onRebuild bills them
@@ -5019,6 +5053,14 @@ local function buildUi(pid)
     if q.pid then nIn = nIn + 1; if q.ready then nReady = nReady + 1 end end
   end
   d.ready = { n = nReady, total = nIn }
+  -- the event's own GO in time trial mode starts the first driver: its button says who (the first to arrive)
+  if game.phase == "travel" and curEvent() and isSolo(curEvent()) then
+    local first
+    for _, q in pairs(game.players) do
+      if racing(q) and q.leg and q.leg.arrived and (not first or (q.arrivalRank or 99) < (first.arrivalRank or 99)) then first = q end
+    end
+    d.goName = first and first.name or nil
+  end
   if d.admin then
     local clist, cnames = {}, {}
     for n in pairs(cfg.dealer.classes or {}) do cnames[#cnames + 1] = n end

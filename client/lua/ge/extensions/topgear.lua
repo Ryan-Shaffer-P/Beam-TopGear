@@ -1994,6 +1994,7 @@ end
 local function drawAdminControls(d)
   if not d.admin then return end
   Tabs.box("Challenge", "admchallenge", function()
+    if d.soloWait then bigButton("GO: " .. d.soloWait.name, "go") end   -- (an admin can start the waiting driver)
     button("Start", "start"); same(); button("Start (unfinished course)", "start force"); same()
     button("Next phase", "next"); same(); confirmButton("Stop", "stop", "stop")
     Tabs.help("Next phase: closes the dealership, forces a start, ends a run or event, or closes a workshop.\nStop needs two clicks.")
@@ -2075,8 +2076,11 @@ local function drawStatus(d)
       if not me.arrived then txt("Drive to the start - follow the arrows.")
       elseif d.allHere then
         colored(0.4, 1, 0.4, "Everyone's here!")
-        bigButton("GO! Start the countdown", "go")
+        bigButton(d.goName and ("GO: " .. d.goName) or "GO! Start the countdown", "go")   -- (time trial: who goes first)
       else txt("Waiting for everyone to arrive...") end
+    elseif d.phase == "event" and d.soloWait then   -- time trial: the next driver starts when GO is pressed
+      if d.soloWait.canGo then bigButton("GO: " .. d.soloWait.name, "go")
+      else colored(1, 0.85, 0.3, "Waiting for " .. d.soloWait.name .. " to press GO.") end
     elseif d.phase == "workshop" then
       for _, f in ipairs((d.faults or {}).mine or {}) do
         button("Fix this problem: " .. f.name .. " (" .. commas(d.faults.fix) .. ")##fix_" .. f.id, "fix " .. f.id)
