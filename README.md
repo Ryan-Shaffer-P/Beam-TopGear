@@ -293,7 +293,7 @@ Top Gear clips play at key moments. Who hears each one:
 | Someone is fined for an illegal reset | oh-for-gods-sake, jeremy-clarkson-oh-for-gods-sake | everyone |
 | A crash (1,500+ damage at once) | oh-cock-james-may, clarkson-poop-shot-out | players within 100 m |
 | Fastest through the speed trap so far | poweeerr-jeremy-clarkson | everyone |
-| Workshop opens | james-may-says-cheese | everyone |
+| Workshop opens | workshop-intro | everyone |
 | The overall winner is announced | top-gear-theme-intro | everyone |
 
 - **`/tg sounds off`** / **`on`** (or the **Sounds** button in the Settings tab) mutes them for you.

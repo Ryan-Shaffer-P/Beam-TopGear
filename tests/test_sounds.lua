@@ -29,7 +29,7 @@ end
 t.test("every configured clip ships in the client mod and the zip", function()
   local w = World.new()
   local clips = w:serverConfig().sounds.clips
-  t.eq(#clips, 16)
+  t.eq(#clips, 17)
   local zf = assert(io.open("Resources/Client/topgear.zip", "rb"))
   local zip = zf:read("*a")   -- a zip keeps its file names as plain text
   zf:close()
@@ -205,4 +205,25 @@ t.test("saved configs with the old champion clips move to the theme once (an adm
   t.eq(#c, 1); t.eq(c[1], "top-gear-theme-intro")
   c = load({ "baby-jesus" })
   t.eq(#c, 1); t.eq(c[1], "baby-jesus", "a custom clip isn't touched")
+end)
+
+t.test("the workshop-intro clip plays for everyone when a workshop opens; saved configs move over once", function()
+  local cfg = oneRace(); cfg.workshopEvery = 1
+  local w = World.new({ files = F.files(cfg) })
+  local A, B = w:join("Alice"), w:join("Bob")
+  startAndBuy(w, A, B)
+  w:driveAll({ { A, p(500), 40 }, { B, p(500), 35 } }); w:chat(A, "/tg go")
+  w:waitFor(function() return w:state(A).phase == "event" end, 10, "GO")
+  clear(A, B)
+  w:driveAll({ { A, p(900), 40 }, { B, p(900), 30 } })
+  w:waitFor(function() return w:state(A).phase == "workshop" end, 10, "the workshop")
+  t.ok(has(w:heard(A), "workshop-intro") and has(w:heard(B), "workshop-intro"), "everyone hears it")
+  -- a 0.9.12 config: the old default clip moves over, and the new clip joins the list
+  local old = oneRace(); old.sounds = World.new():serverConfig().sounds
+  for i = #old.sounds.clips, 1, -1 do if old.sounds.clips[i] == "workshop-intro" then table.remove(old.sounds.clips, i) end end
+  old.sounds.events.workshop.clips = { "james-may-says-cheese" }
+  local sc = World.new({ files = F.files(old) }):serverConfig().sounds
+  t.eq(sc.events.workshop.clips[1], "workshop-intro")
+  t.ok(has(sc.clips, "workshop-intro"), "in the clip list (the soundboard too)")
+  w:assertClean()
 end)

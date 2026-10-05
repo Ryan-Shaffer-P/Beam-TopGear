@@ -124,7 +124,8 @@ local DEFAULT_CONFIG = {
     crashDamage = 1500,    -- damage gained between two reports that counts as a crash
     clips = { "baby-jesus", "clarkson-poop-shot-out", "clarksooon", "grunt-yes", "happy-yes", "james-may-says-cheese",
               "jeremy-clarkson-oh-for-gods-sake", "jeremy-clarkson-yeeeeeesss", "oh-cock-james-may", "oh-for-gods-sake",
-              "oh-no-anyway", "poweeerr-jeremy-clarkson", "speed-and-power", "this-is-mp3", "top-gear-theme-intro", "yes-no-yes" },
+              "oh-no-anyway", "poweeerr-jeremy-clarkson", "speed-and-power", "this-is-mp3", "top-gear-theme-intro", "yes-no-yes",
+              "workshop-intro" },
     events = {
       start      = { to = "all",    clips = { "top-gear-theme-intro" } },                          -- challenge starts
       go         = { to = "all",    clips = { "speed-and-power", "poweeerr-jeremy-clarkson" } },   -- GO (each run in time trial mode)
@@ -135,7 +136,7 @@ local DEFAULT_CONFIG = {
       resetFine  = { to = "all",    clips = { "oh-for-gods-sake", "jeremy-clarkson-oh-for-gods-sake" } },
       crash      = { to = "near",   clips = { "oh-cock-james-may", "clarkson-poop-shot-out" } },
       trapRecord = { to = "all",    clips = { "poweeerr-jeremy-clarkson" } },                      -- fastest through the trap so far
-      workshop   = { to = "all",    clips = { "james-may-says-cheese" } },                         -- workshop opens
+      workshop   = { to = "all",    clips = { "workshop-intro" } },                                -- workshop opens
       champion   = { to = "all",    clips = { "top-gear-theme-intro" } },                          -- the overall winner is announced
     },
   },
@@ -427,6 +428,17 @@ local function loadConfig()
       cfg.migrations.alignmentPull3, changed = true, true
       for _, f in ipairs((cfg.faults or {}).list or {}) do
         if f.id == "alignment" and f.pull == 0.018 then f.pull = 0.028 end
+      end
+    end
+    if not cfg.migrations.workshopIntro then   -- 0.9.13, Ryan: a workshop-intro clip when the workshop opens
+      cfg.migrations.workshopIntro, changed = true, true
+      local snd = cfg.sounds or {}
+      local have = false
+      for _, c in ipairs(snd.clips or {}) do if c == "workshop-intro" then have = true end end
+      if snd.clips and not have then snd.clips[#snd.clips + 1] = "workshop-intro" end
+      local ws = (snd.events or {}).workshop
+      if type(ws) == "table" and type(ws.clips) == "table" and #ws.clips == 1 and ws.clips[1] == "james-may-says-cheese" then
+        ws.clips = { "workshop-intro" }   -- (only the old default; an admin's own choice is kept)
       end
     end
     if not cfg.migrations.championTheme then   -- 0.9.12, Ryan: the Top Gear theme when the winner is announced
