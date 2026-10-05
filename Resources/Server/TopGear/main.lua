@@ -824,6 +824,12 @@ local function hasFault(p, id)
   for _, x in ipairs(p.faults or {}) do if x == id then return true end end
   return false
 end
+-- the damage the accident damage problem gives the car itself: it comes straight back after any repair, so it's
+-- never billed as a repair (only fixing the problem removes it). 0 without that problem.
+function CONDITION.dents(p)
+  if not hasFault(p, "body") then return 0 end
+  return tonumber(CONDITION.scaled(faultDef("body") or {}, CONDITION.severity(p))) or 0
+end
 local function removeFault(p, id)
   for i, x in ipairs(p.faults or {}) do if x == id then table.remove(p.faults, i); return true end end
   return false
@@ -1476,6 +1482,13 @@ local function pushIdle(pid) MP.TriggerClientEvent(pid, "tg_state", Util.JsonEnc
 local function repairQuote(p, full, d)
   local ec = cfg.economy
   d = d or p.damage or 0
+  -- (0.9.13, Ryan's bug: the accident damage problem's dents were billed, repaired, put back, billed again - only the
+  -- damage beyond them counts; under 20% of them more - its broken glass and lights - is nothing to repair)
+  local dents = CONDITION.dents(p)
+  if dents > 0 then
+    d = d - dents
+    if d < math.max(ec.repairMinDamage or 50, dents * 0.2) then return 0 end
+  end
   if d < (ec.repairMinDamage or 50) then return 0 end
   local price = math.floor(ec.repairBaseFee + math.min(d * ec.repairCostPerDamage, ec.repairCap) + 0.5)
   if full then return price end
@@ -3542,7 +3555,12 @@ PLAYER_CMDS.repair = function(pid)
   if game.phase ~= "workshop" then say(pid, "The workshop is closed."); return end
   if not inWorkshop(p) then say(pid, "Drive to a workshop first - the arrows show the nearest."); return end
   local cost = repairQuote(p)
-  if cost <= 0 then say(pid, "Your car doesn't need repairs."); return end
+  if cost <= 0 then
+    if CONDITION.dents(p) > 0 and (p.damage or 0) > 0 then
+      say(pid, "Nothing to repair: the dents are the accident damage problem's - they'd come straight back. Fix the problem itself (/tg fix body).")
+    else say(pid, "Your car doesn't need repairs.") end
+    return
+  end
   -- (repairs, like tows, respawns and fines, may take you as far into the red as they need to; only parts and
   -- fault fixes stop at the overdraft limit)
   p.cash = p.cash - cost
@@ -5130,6 +5148,7 @@ local function buildUi(pid)
     d.me = {
       cash = p.cash, points = p.points, wins = p.wins, car = p.carName, damage = math.floor(p.damage or 0),
       repair = repairQuote(p), upgrade = (upgradeBill(p)), ready = p.ready and true or false,
+      dentsOnly = (repairQuote(p) == 0 and CONDITION.dents(p) > 0 and (p.damage or 0) > 0) or nil,
       towCost = (roadsideCost(p, "tow")), respawnCost = (roadsideCost(p, "respawn")),
       arrived = p.leg.arrived and true or false, hasCar = p.carVid ~= nil, tows = p.tows or 0,
       canTow = p.carVid ~= nil and TOW_PHASES[game.phase] and not p.finaleTowed and not (game.phase == "finale" and p.leg.arrived) or false,

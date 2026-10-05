@@ -1969,7 +1969,17 @@ end
 
 local function drawDriverButtons(d, me)
   local ph = d.phase
-  button(((me.repair or 0) > 0 and ("Repair (" .. commas(me.repair) .. ")") or "Repair") .. "##drv_repair", "repair"); same()
+  if (me.repair or 0) > 0 or ph ~= "workshop" then
+    button(((me.repair or 0) > 0 and ("Repair (" .. commas(me.repair) .. ")") or "Repair") .. "##drv_repair", "repair"); same()
+  else   -- nothing to repair: greyed (the accident damage problem's dents come back after any repair - fix the problem)
+    local g, rec = { 0.30, 0.32, 0.34, 1 }, { c = 0 }
+    pcall(pushColors, { Button = g, ButtonHovered = g, ButtonActive = g, Text = { 0.55, 0.57, 0.60, 1 } }, rec)
+    pcall(im.Button, "Nothing to repair##drv_repair")
+    popColors(rec)
+    if me.dentsOnly then Tabs.help("Those dents are the accident damage problem's: a repair can't keep them out - they come straight back.\n" ..
+      "Fix the problem itself (the Fix this problem button) to get rid of them.") end
+    same()
+  end
   confirmButton("Tow (" .. commas(me.towCost or d.towFee or 1000) .. ")", "drv_tow", "tow"); same()
   button("Unstick (free)##drv_unstick", "unstick"); same()
   local rl
