@@ -268,3 +268,24 @@ t.test("course builder: each event in the list says RACE or TIME TRIAL", functio
   t.eq(table.concat(tags, " | "), "RACE: Drag | TIME TRIAL: Hill Climb | TIME TRIAL: Star in a Reasonably Priced Car")
   w:assertClean()
 end)
+
+t.test("the RPC: you get in once BeamMP says it's yours - and again if it only says so later (no spectating)", function()
+  local w = World.new({ files = F.files(rpcCourse()) })
+  local A, B = w:join("Alice"), w:join("Bob")
+  A.client.notOwnUntil = 1e9   -- BeamMP hasn't confirmed Alice's next car yet
+  toTheStart(w, A, B)
+  local ownA = A.current
+  A.client.notOwnUntil = w.t + 10   -- ...it will, 10 s from now
+  w:waitFor(function() return A.current and A.current.model == "covet" end, 15, "Alice in the RPC")
+  w:chat(A, "/tg diag"); w:step(2)
+  t.ok(w:chatHas(A, "Reasonably priced car: in it: true | yours per BeamMP:"), "/tg diag shows BeamMP's view")
+  t.ok(w:chatHas(A, "BeamMP's record: owner Alice"))
+  w:waitFor(function() return w.t > A.client.notOwnUntil + 2 end, 20, "BeamMP confirms it")
+  local again = false
+  for _, l in ipairs(A.client.log) do if l.msg:find("got in again", 1, true) then again = true end end
+  t.ok(again, "switched out and back in once BeamMP said it was hers")
+  t.ok(A.current ~= ownA and A.current.model == "covet", "in the RPC")
+  -- (the expected warning: she got in after 8 s before BeamMP had confirmed it)
+  for i = #A.client.log, 1, -1 do if A.client.log[i].msg:find("hasn't confirmed it's yours", 1, true) then table.remove(A.client.log, i) end end
+  w:assertClean()
+end)

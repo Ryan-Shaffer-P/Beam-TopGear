@@ -35,7 +35,7 @@ local RESET_ACTIONS = {
 local VEHSEL_ACTIONS = { "vehicle_selector" }
 local PARTS_ACTIONS  = { "parts_selector" }
 
-local VERSION = "0.9.13"
+local VERSION = "0.9.14"
 local recentErrors = {}
 local function warn(msg)
   log("W", "topgear", tostring(msg))
@@ -589,11 +589,15 @@ local function onDiag()
       faults.mileageStatus or "not applied yet")
   end
   if faults.pullStatus then r.pull = faults.pullStatus end
-  if Rpc.car() then   -- (Star in an RPC: are we in it, and does BeamMP think it's ours?)
-    local pv = be:getPlayerVehicle(0)
-    local okO, own = pcall(function() return MPVehicleGE and MPVehicleGE.isOwn and MPVehicleGE.isOwn(Rpc.car():getID()) end)
-    r.rpc = string.format("in it: %s | yours per BeamMP: %s", tostring(pv and pv:getID() == Rpc.car():getID()),
-      okO and tostring(own) or "unknown")
+  if Rpc.car() then   -- (Star in an RPC: are we in it, and does BeamMP think it's ours - its own record of the car?)
+    local pv, id = be:getPlayerVehicle(0), Rpc.car():getID()
+    local okO, own = pcall(function() return MPVehicleGE and MPVehicleGE.isOwn and MPVehicleGE.isOwn(id) end)
+    local okR, rec = pcall(function() return MPVehicleGE and MPVehicleGE.getVehicleByGameID and MPVehicleGE.getVehicleByGameID(id) end)
+    local recText = (okR and type(rec) == "table")
+      and string.format("owner %s, local %s, server id %s", tostring(rec.ownerName), tostring(rec.isLocal), tostring(rec.serverVehicleString))
+      or "no BeamMP record yet"
+    r.rpc = string.format("in it: %s | yours per BeamMP: %s | BeamMP's record: %s | game id %s",
+      tostring(pv and pv:getID() == id), okO and tostring(own) or "unknown", recText, tostring(id))
   end
   local t = state.target
   if t then r.target = string.format("%s at (%.0f, %.0f, %.0f)", tostring(t.label), t.x, t.y, t.z) end
@@ -1604,15 +1608,31 @@ function Rpc.update(dt)
       return
     end
     if okO and own == false then warn("reasonably priced car: BeamMP hasn't confirmed it's yours after 8 s - getting in anyway") end
+    job.enteredOwn = okO and own   -- (if it wasn't yours yet, the verify stage gets you in again once it is)
     -- BeamNG's own "reset here" on the brand-new car: on the ground, clear of the cars waiting at the start
     local ok, err = pcall(function() spawn.safeTeleport(v, job.pos, quatFromDir(job.dir, vec3(0, 0, 1))) end)
     if not ok then warn("reasonably priced car: placing it failed: " .. tostring(err)) end
     pcall(function() be:enterVehicle(0, v) end)
     job.stage, job.timer = "verify", 0.5
+  elseif job.stage == "reenter" then   -- got in before BeamMP said it was ours: once it does, switch out and back in, so
+    -- BeamMP handles the switch with the car marked as ours (else it can treat it as someone else's - no controls)
+    local v = Rpc.car()
+    if not v then Rpc.job = nil; return end
+    local okO, own = pcall(function() return MPVehicleGE.isOwn(v:getID()) end)
+    if okO and own then
+      local mine = getCar()
+      pcall(function() if mine then be:enterVehicle(0, mine) end; be:enterVehicle(0, v) end)
+      log("I", "topgear", "reasonably priced car: BeamMP confirmed it's ours - got in again")
+      Rpc.job = nil
+    elseif (job.reWait or 0) >= 15 then
+      warn("reasonably priced car: BeamMP still doesn't say it's yours after 15 s (/tg diag: Reasonably priced car)")
+      Rpc.job = nil
+    else job.reWait, job.timer = (job.reWait or 0) + 0.5, 0.5 end
   else   -- facing the wrong way? (quatFromDir's convention isn't confirmed on every version) - turn it round
     local v = Rpc.car()
     Rpc.job = nil
     if not v then return end
+    if job.enteredOwn == false then Rpc.job = { t = job.t, stage = "reenter", timer = 0.5, reWait = 0 } end
     pcall(function()
       local d = vec3(v:getDirectionVector())
       if d.x * job.dir.x + d.y * job.dir.y < 0 then spawn.safeTeleport(v, job.pos, quatFromDir(-job.dir, vec3(0, 0, 1))) end

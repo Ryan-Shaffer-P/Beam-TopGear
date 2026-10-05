@@ -365,6 +365,21 @@ function World:loadClient(p)
   end, getServerVehicleID = function(gid)   -- BeamMP: game vehicle id -> "pid-vid"
     for vid, v in pairs(p.vehicles) do if v.gid == gid then return p.pid .. "-" .. vid end end
     return nil
+  end,
+  -- BeamMP only calls a car yours once the server has confirmed its spawn; c.notOwnUntil (world time) holds that back
+  isOwn = function(gid)
+    for _, v in pairs(p.vehicles) do
+      if v.gid == gid then return not (c.notOwnUntil and w.t < c.notOwnUntil) end
+    end
+    return false
+  end,
+  getVehicleByGameID = function(gid)
+    for vid, v in pairs(p.vehicles) do
+      if v.gid == gid then
+        return { ownerName = p.name, isLocal = not (c.notOwnUntil and w.t < c.notOwnUntil), serverVehicleString = p.pid .. "-" .. vid }
+      end
+    end
+    return nil
   end })
 
   sb.set("core_vehicles", {
