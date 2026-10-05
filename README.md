@@ -201,6 +201,8 @@ Race / Time trial**) or with `/tg setmode <n> race|trial`. The table shows each 
   billed. Out of time? Your best timed lap still counts. **The car:** an Ibishu Covet DXi (automatic)
   unless the event picks another - `/tg setrpc <n> <model> [config]`, `/tg setrpc <n> mine` (the car
   you're sitting in), `/tg setrpc <n> default`, or **Use the car I'm in** in the course builder.
+  Parked traffic cars (`simple_traffic`, `*_parked`) can't be driven, so they're refused (a course
+  that already has one uses the default car).
   **The server needs `MaxCars` of at least 2** (the runner has their own car plus the RPC for a
   moment); if the car doesn't appear within 20 s that driver can't run (the chat says why) and the
   next one goes.

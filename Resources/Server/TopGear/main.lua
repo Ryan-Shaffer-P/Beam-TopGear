@@ -7,7 +7,7 @@
   In game, type /tg help.
 ]]
 
-local SERVER_VERSION = "0.9.14"
+local SERVER_VERSION = "0.9.15"
 local PLUGIN_DIR  = "Resources/Server/TopGear/"
 local CONFIG_PATH = PLUGIN_DIR .. "config.json"
 local COURSES_PATH = PLUGIN_DIR .. "courses.json"   -- saved course library
@@ -1953,9 +1953,14 @@ function RPC.ready(p)
     or string.format("%s is ready (waiting for %s).", p.name, table.concat(waiting, ", ")))
   pushAll()
 end
+-- BeamNG's parked traffic cars (simple_traffic, "*_parked" configs) are props: no engine, controls or driver camera
+function RPC.drivable(model, config)
+  model, config = tostring(model or ""):lower(), tostring(config or ""):lower()
+  return not (model == "simple_traffic" or config:find("parked", 1, true))
+end
 function RPC.car(e)   -- model, config name
   local tc = typeCfg("rpc")
-  if e and e.rpcModel then return e.rpcModel, e.rpcConfig end
+  if e and e.rpcModel and RPC.drivable(e.rpcModel, e.rpcConfig) then return e.rpcModel, e.rpcConfig end
   return tc.model or "covet", tc.config
 end
 function RPC.label(e)
@@ -4794,15 +4799,27 @@ ADMIN_CMDS.setrpc = function(pid, _, args)
   if m:lower() == "default" then
     e.rpcModel, e.rpcConfig = nil, nil
   elseif m:lower() == "mine" then
+    -- the car you're IN (your game reports it); before 0.9.15 the first car the server listed - with traffic mode
+    -- on, that could be one of your parked traffic cars (Ryan: an RPC with no controls)
     local p = playerByPid(pid)
-    local data
     local vehs = MP.GetPlayerVehicles(pid) or {}
-    if p and p.carVid then data = vehs[p.carVid] end
-    if not data then for _, d in pairs(vehs) do data = d; break end end
+    local data = activeVeh[pid] and vehs[activeVeh[pid]]
+    if not data and p and p.carVid then data = vehs[p.carVid] end
+    if not data then   -- (not reported yet: a car of yours that can be driven)
+      for _, d in pairs(vehs) do if RPC.drivable(parseVehicle(d)) then data = d; break end end
+    end
     local model, config = parseVehicle(data)
     if not model then say(pid, "Get in the car you want first (spawn it from the vehicle menu)."); return end
+    if not RPC.drivable(model, config) then
+      say(pid, string.format("%s / %s is a parked traffic car - it can't be driven. Get in a normal car first.", model, tostring(config)))
+      return
+    end
     e.rpcModel, e.rpcConfig = model, config
   else
+    if not RPC.drivable(m, args[5]) then
+      say(pid, string.format("%s / %s is a parked traffic car - it can't be driven. Pick a normal car.", m, tostring(args[5])))
+      return
+    end
     e.rpcModel, e.rpcConfig = m, args[5]
   end
   markDirty()
