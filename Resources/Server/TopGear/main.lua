@@ -4723,7 +4723,13 @@ ADMIN_CMDS.testevent = function(pid, _, args)
     sayAll("Test event over - back to normal.")
   end
   sayAll(string.format("TEST EVENT: %s (%s) - %d driver%s, from the start line. /tg testevent stop ends it.", e.name, label, n, n == 1 and "" or "s"))
-  if e.type == "trailer" then for _, q in pairs(players) do requestTrailer(q) end end
+  if e.type == "trailer" then   -- (Ryan: time to hitch up first - like arriving at a trailer event in a challenge)
+    for _, q in pairs(players) do requestTrailer(q) end
+    sayAll("Trailers are on their way - hitch up, then press GO" .. (isSolo(e) and " for the first run (one at a time)." or " to start everyone."))
+    bigAll("Hitch up your trailer - then GO")
+    pushAll()
+    return
+  end
   beginCountdown()
 end
 -- Quick travel (course builder): your car to an event's start (or the finale), facing the first checkpoint. Not during a

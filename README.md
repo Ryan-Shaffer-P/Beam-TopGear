@@ -75,7 +75,9 @@ newest at the bottom and brightest.
   checkpoint / Undo / Clear** buttons and **# of laps** for laps events - drive to the spot first, the (?)
   explains; under them **Test event** - that event on its own, from its countdown, with everyone who's in a car
   taking part in it (no money, workshop, finale, reset fines or saving; results, then back to normal) - **Quick
-  travel** - the car you're in to the event's start, facing its first checkpoint - and **Stop event**; Test event
+  travel** - the car you're in to the event's start, facing its first checkpoint - and **Stop event**; for a
+  trailer delivery, Test event first brings everyone's trailer to hitch up, and the next GO starts it (in time
+  trial mode: the first driver's run, then each driver's own GO); Test event
   and Quick travel only work when no challenge is going: `/tg testevent <n>`, `/tg testevent stop`,
   `/tg quicktravel <n|finale>`), **Waypoints** (the route on the drive to the event: Add / Undo / Clear route), **Event options**
   (the reasonably priced car, race or time trial, **Time to complete event (s)** + Set Time) and **Save course**
