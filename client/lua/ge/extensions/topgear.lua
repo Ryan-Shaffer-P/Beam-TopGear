@@ -561,6 +561,12 @@ local function onDiag()
       faults.mileageStatus or "not applied yet")
   end
   if faults.pullStatus then r.pull = faults.pullStatus end
+  if Rpc.car() then   -- (Star in an RPC: are we in it, and does BeamMP think it's ours?)
+    local pv = be:getPlayerVehicle(0)
+    local okO, own = pcall(function() return MPVehicleGE and MPVehicleGE.isOwn and MPVehicleGE.isOwn(Rpc.car():getID()) end)
+    r.rpc = string.format("in it: %s | yours per BeamMP: %s", tostring(pv and pv:getID() == Rpc.car():getID()),
+      okO and tostring(own) or "unknown")
+  end
   local t = state.target
   if t then r.target = string.format("%s at (%.0f, %.0f, %.0f)", tostring(t.label), t.x, t.y, t.z) end
   pcall(function()
@@ -1551,7 +1557,7 @@ function Rpc.update(dt)
       dir = dir:normalized()
       local old = Rpc.car()
       if old then pcall(function() old:delete() end) end
-      local opts = { pos = pos + vec3(0, 0, 0.5), rot = quatFromDir(dir, vec3(0, 0, 1)), autoEnterVehicle = true }
+      local opts = { pos = pos + vec3(0, 0, 0.5), rot = quatFromDir(dir, vec3(0, 0, 1)), autoEnterVehicle = false }
       if t.config then opts.config = t.config end
       Rpc.veh = core_vehicles.spawnNewVehicle(t.model, opts)
       if not Rpc.veh then error("the game didn't spawn it") end
@@ -1561,6 +1567,15 @@ function Rpc.update(dt)
   elseif job.stage == "place" then
     local v = Rpc.car()
     if not v then Rpc.job = nil; return end
+    -- BeamMP only lets you drive a car once the server has confirmed it's yours; entering before that can leave it
+    -- uncontrollable (Ryan's report) - so wait for it (up to 8 s), then get in
+    local okO, own = pcall(function() return MPVehicleGE and MPVehicleGE.isOwn and MPVehicleGE.isOwn(v:getID()) end)
+    Rpc.own = okO and own
+    if okO and own == false and (job.ownWait or 0) < 8 then
+      job.ownWait, job.timer = (job.ownWait or 0) + 0.25, 0.25
+      return
+    end
+    if okO and own == false then warn("reasonably priced car: BeamMP hasn't confirmed it's yours after 8 s - getting in anyway") end
     -- BeamNG's own "reset here" on the brand-new car: on the ground, clear of the cars waiting at the start
     local ok, err = pcall(function() spawn.safeTeleport(v, job.pos, quatFromDir(job.dir, vec3(0, 0, 1))) end)
     if not ok then warn("reasonably priced car: placing it failed: " .. tostring(err)) end
@@ -2053,7 +2068,7 @@ end
 local function drawAdminControls(d)
   if not d.admin then return end
   Tabs.box("Challenge", "admchallenge", function()
-    if d.soloWait then bigButton("GO: " .. d.soloWait.name, "go") end   -- (an admin can start the waiting driver)
+    if d.soloWait and d.soloWait.ready then bigButton("GO: " .. d.soloWait.name, "go") end   -- (an admin can start a ready driver)
     button("Start", "start"); same(); button("Start (unfinished course)", "start force"); same()
     button("Next phase", "next"); same(); confirmButton("Stop", "stop", "stop")
     Tabs.help("Next phase: closes the dealership, forces a start, ends a run or event, or closes a workshop.\nStop needs two clicks.")
@@ -2138,13 +2153,28 @@ local function drawStatus(d)
       else button("I'm happy with my car - Ready!", "ready") end
     elseif d.phase == "travel" then
       if not me.arrived then txt("Drive to the start - follow the arrows.")
+      elseif d.readyToGo and d.goName then   -- a time trial: the turns begin by themselves once everyone's here
+        txt("Waiting for everyone to arrive - then the turns begin (one at a time).")
+      elseif d.readyToGo then   -- a race start: everyone presses I'm ready, then GO
+        if not me.startReady then bigButton("I'm ready", "ready")
+        elseif d.allHere and #(d.notReady or {}) == 0 then
+          colored(0.4, 1, 0.4, "Everyone's ready!")
+          bigButton("GO! Start the countdown", "go")
+        else
+          colored(0.4, 1, 0.4, "You're ready.")
+          colored(1, 0.85, 0.3, d.allHere and ("Waiting for " .. table.concat(d.notReady or {}, ", ") .. " to press I'm ready.")
+            or "Waiting for everyone to arrive...")
+        end
       elseif d.allHere then
         colored(0.4, 1, 0.4, "Everyone's here!")
         bigButton(d.goName and ("GO: " .. d.goName) or "GO! Start the countdown", "go")   -- (time trial: who goes first)
       else txt("Waiting for everyone to arrive...") end
-    elseif d.phase == "event" and d.soloWait then   -- time trial: the next driver starts when GO is pressed
-      if d.soloWait.canGo then bigButton("GO: " .. d.soloWait.name, "go")
-      else colored(1, 0.85, 0.3, "Waiting for " .. d.soloWait.name .. " to press GO.") end
+    elseif d.phase == "event" and d.soloWait then   -- time trial: the driver's I'm ready, then GO
+      local sw = d.soloWait
+      if sw.isMe and not sw.ready then
+        if sw.carReady then bigButton("I'm ready", "ready") else txt("Your reasonably priced car is on its way...") end
+      elseif sw.ready and sw.canGo then bigButton("GO: " .. sw.name, "go")
+      else colored(1, 0.85, 0.3, "Waiting for " .. sw.name .. (sw.ready and " to press GO." or " to get ready.")) end
     elseif d.phase == "workshop" then
       for _, f in ipairs((d.faults or {}).mine or {}) do
         button("Fix this problem: " .. f.name .. " (" .. commas(d.faults.fix) .. ")##fix_" .. f.id, "fix " .. f.id)

@@ -56,7 +56,9 @@ Install = copy `Resources/` into the BeamMP server.
   `rpc` (Star in a reasonably priced car: always time trial; laid out like a circuit; each runner gets a fresh RPC -
   server `RPC` table: `p.rpc`, positions from the RPC's vid, `RPC.request/spawned/fresh/handOver/remove`; client `Rpc`
   table spawns + places it (`safeTeleport`) and `tg_rpc_end` puts the driver back in `getCar()`; score = best lap;
-  `readySeconds` 10 once in the car). Course builder positions: `adminPose` uses the car the admin is IN (client sends
+  no settle timer since 0.9.13 - `defaults.readyToGo`: every start is I'm ready (`/tg ready` = `RPC.ready`, `p.run.ready`)
+  then GO; race starts need `RPC.allReady()`, time trial turns begin by themselves at allHere and the RPC comes with
+  the turn; the client enters the RPC only once `MPVehicleGE.isOwn` (Ryan: no controls otherwise); fixtures: readyToGo off). Course builder positions: `adminPose` uses the car the admin is IN (client sends
   `tg_activeveh` "pid-vid" when it changes; `activeVeh[pid]`) - before 0.9.13 a parked second car put every checkpoint on
   the start line. `Course.stacked` flags checkpoints on the start / each other (addcp warning, validate error).
   Every event has a **mode**: race (everyone at once) or time trial (one at a time) = `e.solo`

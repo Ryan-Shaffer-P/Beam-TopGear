@@ -9,7 +9,7 @@ local WIN = "Top Gear Challenge"
 local function trialCourse()
   local cfg = F.config({ { name = "The Hill Climb", type = "race", solo = true, timeLimit = 120,
                            start = p(500), checkpoints = { p(700), p(900) }, via = {} } })
-  cfg.defaults = { readyCountdown = 0, soloGo = true }   -- (the fixtures switch it off for the older tests)
+  cfg.defaults = { readyCountdown = 0, soloGo = true, readyToGo = false }   -- (the fixtures switch it off for the older tests)
   return cfg
 end
 
@@ -65,7 +65,7 @@ end)
 t.test("Star in an RPC with GO per driver: the next driver's car comes only when their GO is pressed", function()
   local cfg = F.config({ { name = "Star in a Reasonably Priced Car", type = "rpc", laps = 1, timeLimit = 300,
                            start = p(500), checkpoints = { p(800) }, via = {} } })
-  cfg.defaults = { readyCountdown = 0, soloGo = true }
+  cfg.defaults = { readyCountdown = 0, soloGo = true, readyToGo = false }
   local w = World.new({ files = F.files(cfg) })
   local A, B, C = w:join("Alice"), w:join("Bob"), w:join("Carol")
   toTheStart(w, A, B, C)
@@ -117,7 +117,7 @@ end)
 t.test("spectating an RPC driver: the watchers follow the reasonably priced car, not the driver's parked one", function()
   local cfg = F.config({ { name = "Star in a Reasonably Priced Car", type = "rpc", laps = 1, timeLimit = 300,
                            start = p(500), checkpoints = { p(800) }, via = {} } })
-  cfg.defaults = { readyCountdown = 0, soloGo = true, watchRunner = true }
+  cfg.defaults = { readyCountdown = 0, soloGo = true, watchRunner = true, readyToGo = false }
   local w = World.new({ files = F.files(cfg) })
   local A, B, C = w:join("Alice"), w:join("Bob"), w:join("Carol")
   toTheStart(w, A, B, C)

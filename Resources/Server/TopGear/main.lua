@@ -153,6 +153,8 @@ local DEFAULT_CONFIG = {
     readyCountdown = 5,   -- seconds from "everyone's ready" at the dealership to the dealership closing (leg 1)
     soloGo = true,        -- time trial mode: each driver after the first starts when GO is pressed (by them or an admin)
     watchRunner = true,   -- time trial mode: everyone else watches the driver on track (their camera; /tg watch off)
+    readyToGo = true,     -- every start is I'm ready, then GO (race: everyone ready, then GO; time trial: each driver's
+                          -- Ready then GO - turns begin by themselves once everyone's arrived). false = the old starts
   },
 
   dealer = {
@@ -224,8 +226,7 @@ local DEFAULT_CONFIG = {
     fragile = { damageWeight = 0.01 },   -- seconds added per point of damage picked up
     rpc     = { model = "covet", config = "DXi_A",   -- the reasonably priced car (each event can pick its own: /tg setrpc)
                 spawnTimeout = 20,                   -- seconds to wait for it to appear (BeamMP MaxCars must be 2+)
-                stopSeconds = 3,                     -- after the last lap: time to stop before you're back in your own car
-                readySeconds = 10 },                 -- once you're in the car: a countdown to get settled before GO
+                stopSeconds = 3 },                   -- after the last lap: time to stop before you're back in your own car
     slalom  = { gateRadius = 4, gatePenalty = 5 },
     trailer = { setup = nil,   -- saved with /tg trailersave: a prebuilt trailer whose load is part of it (replaces the cones)
                 loadWeight = 0.7, speedWeight = 0.3,   -- score out of 100: share of the load kept + speed vs the fastest
@@ -1790,8 +1791,18 @@ local function tickTravel()
   end
   local allHere = total > 0 and arrived == total
   if allHere and not game.allHere then
-    sayAll(string.format("Everyone's at %s! Line up - anyone can type /tg go to start the countdown.", e.name))
-    bigAll("Everyone's here - /tg go to start")
+    if cfg.defaults.readyToGo ~= false and isSolo(e) then   -- a time trial: the turns begin by themselves
+      sayAll(string.format("Everyone's at %s!", e.name))
+      game.allHere = true
+      beginCountdown()
+      return
+    elseif cfg.defaults.readyToGo ~= false then
+      sayAll(string.format("Everyone's at %s! Press I'm ready - once everyone is, anyone can press GO.", e.name))
+      bigAll("Everyone's here - I'm ready, then GO")
+    else
+      sayAll(string.format("Everyone's at %s! Line up - anyone can type /tg go to start the countdown.", e.name))
+      bigAll("Everyone's here - /tg go to start")
+    end
   end
   if allHere ~= game.allHere then game.allHere = allHere; pushAll() end
 end
@@ -1858,7 +1869,10 @@ end
 function RPC.beginTurn(p, e)
   local s = game.solo
   s.waitGo = nil
-  if e.type == "rpc" then   -- the countdown starts once their car is on the line
+  if e.type == "rpc" and p.rpc and p.rpc.vid then   -- (Ready -> GO: the car came with the turn; GO counts it down)
+    s.countEnd, s.countTotal, s.lastCount = now() + cfg.defaults.countdown, nil, nil
+    RPC.watch(p, p.rpc.vid)
+  elseif e.type == "rpc" then   -- the countdown starts once their car is on the line
     s.countEnd = nil
     RPC.request(p, e)
     sayAll(string.format("%s's reasonably priced car is on its way to the start line.", p.name))
@@ -1866,6 +1880,36 @@ function RPC.beginTurn(p, e)
     s.countEnd, s.countTotal, s.lastCount = now() + cfg.defaults.countdown, nil, nil
     RPC.watch(p, p.carVid)
   end
+  pushAll()
+end
+-- I'm ready (defaults.readyToGo): at a race start everyone presses it, then GO; in a time trial, the driver whose turn
+-- it is presses it, then GO (them or an admin)
+function RPC.allReady()
+  local names = {}
+  for _, q in pairs(game.players) do
+    if racing(q) and not (q.run and q.run.ready) then names[#names + 1] = q.name end
+  end
+  table.sort(names)
+  return #names == 0, names
+end
+function RPC.ready(p)
+  local s, e = game.solo, curEvent()
+  if game.phase == "event" and s and s.runner == p and s.waitGo then   -- a time trial: this driver's run
+    if e and e.type == "rpc" and not (p.rpc and p.rpc.vid) then say(p.pid, "Wait for your reasonably priced car first."); return end
+    if p.run.ready then say(p.pid, "You're ready - GO when you like."); return end
+    p.run.ready = true
+    sayAll(string.format("%s is ready - %s presses GO (or an admin).", p.name, p.name))
+    pushAll()
+    return
+  end
+  if game.phase ~= "travel" or not (e and racing(p)) then say(p.pid, "Nothing to be ready for right now."); return end
+  if not p.leg.arrived then say(p.pid, "Get to the start first."); return end
+  if isSolo(e) then say(p.pid, "It's one at a time: your turn comes - then you press I'm ready and GO."); return end
+  if p.run.ready then say(p.pid, "You're already ready."); return end
+  p.run.ready = true
+  local all, waiting = RPC.allReady()
+  sayAll(all and string.format("%s is ready - everyone is: anyone can press GO.", p.name)
+    or string.format("%s is ready (waiting for %s).", p.name, table.concat(waiting, ", ")))
   pushAll()
 end
 function RPC.car(e)   -- model, config name
@@ -1901,10 +1945,11 @@ function RPC.spawned(p, vid, model)   -- TG_onVehicleSpawn: is this the RPC we a
   if not (r and r.want and not r.vid and model == r.model and now() < (r.allowUntil or 0)) then return false end
   r.vid, r.want = vid, false
   local s, run = game.solo, p.run
-  if run.status == "staged" and s and s.runner == p and not s.countEnd then
-    local secs = tonumber(typeCfg("rpc").readySeconds) or 10
-    s.countEnd, s.countTotal, s.lastCount = now() + secs, secs, nil
-    say(p.pid, string.format("Here's your reasonably priced car - %d seconds to get settled, then GO!", math.floor(secs)))
+  if run.status == "staged" and s and s.runner == p and s.waitGo then   -- (Ready -> GO: the car comes with the turn)
+    say(p.pid, "Here's your reasonably priced car - get in, start it, settle in, then press I'm ready and GO.")
+  elseif run.status == "staged" and s and s.runner == p and not s.countEnd then
+    s.countEnd, s.countTotal, s.lastCount = now() + cfg.defaults.countdown, nil, nil
+    say(p.pid, "Here's your reasonably priced car - get ready!")
     RPC.watch(p, vid)
   elseif run.status == "running" then   -- a fresh car mid-run: a new lap from the line (watchers follow it)
     run.cp, run.lapStart, run.leftLine = 1, now(), false
@@ -2024,13 +2069,23 @@ nextSoloRunner = function(go)
       p.run.status = "staged"
       local nxt = s.order[s.idx + 1]
       local e = curEvent()
-      if go or cfg.defaults.soloGo == false then
+      local readyGo = cfg.defaults.readyToGo ~= false
+      if not readyGo and (go or cfg.defaults.soloGo == false) then
         sayAll(string.format("%s is up%s.", p.name, nxt and (" - " .. nxt.name .. " is next") or " - last run"))
         RPC.beginTurn(p, e)
       else
         s.waitGo = true
-        sayAll(string.format("%s is up%s - %s presses GO when ready.", p.name, nxt and (" (" .. nxt.name .. " next)") or " (last run)", p.name))
-        bigAll(p.name .. " is up - GO when ready")
+        if readyGo then
+          sayAll(string.format("%s is up%s - %s presses I'm ready, then GO.", p.name, nxt and (" (" .. nxt.name .. " next)") or " (last run)", p.name))
+          bigAll(p.name .. " is up - Ready, then GO")
+          if e and e.type == "rpc" then
+            RPC.request(p, e)
+            sayAll(string.format("%s's reasonably priced car is on its way to the start line.", p.name))
+          end
+        else
+          sayAll(string.format("%s is up%s - %s presses GO when ready.", p.name, nxt and (" (" .. nxt.name .. " next)") or " (last run)", p.name))
+          bigAll(p.name .. " is up - GO when ready")
+        end
         pushAll()
       end
       return true
@@ -2280,6 +2335,11 @@ local function tickSolo(e)
   local st = p.run.status
   if st == "staged" then
     if not racing(p) then p.run.status = "dnf"; s.waitGo = nil; nextSoloRunner(); return end
+    if e.type == "rpc" and s.waitGo then   -- (waiting for Ready / GO - but the car has to turn up)
+      RPC.tickRunner(p, e)
+      if p.run.status ~= "staged" then s.waitGo = nil; nextSoloRunner() end
+      return
+    end
     if s.waitGo then return end   -- (waiting for their GO)
     if e.type == "rpc" then
       RPC.tickRunner(p, e)
@@ -3528,6 +3588,7 @@ end
 
 PLAYER_CMDS.ready = function(pid)
   local p = playerByPid(pid)
+  if p and (game.phase == "travel" or game.phase == "event") and cfg.defaults.readyToGo ~= false then return RPC.ready(p) end
   if not p or game.phase ~= "dealer" then say(pid, "Nothing to be ready for right now."); return end
   if not p.carVid then say(pid, "Buy a car first!"); return end
   if p.ready then say(pid, "You're already marked ready."); return end
@@ -3597,6 +3658,7 @@ function TG_onDiag(pid, data)
   if t.selector then say(pid, "Vehicle selector: " .. tostring(t.selector)) end
   if t.mileage then say(pid, "Car wear (mileage): " .. tostring(t.mileage)) end
   if t.pull then say(pid, "Alignment pull: " .. tostring(t.pull)) end
+  if t.rpc then say(pid, "Reasonably priced car: " .. tostring(t.rpc)) end
   for _, e in ipairs(t.errors or {}) do say(pid, "Client error: " .. tostring(e)) end
 end
 
@@ -3607,6 +3669,9 @@ PLAYER_CMDS.go = function(pid, name)
     local r = s.runner
     if p ~= r and not isAdmin(name or MP.GetPlayerName(pid)) then
       say(pid, string.format("It's %s's turn - %s presses GO (or an admin).", r.name, r.name)); return
+    end
+    if cfg.defaults.readyToGo ~= false and not r.run.ready then
+      say(pid, string.format("%s isn't ready yet - %s presses I'm ready first.", r.name, r.name)); return
     end
     sayAll(p == r and string.format("%s - GO!", r.name) or string.format("%s starts %s's run.", p and p.name or name, r.name))
     RPC.beginTurn(r, curEvent())
@@ -3629,6 +3694,11 @@ PLAYER_CMDS.go = function(pid, name)
   end
   if #waiting > 0 then say(pid, "Can't start yet - still waiting for: " .. table.concat(waiting, ", ")); return end
   if #away > 0 then say(pid, "Everyone back to the start line first: " .. table.concat(away, ", ")); return end
+  if cfg.defaults.readyToGo ~= false and isSolo(e) then say(pid, "It's one at a time - the turns begin by themselves."); return end
+  if cfg.defaults.readyToGo ~= false then
+    local all, waiting = RPC.allReady()
+    if not all then say(pid, "Waiting for " .. table.concat(waiting, ", ") .. " to press I'm ready."); return end
+  end
   sayAll(string.format("%s calls it - %s is on!", p.name, e.name))
   beginCountdown()
 end
@@ -4723,8 +4793,18 @@ ADMIN_CMDS.testevent = function(pid, _, args)
     sayAll("Test event over - back to normal.")
   end
   sayAll(string.format("TEST EVENT: %s (%s) - %d driver%s, from the start line. /tg testevent stop ends it.", e.name, label, n, n == 1 and "" or "s"))
+  if e.type == "trailer" then for _, q in pairs(players) do requestTrailer(q) end end
+  if cfg.defaults.readyToGo ~= false then   -- every start is I'm ready, then GO
+    if e.type == "trailer" then sayAll("Trailers are on their way - hitch up first.") end
+    if isSolo(e) then beginCountdown()   -- (the turns begin: the first driver's Ready, then GO)
+    else
+      sayAll("Press I'm ready - once everyone is, anyone can press GO.")
+      bigAll("I'm ready, then GO")
+      pushAll()
+    end
+    return
+  end
   if e.type == "trailer" then   -- (Ryan: time to hitch up first - like arriving at a trailer event in a challenge)
-    for _, q in pairs(players) do requestTrailer(q) end
     sayAll("Trailers are on their way - hitch up, then press GO" .. (isSolo(e) and " for the first run (one at a time)." or " to start everyone."))
     bigAll("Hitch up your trailer - then GO")
     pushAll()
@@ -5140,7 +5220,10 @@ local function buildUi(pid)
     readyGo = game.dealerGo and math.max(0, math.ceil(game.dealerGo - now())) or nil,
     -- time trial: the driver waiting for their GO, and whether this player may press it (them, or an admin)
     soloWait = (game.phase == "event" and game.solo and game.solo.waitGo and game.solo.runner)
-      and { name = game.solo.runner.name, canGo = (p == game.solo.runner) or isAdmin(name) } or nil,
+      and { name = game.solo.runner.name, canGo = (p == game.solo.runner) or isAdmin(name), isMe = p == game.solo.runner,
+            ready = (cfg.defaults.readyToGo == false) or (game.solo.runner.run.ready and true or false),
+            carReady = not (game.solo.runner.rpc and not game.solo.runner.rpc.vid) } or nil,
+    readyToGo = cfg.defaults.readyToGo ~= false,
     traffic = inTrafficMode(name),
     soundsOn = not soundsOff[name], soundClips = (cfg.sounds or {}).clips or {},
     watchOn = not RPC.watchOff[name],
@@ -5157,6 +5240,7 @@ local function buildUi(pid)
       dentsOnly = (repairQuote(p) == 0 and CONDITION.dents(p) > 0 and (p.damage or 0) > 0) or nil,
       towCost = (roadsideCost(p, "tow")), respawnCost = (roadsideCost(p, "respawn")),
       arrived = p.leg.arrived and true or false, hasCar = p.carVid ~= nil, tows = p.tows or 0,
+      startReady = (p.run and p.run.ready) and true or false,
       canTow = p.carVid ~= nil and TOW_PHASES[game.phase] and not p.finaleTowed and not (game.phase == "finale" and p.leg.arrived) or false,
       canUnstick = p.carVid ~= nil and game.phase ~= "countdown" or false,
       respawns = p.respawns or 0, hasCarModel = p.carModel ~= nil, inShop = inWorkshop(p),
@@ -5200,6 +5284,10 @@ local function buildUi(pid)
   end
   d.ready = { n = nReady, total = nIn }
   -- the event's own GO in time trial mode starts the first driver: its button says who (the first to arrive)
+  if game.phase == "travel" and cfg.defaults.readyToGo ~= false and curEvent() and not isSolo(curEvent()) then
+    local _, waiting = RPC.allReady()
+    d.notReady = waiting   -- (the race start: who still has to press I'm ready)
+  end
   if game.phase == "travel" and curEvent() and isSolo(curEvent()) then
     local first
     for _, q in pairs(game.players) do

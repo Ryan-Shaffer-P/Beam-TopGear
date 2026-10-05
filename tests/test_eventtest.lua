@@ -88,7 +88,7 @@ end)
 t.test("Test event, trailer delivery: the first GO brings everyone's trailer to hitch up; then GO per driver in a time trial", function()
   local cfg = F.config({ { name = "Trailer Delivery", type = "trailer", solo = true, timeLimit = 300,
                            start = p(500), checkpoints = { p(700), p(900) }, via = {} } })
-  cfg.defaults = { readyCountdown = 0, soloGo = true }
+  cfg.defaults = { readyCountdown = 0, soloGo = true, readyToGo = false }
   local w = World.new({ files = F.files(cfg) })
   local A, B = w:join("Alice"), w:join("Bob")
   w:buy(A, "covet", "base_M"); w:buy(B, "pessima", "base_M")

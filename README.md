@@ -143,7 +143,11 @@ Race / Time trial**) or with `/tg setmode <n> race|trial`. The table shows each 
   it up so you can drag it by its title bar - the game remembers where - and `/tg flag` again hides
   it. `/tg flagtest` shows a sample.
 - **Time trial mode:** runners go in the order they arrived, each with their own countdown;
-  everyone else waits at the start. **Each driver starts with a GO:** the event's GO button says who goes
+  everyone else waits at the start. **Every start is I'm ready, then GO** (`defaults.readyToGo`): at a **race**
+  start everyone presses **I'm ready** (Status tab) and once everyone is, anyone's **GO** starts the countdown;
+  in a **time trial** the turns begin by themselves once everyone's there, and each driver presses **I'm ready**,
+  then **GO** (them or an admin) - the same for Test event. With `readyToGo` false, the older starts below apply.
+  **Each driver starts with a GO:** the event's GO button says who goes
   first ("GO: Bob") and starts their countdown; after that, every driver waits until **their** GO is pressed
   - the button on their Status tab reads "GO: Alice" - by them, or by an admin (Admin tab, Challenge box),
   and everyone else sees "Waiting for Alice to press GO". In Star in a reasonably priced car, that GO is what
@@ -176,9 +180,10 @@ Race / Time trial**) or with `/tg setmode <n> race|trial`. The table shows each 
   race** is the original point-to-point race.
 - **Star in a reasonably priced car:** a lap of the same track as a circuit, but in the **same car for
   everyone** and always one at a time. Everyone drives to the start in their own car and parks
-  beside the line. Once everyone's there, someone types **GO**; on your turn a fresh **reasonably priced
-  car** appears on the start line and the game puts you in it, then you get **10 seconds to get settled**
-  (`eventTypes.rpc.readySeconds`) before your GO. You get the event's laps (3 by default) and
+  beside the line. Once everyone's there the turns begin: on your turn a fresh **reasonably priced car**
+  appears on the start line and the game puts you in it (once BeamMP has confirmed it's yours - `/tg diag`
+  shows "Reasonably priced car: in it / yours per BeamMP"). Start it and settle in, press **I'm ready**, then
+  **GO** (you or an admin) starts the normal 5 s lights - no timer. You get the event's laps (3 by default) and
   **your fastest single lap counts** - every lap time is announced. After the last lap you have 3
   seconds to stop (`eventTypes.rpc.stopSeconds`), then the car is removed and you're back in your own
   car, exactly as you left it - same damage, problems, parts and fuel (it isn't touched: you get a
