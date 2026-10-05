@@ -9,6 +9,10 @@ in plain language. Every change ends with a short "what changed / how to test" n
 
 Repo: github.com/Ryan-Shaffer-P/Beam-TopGear (default branch `main`). Developed in Claude Desktop
 chats until 2026-09-30, then moved to Claude Code. Work on a branch; push/merge only when Ryan asks.
+**New work, new branch:** before the first edit of a new piece of work, check the current branch. If it has already
+been merged into `main` (`git rev-list --count origin/main..HEAD` is 0 after a fetch), start a fresh branch from `main`
+first (`git switch -c <name> main`) and ask Ryan for its name (a short dash-separated name; for a trivial change, pick
+one and say so). Never pile new work onto a finished, merged branch.
 
 ## Repository layout
 
