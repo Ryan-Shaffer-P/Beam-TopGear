@@ -187,3 +187,17 @@ t.test("parking: the bay's direction goes to the player's game (it draws a car-s
   t.eq(w:state(A).target.yaw, 90, "the bay's heading")
   w:assertClean()
 end)
+
+t.test("course builder: the selected checkpoint size has an orange border; the Test event row is framed in orange", function()
+  local w = World.new({ files = F.files(course()) })
+  local A = w:join("Alice")
+  w:chat(A, "/tg menu"); w:step(2.5)
+  t.ok(A.client.im.hasButton("5 m") and A.client.im.hasButton("Line"), "no '> ' marker on the selected size any more")
+  local orange = 0
+  for _, r in ipairs(A.client.im.lastFrame.rects) do
+    if r.outline and r.color and r.color.x == 1 and r.color.y == 0.55 then orange = orange + 1 end
+  end
+  t.eq(orange, 1, "one orange outline: round Test event / Quick travel / Stop event")
+  t.eq(A.client.im.problems[1], nil, "every style push popped")
+  w:assertClean()
+end)

@@ -3088,16 +3088,27 @@ Tabs.courseBuilder = function(c)
     txt("Next checkpoint:"); same()
     for i, o in ipairs({ { "5 m", "5" }, { "10 m", "10" }, { "20 m", "20" }, { "Line", "line" } }) do
       if i > 1 then same() end
-      if im.Button(((ui.cpSize or "5") == o[2] and "> " or "") .. o[1] .. "##cpsize_" .. o[2]) then ui.cpSize = o[2] end
+      local rec = { c = 0, v = 0 }
+      if (ui.cpSize or "5") == o[2] then   -- the selected size: an orange border
+        pcall(pushColors, { Border = Tabs.ORANGE }, rec)
+        local pv, idx = imGet("PushStyleVar1") or imGet("PushStyleVar"), imGet("StyleVar_FrameBorderSize")
+        if pv and idx ~= nil and pcall(pv, idx, 2) then rec.v = rec.v + 1 end
+      end
+      local okB, clicked = pcall(im.Button, o[1] .. "##cpsize_" .. o[2])
+      popTheme(rec)
+      if not okB then error(clicked) end
+      if clicked then ui.cpSize = o[2] end
     end
     Tabs.help("How big the next checkpoint is: a 5, 10 or 20 m circle, or a Line - a 20 m gate across the road (good\n" ..
       "for a start/finish), set at right angles to the way from the point before it (the last checkpoint, or the start).")
   end
   -- try it out without a whole challenge: the event on its own (everyone in a car), your car to its start, stop
-  Tabs.bigButtons({
-    { label = "Test\nevent", id = "testevent", cmd = "testevent " .. target, off = not e or not c.idle },
-    { label = "Quick\ntravel", id = "quicktravel", cmd = "quicktravel " .. target, off = not c.idle },
-    { label = "Stop\nevent", id = "teststop", cmd = "testevent stop", off = not c.testing } }, 44)
+  Tabs.framed(function()   -- (its own section: an orange outline)
+    Tabs.bigButtons({
+      { label = "Test\nevent", id = "testevent", cmd = "testevent " .. target, off = not e or not c.idle },
+      { label = "Quick\ntravel", id = "quicktravel", cmd = "quicktravel " .. target, off = not c.idle },
+      { label = "Stop\nevent", id = "teststop", cmd = "testevent stop", off = not c.testing } }, 44)
+  end)
   Tabs.help("Set start here moves the start - your checkpoints stay where they are.")
   Tabs.help("Test event: this event on its own, from its countdown - everyone in a car takes part (no money, no saving).\n" ..
     "Quick travel: your car to its start, facing the first checkpoint. Both need no challenge running. Stop event ends a test.")
@@ -3153,6 +3164,26 @@ Tabs.courseBuilder = function(c)
     Tabs.bigButtons({ { label = "Clear this one", id = "clr1", cmd = "clearcourse " .. target, confirm = true },
                       { label = "Clear ALL", id = "clrall", cmd = "clearcourse all", confirm = true } }, 44)
   end)
+end
+
+-- an outline round whatever fn draws (no header) - e.g. the course builder's Test event row, in orange
+Tabs.ORANGE = { 1.00, 0.55, 0.15, 0.95 }
+Tabs.framed = function(fn, col)
+  local okP, at = pcall(function() return im.GetCursorScreenPos() end)
+  local okW, avail = pcall(function() return im.GetContentRegionAvail() end)
+  pcall(im.Dummy, im.ImVec2(1, 4))
+  local ok, err = pcall(fn)
+  pcall(im.Dummy, im.ImVec2(1, 4))
+  if not ui.noBoxes and okP and type(at) == "table" and okW and type(avail) == "table" and tonumber(avail.x) then
+    local okD, errD = pcall(function()
+      local bottom = im.GetCursorScreenPos()
+      local c = col or Tabs.ORANGE
+      im.ImDrawList_AddRect(im.GetWindowDrawList(), im.ImVec2(at.x - 4, at.y - 2), im.ImVec2(at.x + avail.x + 4, bottom.y),
+        im.GetColorU322(im.ImVec4(c[1], c[2], c[3], c[4] or 1)), 6, 0, 2)
+    end)
+    if not okD then ui.noBoxes = true; warn("box borders unavailable, plain sections instead: " .. tostring(errD)) end
+  end
+  if not ok then error(err, 0) end
 end
 
 -- hover help: a dim "(?)" after the item before it; the explanation shows when the mouse is over it.
