@@ -185,6 +185,12 @@ t.test("parking: the bay's direction goes to the player's game (it draws a car-s
   w:waitFor(function() return w:sawMessage(A, "Alice: GO!") end, 10, "her run")
   w:step(0.5)
   t.eq(w:state(A).target.yaw, 90, "the bay's heading")
+  -- an arrowhead at the front end of the bay's centre line: yaw 90 = facing +x (a BeamNG car points along local -y)
+  local heads = 0
+  for _, cy in ipairs(A.client.cylinders) do
+    if math.abs(cy.a.x - 602.2) < 0.01 and math.abs(cy.a.y) < 0.01 and cy.b.x < cy.a.x and math.abs(cy.b.y) > 0.5 then heads = heads + 1 end
+  end
+  t.eq(heads, 2, "two arrowhead strokes back from the tip at the +x end")
   w:assertClean()
 end)
 

@@ -35,7 +35,7 @@ local RESET_ACTIONS = {
 local VEHSEL_ACTIONS = { "vehicle_selector" }
 local PARTS_ACTIONS  = { "parts_selector" }
 
-local VERSION = "0.9.17"
+local VERSION = "0.9.18"
 local recentErrors = {}
 local function warn(msg)
   log("W", "topgear", tostring(msg))
@@ -258,7 +258,11 @@ local function drawTarget()
       local c = { p + f * hl + rt * hw, p + f * hl - rt * hw, p - f * hl - rt * hw, p - f * hl + rt * hw }
       local col = ColorF(1, 0.45, 0, 0.8)
       for i = 1, 4 do debugDrawer:drawCylinder(c[i] + z, c[i % 4 + 1] + z, 0.08, col) end   -- the outline
-      debugDrawer:drawCylinder(p - f * (hl - 0.6) + z, p + f * (hl - 0.6) + z, 0.05, ColorF(1, 1, 1, 0.6))   -- its axis
+      local white = ColorF(1, 1, 1, 0.8)
+      local tip = p + f * (hl - 0.4) + z
+      debugDrawer:drawCylinder(p - f * (hl - 0.6) + z, tip, 0.05, white)   -- its axis, with an arrowhead at the
+      debugDrawer:drawCylinder(tip, tip - f * 1.0 + rt * 0.7, 0.05, white)   -- front: the way the car should face
+      debugDrawer:drawCylinder(tip, tip - f * 1.0 - rt * 0.7, 0.05, white)
       debugDrawer:drawCylinder(p, p + vec3(0, 0, 120), 0.8, ColorF(1, 0.45, 0, 0.6))
       debugDrawer:drawTextAdvanced(p + vec3(0, 0, 3), String(t.label or ""), ColorF(1, 1, 1, 1), true, false, ColorI(0, 0, 0, 180))
     end)

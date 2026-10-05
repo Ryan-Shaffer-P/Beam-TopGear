@@ -272,7 +272,10 @@ function World:loadClient(p)
   sb.set("ColorF", function(...) return { ... } end)
   sb.set("ColorI", function(...) return { ... } end)
   sb.set("String", function(s) return s end)
-  sb.set("debugDrawer", { drawCylinder = function() end, drawTextAdvanced = function() end, drawSphere = function() end })
+  -- 3D drawing: the last frame's cylinders (c.cylinders: { a, b, r }), cleared at each onPreRender
+  c.cylinders = {}
+  sb.set("debugDrawer", { drawCylinder = function(_, a, b, r) c.cylinders[#c.cylinders + 1] = { a = a, b = b, r = r } end,
+                          drawTextAdvanced = function() end, drawSphere = function() end })
   sb.set("ui_imgui", im)
   -- sound: records what played; the clip file must exist in the client mod (a typo'd clip id fails loudly)
   c.sounds, c.audioBroken = {}, false
@@ -867,6 +870,7 @@ function World:step(seconds, frame)
         local c = p.client
         c.im.beginFrame()
         self:clientCall(p, "onUpdate", c.M.onUpdate, dt)
+        c.cylinders = {}
         self:clientCall(p, "onPreRender", c.M.onPreRender, dt)
         c.im.endFrame()
       end
