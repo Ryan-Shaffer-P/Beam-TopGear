@@ -7,7 +7,7 @@
   In game, type /tg help.
 ]]
 
-local SERVER_VERSION = "0.9.16"
+local SERVER_VERSION = "0.9.17"
 local PLUGIN_DIR  = "Resources/Server/TopGear/"
 local CONFIG_PATH = PLUGIN_DIR .. "config.json"
 local COURSES_PATH = PLUGIN_DIR .. "courses.json"   -- saved course library
@@ -136,6 +136,7 @@ local DEFAULT_CONFIG = {
       resetFine  = { to = "all",    clips = { "oh-for-gods-sake", "jeremy-clarkson-oh-for-gods-sake" } },
       crash      = { to = "near",   clips = { "oh-cock-james-may", "clarkson-poop-shot-out" } },
       trapRecord = { to = "all",    clips = { "poweeerr-jeremy-clarkson" } },                      -- fastest through the trap so far
+      parked     = { to = "near",   clips = { "grunt-yes" } },                                     -- a parking bay measured (not the last: finish plays)
       workshop   = { to = "all",    clips = { "workshop-intro" } },                                -- workshop opens
       champion   = { to = "all",    clips = { "top-gear-theme-intro" } },                          -- the overall winner is announced
     },
@@ -2310,6 +2311,7 @@ local function tickParking(p, e)
         sayAll(string.format("%s has parked in all %d bay%s in %s.", p.name, #bays, #bays == 1 and "" or "s", fmtTime(p.run.time)))
       else
         p.run.bay, p.run.needMove = i + 1, true
+        playSound("parked", p)   -- (the last bay ends the run: the finish clip plays instead)
       end
       pushState(p)
     end
