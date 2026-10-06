@@ -35,7 +35,7 @@ local RESET_ACTIONS = {
 local VEHSEL_ACTIONS = { "vehicle_selector" }
 local PARTS_ACTIONS  = { "parts_selector" }
 
-local VERSION = "0.9.24"
+local VERSION = "0.9.25"
 local recentErrors = {}
 local function warn(msg)
   log("W", "topgear", tostring(msg))
@@ -2187,6 +2187,13 @@ local function drawAdminControls(d)
         Tabs.help("Take / Dock take that much cash / points away. Award and Dock: everyone sees it, and it shows in the results.")
         button("Free respawn##admrespawn", "freerespawn " .. who); same()
         button("Bring to me##admbring", "bring " .. who)
+        local login = who
+        for _, s in ipairs(d.standings) do if s.name == who and s.login then login = s.login end end
+        local nb2 = textBuf("admalias")
+        im.InputText("New name##admalias", nb2); same()
+        button("Rename##admrename", "setname " .. login .. " " .. textOf(nb2))
+        Tabs.help("What everyone sees them as (BeamMP gives guests random names) - kept for their BeamMP name.\n" ..
+          "Empty: back to their BeamMP name. Players can also set their own in the Status tab (/tg name).")
         Tabs.help("Free respawn: fixes their car where it stands (a lost car comes back where it was) - free: no cost, no\n" ..
           "points, no DSQ. Bring to me: their car, as it is, 50 m in front of yours, facing the way you face.")
       end
@@ -2210,6 +2217,11 @@ local function drawStatus(d)
     txt("You're not in this challenge.")
     if d.phase == "dealer" then button("Join the challenge", "join") end
   else
+    local nb = textBuf("myname")
+    im.InputText("##myname", nb); same()
+    button("Set my name##setname", "name " .. textOf(nb))
+    Tabs.help("BeamMP gives guests a random name - type what everyone should call you (chat, menu and results).\n" ..
+      "Empty + Set: back to your BeamMP name.")
     txt("Car: " .. tostring(me.car or "none yet"))
     local fl = d.faults or {}
     if fl.revealed and #(fl.mine or {}) > 0 then

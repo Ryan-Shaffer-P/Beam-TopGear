@@ -341,6 +341,12 @@ Players box: **Give / Take** cash, **Award / Dock** points, and **Free respawn**
 cost, no points, no DSQ), and **Bring to me** (`/tg bring <driver>`: their car, as it is, 50 m in front of
 yours, facing the way you face - `defaults.bringDistance`).
 
+**Names:** BeamMP gives guests random names (guest2741267). Anyone can pick what everyone sees them as -
+the name box at the top of the Status tab, or `/tg name <name>` (`/tg name` alone goes back to the BeamMP
+name). Admins rename anyone from the Players box (**Rename**) or `/tg setname <player> <new name>`. The
+alias is used in chat, the menu and the results, kept in `config.json` (`aliases`, by BeamMP name) so it
+comes back when that name rejoins, and never changes who's an admin (`admins` still lists BeamMP names).
+
 ### Sound bites
 
 Top Gear clips play at key moments. Who hears each one:

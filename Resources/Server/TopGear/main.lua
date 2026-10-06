@@ -7,7 +7,7 @@
   In game, type /tg help.
 ]]
 
-local SERVER_VERSION = "0.9.24"
+local SERVER_VERSION = "0.9.25"
 local PLUGIN_DIR  = "Resources/Server/TopGear/"
 local CONFIG_PATH = PLUGIN_DIR .. "config.json"
 local COURSES_PATH = PLUGIN_DIR .. "courses.json"   -- saved course library
@@ -20,6 +20,7 @@ local PUSH_EVERY  = 8     -- ticks between HUD refreshes (8 x 250 ms = 2 s)
 ---------------------------------------------------------------------------
 local DEFAULT_CONFIG = {
   admins = {},                 -- names allowed to use admin commands. EMPTY = EVERYONE (testing only)
+  aliases = {},                -- BeamMP name -> the name everyone sees (/tg name, admin /tg setname; BeamMP's guests are random)
   adminExtraVehicles = true,   -- admins may spawn extra non-scoring vehicles (AI traffic, parked obstacles)
   clearVehiclesOnStart = true, -- delete everyone's vehicles when /tg start runs
   debugSpawns = false,         -- print raw spawn data to the server console
@@ -614,9 +615,9 @@ end
 local function newRun()
   return { status = "pending", cp = 1, penalty = 0, attempts = 0, best = 0, trapMax = 0, inTrap = false }
 end
-local function newPlayer(name, pid)
+local function newPlayer(name, pid)   -- (p.name = what everyone sees - an alias, cfg.aliases; p.login = BeamMP's name)
   return {
-    name = name, pid = pid, cash = cfg.economy.startingCash, points = 0, wins = 0,
+    name = (cfg.aliases or {})[name] or name, login = name, pid = pid, cash = cfg.economy.startingCash, points = 0, wins = 0,
     results = {}, damage = 0, carPrice = 0, recoveries = 0, drivability = 0,
     spent = { repairs = 0, upgrades = 0, towCost = 0, fines = 0, faultCash = 0, faultFixes = 0 },
     faults = {}, faultsFixed = 0, tows = 0, respawns = 0,
@@ -3682,10 +3683,10 @@ PLAYER_CMDS.help = function(pid, name)
   say(pid, "Stuck? /tg unstick (free, when stopped) | /tg tow (roadside repair + " .. money(cfg.economy.towFee) ..
     ptNote() .. ", DSQ from a running event; in workshop time, to the nearest workshop). Roadside repair = the workshop price x " .. tostring(cfg.economy.roadsideMarkup or 1.25) .. ".")
   say(pid, "Car condition: /tg condition new|used|needs work|beater|death trap (at the dealership; alone = yours) | fix <id> (workshop, once it's found the problem)")
-  say(pid, "/tg menu (window; /tg menu reset if it's squashed) | status | dealer | join | ready | unready | go | quote | repair | standings | diag")
+  say(pid, "/tg menu (window; /tg menu reset if it's squashed) | name <what to call you> | status | dealer | join | ready | unready | go | quote | repair | standings | diag")
   if isAdmin(name) then
     say(pid, "Admin: /tg start [force] | next (force the next phase) | stop | restartevent | where | workshop <minutes> | workshopevery <n>")
-    say(pid, "Players: /tg give <driver> <+/-cash> | setcash <driver> <cash> | freerespawn <driver> (fixes their car where it stands, free) | bring <driver> (50 m in front of you)")
+    say(pid, "Players: /tg give <driver> <+/-cash> | setcash <driver> <cash> | freerespawn <driver> (fixes their car where it stands, free) | bring <driver> (50 m in front of you) | setname <player> <new name>")
     say(pid, "Producers: /tg award <driver> <+/-points> [reason]")
     say(pid, "Traffic: /tg traffic on|off - while on, what you spawn is non-scoring traffic (any phase) and your vehicle menu is open")
     say(pid, "Soundboard: /tg play <clip> plays it for everyone (/tg sounds list)")
@@ -3818,6 +3819,10 @@ PLAYER_CMDS.unready = function(pid)
   local p = playerByPid(pid)
   if not p then say(pid, "You're not in the challenge."); return end
   RPC.unready(p)
+end
+
+PLAYER_CMDS.name = function(pid, name, args)   -- /tg name <what everyone calls you> | /tg name (back to your BeamMP name)
+  Score.setAlias(pid, name, table.concat(args, " ", 3))
 end
 
 PLAYER_CMDS.quote = function(pid)
@@ -4335,7 +4340,7 @@ ADMIN_CMDS.resume = function(pid)
     end
   end
   local away = {}
-  for name, p in pairs(game.players) do if not p.pid then away[#away + 1] = name end end
+  for _, p in pairs(game.players) do if not p.pid then away[#away + 1] = p.name end end
   if #away > 0 then sayAll("Not back yet: " .. table.concat(away, ", ") .. " - their cars return when they rejoin.") end
   Save.write()
   pushAll()
@@ -4404,6 +4409,16 @@ ADMIN_CMDS.bring = function(pid, _, args)
   say(pid, string.format("Bringing %s's car to %d m in front of you.", p.name, math.floor(dist)))
 end
 
+ADMIN_CMDS.setname = function(pid, _, args)   -- /tg setname <player> <new name> (empty: back to their BeamMP name)
+  local p = Score.findPlayer(args[3] or "")
+  local login = p and (p.login or p.name)
+  if not login then   -- (not in the challenge: anyone connected)
+    for _, n in pairs(MP.GetPlayers() or {}) do if n:lower() == tostring(args[3] or ""):lower() then login = n end end
+  end
+  if not login then say(pid, "Usage: /tg setname <player> <new name> - who? (their current name, or the start of it)"); return end
+  Score.setAlias(pid, login, table.concat(args, " ", 4))
+end
+
 ADMIN_CMDS.discard = function(pid)
   if game.phase ~= "paused" then say(pid, "There's no saved challenge waiting."); return end
   game = { phase = "idle", stage = 0, players = {} }
@@ -4447,16 +4462,41 @@ ADMIN_CMDS.traffic = function(pid, name, args)
 end
 
 -- a player typed by an admin: the exact name, else ignoring case, else the only name that starts with it
-Score.findPlayer = function(text)
+Score.findPlayer = function(text)   -- (by the name everyone sees or the BeamMP name)
   if game.players[text] then return game.players[text] end
   local low, hit, n = tostring(text):lower(), nil, 0
   if low == "" then return nil end
-  for name, p in pairs(game.players) do if name:lower() == low then return p end end
+  for name, p in pairs(game.players) do if name:lower() == low or tostring(p.name):lower() == low then return p end end
   for name, p in pairs(game.players) do
-    if name:lower():sub(1, #low) == low then hit, n = p, n + 1 end
+    if name:lower():sub(1, #low) == low or tostring(p.name):lower():sub(1, #low) == low then hit, n = p, n + 1 end
   end
   if n == 1 then return hit end
   return nil
+end
+
+-- Aliases (0.9.25, Ryan: BeamMP gives everyone a random guest name): the name everyone sees in chat, the menu and the
+-- results. Kept in config.json by BeamMP name (cfg.aliases), so it's back when that name rejoins. Empty = none.
+function Score.setAlias(pid, login, alias)
+  alias = tostring(alias or ""):gsub("[%c\"]", ""):gsub("^%s+", ""):gsub("%s+$", "")
+  if #alias > 20 then say(pid, "Keep it to 20 characters."); return end
+  local low = alias:lower()
+  for name, q in pairs(game.players) do
+    if name ~= login and alias ~= "" and (name:lower() == low or tostring(q.name):lower() == low) then
+      say(pid, "Someone's already called " .. alias .. "."); return
+    end
+  end
+  for other, a in pairs(cfg.aliases or {}) do
+    if other ~= login and alias ~= "" and tostring(a):lower() == low then say(pid, "Someone's already called " .. alias .. "."); return end
+  end
+  cfg.aliases = cfg.aliases or {}
+  cfg.aliases[login] = alias ~= "" and alias or nil
+  markDirty()
+  local p = game.players[login]
+  local was = p and p.name or login
+  local now = alias ~= "" and alias or login
+  if p then p.name = now end
+  if was ~= now then sayAll(string.format("%s is now known as %s.", was, now)) else say(pid, "Your name is " .. now .. ".") end
+  pushAll()
 end
 
 -- producer points: /tg award <driver> <+/-points> [reason]
@@ -5638,7 +5678,7 @@ local function buildUi(pid)
   d.standings = {}
   local nReady, nIn = 0, 0   -- (the Start tab's "2/3 players are ready")
   for _, q in ipairs(sortedPlayers()) do
-    d.standings[#d.standings + 1] = { name = q.name, points = q.points, wins = q.wins, cash = q.cash, car = q.carName, online = q.pid ~= nil }
+    d.standings[#d.standings + 1] = { name = q.name, login = q.login, points = q.points, wins = q.wins, cash = q.cash, car = q.carName, online = q.pid ~= nil }
     if q.pid then nIn = nIn + 1; if q.ready then nReady = nReady + 1 end end
   end
   d.ready = { n = nReady, total = nIn }

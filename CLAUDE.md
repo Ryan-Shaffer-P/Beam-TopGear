@@ -89,6 +89,10 @@ tab; helpers `Tabs.step`/`Tabs.combo`; Top Gear colour theme), F1 start lights a
 car-side work: faults, tow/unstick placement, trailer spawn + load measurement, fuel/damage reports,
 parts snapshots/diffs, reverting refused parts.
 
+Players: `game.players` is keyed by the BeamMP name (= `p.login`, used for admin checks, mutes, saves); `p.name` is what
+everyone sees - an alias from `cfg.aliases[login]` (0.9.25, `/tg name`, `/tg setname`, `Score.setAlias`). Never look a
+player up by `p.name` alone; `Score.findPlayer` matches either.
+
 ## Hard-won rules (read before editing)
 
 1. **Forward-declaration order.** A function defined above a `local` that it uses compiles the name as a
@@ -195,9 +199,9 @@ for the `/tg diag` "Client error" line or the matching `[TopGear]` server-consol
 
 ## Quick command reference
 
-Players: `/tg menu | status | dealer | ready | unready | go | repair | fix <id> | tow | respawn | unstick | hitchup |
+Players: `/tg menu | name <alias> | status | dealer | ready | unready | go | repair | fix <id> | tow | respawn | unstick | hitchup |
 condition [name] | faults | fault take [n] | quote | standings | diag | partsdiag | lights | lightstest | flag | flagtest | sounds on|off|list | soundtest [clip|next] | theme`.
-Admins: `start [force] | next | stop | restartevent | freerespawn <driver> | bring <driver> | resume | discard | award <driver> <pts> [reason] | traffic on|off | play <clip> | budget | setcash | give | workshop <min> | workshopevery <n> |
+Admins: `start [force] | next | stop | restartevent | freerespawn <driver> | bring <driver> | setname <player> <name> | resume | discard | award <driver> <pts> [reason] | traffic on|off | play <clip> | budget | setcash | give | workshop <min> | workshopevery <n> |
 importprices [listed|builtin|models] | gameprices | setprice | class list/use/new/preset/delete/show/rule/unrule/include/exclude/clear/price/multiplier/values |
 course list/save/load/new/delete | addevent/delevent/enable/moveevent | testevent <n>|stop | quicktravel <n|finale> |
 setstart/addcp/undocp/clearcp/settrap/addbay/undobay/clearbays/addvia/undovia/clearvia/setfinale |
