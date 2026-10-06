@@ -7,7 +7,7 @@
   In game, type /tg help.
 ]]
 
-local SERVER_VERSION = "0.9.27"
+local SERVER_VERSION = "0.9.28"
 local PLUGIN_DIR  = "Resources/Server/TopGear/"
 local CONFIG_PATH = PLUGIN_DIR .. "config.json"
 local COURSES_PATH = PLUGIN_DIR .. "courses.json"   -- saved course library
@@ -135,7 +135,7 @@ local DEFAULT_CONFIG = {
     clips = { "baby-jesus", "clarkson-poop-shot-out", "clarksooon", "grunt-yes", "happy-yes", "james-may-says-cheese",
               "jeremy-clarkson-oh-for-gods-sake", "jeremy-clarkson-yeeeeeesss", "oh-cock-james-may", "oh-for-gods-sake",
               "oh-no-anyway", "poweeerr-jeremy-clarkson", "speed-and-power", "this-is-mp3", "top-gear-theme-intro", "yes-no-yes",
-              "workshop-intro", "lights-out" },
+              "workshop-intro", "lights-out", "fan-belt-squeal", "randomradio" },
     events = {
       start      = { to = "all",    clips = { "top-gear-theme-intro" } },                          -- challenge starts
       go         = { to = "all",    clips = { "lights-out" } },                                    -- GO: the lights go out (each run in time trial mode)
@@ -518,6 +518,15 @@ local function loadConfig()
       cfg.migrations.conditionPricing, changed = true, true
       local f = cfg.faults or {}
       if type(f.mileageKm) == "table" and f.mileageKm[5] == 500000 and f.mileageKm[3] == 150000 then f.mileageKm = deepcopy(DEFAULT_CONFIG.faults.mileageKm) end
+    end
+    if not cfg.migrations.quirkClips then   -- 0.9.28: two new clips (Ryan): a fan belt squeal, a random radio blurt
+      cfg.migrations.quirkClips, changed = true, true
+      local snd = cfg.sounds or {}
+      for _, id in ipairs({ "fan-belt-squeal", "randomradio" }) do
+        local have = false
+        for _, c in ipairs(snd.clips or {}) do if c == id then have = true end end
+        if snd.clips and not have then snd.clips[#snd.clips + 1] = id end
+      end
     end
     if not cfg.migrations.fuelFire then   -- 0.9.26: a fuel leak can catch fire (once) - a saved list has no fire settings
       cfg.migrations.fuelFire, changed = true, true

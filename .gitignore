@@ -15,3 +15,7 @@ Resources/Client/mods.json
 .claude/worktrees/
 Resources/Server/TopGear/session.json
 Resources/Server/TopGear/session.json.tmp
+
+# source videos (sound is extracted to MP3s/ - Ryan deletes the originals)
+*.MOV
+*.mov

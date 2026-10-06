@@ -35,7 +35,7 @@ local RESET_ACTIONS = {
 local VEHSEL_ACTIONS = { "vehicle_selector" }
 local PARTS_ACTIONS  = { "parts_selector" }
 
-local VERSION = "0.9.27"
+local VERSION = "0.9.28"
 local recentErrors = {}
 local function warn(msg)
   log("W", "topgear", tostring(msg))

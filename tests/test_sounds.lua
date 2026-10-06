@@ -29,7 +29,7 @@ end
 t.test("every configured clip ships in the client mod and the zip", function()
   local w = World.new()
   local clips = w:serverConfig().sounds.clips
-  t.eq(#clips, 18)
+  t.eq(#clips, 20)
   local zf = assert(io.open("Resources/Client/topgear.zip", "rb"))
   local zip = zf:read("*a")   -- a zip keeps its file names as plain text
   zf:close()
