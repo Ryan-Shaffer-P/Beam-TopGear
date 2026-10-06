@@ -35,7 +35,7 @@ local RESET_ACTIONS = {
 local VEHSEL_ACTIONS = { "vehicle_selector" }
 local PARTS_ACTIONS  = { "parts_selector" }
 
-local VERSION = "0.9.20"
+local VERSION = "0.9.21"
 local recentErrors = {}
 local function warn(msg)
   log("W", "topgear", tostring(msg))
@@ -2605,8 +2605,16 @@ local function drawAdmin(d)
       button("Test all faults on my car", "fault test" .. as); same(); button("Remove test faults", "fault testoff")
       for _, f in ipairs(d.faults.all or {}) do
         button("Test: " .. f.name .. "##ft1_" .. f.id, "fault test " .. f.id .. as)
+        if f.tier then   -- (0.9.21) its tier, and the groups it never shares a car with
+          same(); colored(0.65, 0.65, 0.65, "Tier " .. tostring(f.tier) ..
+            (type(f.groups) == "table" and #f.groups > 0 and (" - " .. table.concat(f.groups, ", ")) or ""))
+        end
       end
-      button("Which cars take which faults##fcaps", "fault caps")
+      button("Which cars take which faults##fcaps", "fault caps"); same()
+      button("Example problem sets (" .. lname(ui.testCond) .. ")##fsample", "fault sample " .. ui.testCond .. " 5")
+      Tabs.help("Tier 1 annoying, 2 hurts performance, 3 can stop the car. Used: tier 1 only, Needs work: up to 2,\n" ..
+        "Beater and Death Trap: up to 3 (one tier 3 at most). Never two problems from the same group on one car.\n" ..
+        "Example problem sets: five random cars in the Test as condition, drawn by these rules (in the messages).")
     end
   end, true)
   local c = d.course

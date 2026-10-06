@@ -14,7 +14,7 @@ local OFF = { clutch = true, idle = true, gearbox = true }
 local function allFaults(cfg)
   local list = {}
   for _, f in ipairs(World.new():serverConfig().faults.list) do f.enabled = nil; list[#list + 1] = f end
-  cfg.faults = { list = list, severity = { 1, 1, 1, 1 } }   -- (the listed strengths at every condition)
+  cfg.faults = { list = list, severity = { 1, 1, 1, 1 }, tiers = false }   -- (the listed strengths at every condition)
   cfg.migrations = { mileageOverlap = true }
   return cfg
 end
@@ -634,7 +634,7 @@ end)
 t.test("saved configs: the three overlapping problems switched off and the oil leak limited, once", function()
   local list = World.new():serverConfig().faults.list
   for _, f in ipairs(list) do f.enabled = nil; f.minCondition = nil end   -- a config saved before 0.9.12
-  local cfg = F.twoRaces(); cfg.faults = { list = list }
+  local cfg = F.twoRaces(); cfg.faults = { list = list, tiers = false }
   local sc = World.new({ files = F.files(cfg) }):serverConfig()
   for _, f in ipairs(sc.faults.list) do
     if f.id == "idle" or f.id == "gearbox" or f.id == "clutch" then t.eq(f.enabled, false, f.id) end
@@ -730,7 +730,7 @@ t.test("Ryan's fault tuning: saved configs move to the new values once (custom v
   end
   for _, f in ipairs(list) do if f.id == "ignition" then f.starter = nil end end   -- (as a 0.9.12 config: a starter fault of its own)
   list[#list + 1] = { id = "starter", name = "Weak starter (slow to start)", factor = 0.35 }
-  local cfg = F.twoRaces(); cfg.faults = { list = list }; cfg.migrations = { mileageOverlap = true, conditionPricing = true }
+  local cfg = F.twoRaces(); cfg.faults = { list = list, tiers = false }; cfg.migrations = { mileageOverlap = true, conditionPricing = true }
   local by = {}
   for _, f in ipairs(World.new({ files = F.files(cfg) }):serverConfig().faults.list) do by[f.id] = f end
   t.eq(by.ignition.factor, 0.05); t.eq(by.ignition.cutoutMin, 120); t.eq(by.ignition.cutoutMax, 240)   -- (then 0.9.12's 2nd tuning)
@@ -743,7 +743,7 @@ t.test("ignition cut-outs: saved configs at 180-480 s move to 120-240 s once (cu
   local function load(min, max)
     local list = World.new():serverConfig().faults.list
     for _, f in ipairs(list) do if f.id == "ignition" then f.cutoutMin, f.cutoutMax = min, max end end
-    local cfg = F.twoRaces(); cfg.faults = { list = list }
+    local cfg = F.twoRaces(); cfg.faults = { list = list, tiers = false }
     cfg.migrations = { mileageOverlap = true, conditionPricing = true, faultTuning2 = true }
     for _, f in ipairs(World.new({ files = F.files(cfg) }):serverConfig().faults.list) do if f.id == "ignition" then return f end end
   end
@@ -784,7 +784,7 @@ end)
 
 -- More worn, worse problems (0.9.12): the listed strengths are a Beater's; Used x0.5, Needs work x0.75, Death Trap x1.3
 t.test("more worn cars have worse problems: each problem's strength scales with the condition", function()
-  local base = F.twoRaces(); base.faults = nil; base.workshopEvery = 1   -- (the real severities, not the tests' flat ones)
+  local base = F.twoRaces(); base.faults = { tiers = false }; base.workshopEvery = 1   -- (the real severities, not the tests' flat ones)
   local function car(cond, ids)
     local w = World.new({ files = F.files(base) })
     local A = w:join("Alice")
@@ -812,7 +812,7 @@ t.test("more worn cars have worse problems: each problem's strength scales with 
 end)
 
 t.test("ignition cut-outs: a Used car every 4-8 minutes, a Death Trap closer together than listed", function()
-  local base = F.twoRaces(); base.faults = nil
+  local base = F.twoRaces(); base.faults = { tiers = false }
   local w = World.new({ files = F.files(base) })
   local A = w:join("Alice")
   w:chat(A, "/tg start"); w:chat(A, "/tg condition used")
@@ -862,7 +862,7 @@ t.test("knocked-out alignment pulls to one side: steering's straight ahead moved
 end)
 
 t.test("alignment pull: half as strong on a Used car; a car without steering hydros can't take it", function()
-  local base = F.twoRaces(); base.faults = nil   -- (the real severities)
+  local base = F.twoRaces(); base.faults = { tiers = false }   -- (the real severities)
   local w = World.new({ files = F.files(base) })
   local A, B = w:join("Alice"), w:join("Bob")
   w:chat(A, "/tg start"); w:chat(A, "/tg condition used")
@@ -880,7 +880,7 @@ end)
 t.test("saved configs get the alignment pull once", function()
   local list = World.new():serverConfig().faults.list
   for _, f in ipairs(list) do if f.id == "alignment" then f.pull = nil end end
-  local cfg = F.twoRaces(); cfg.faults = { list = list }
+  local cfg = F.twoRaces(); cfg.faults = { list = list, tiers = false }
   cfg.migrations = { mileageOverlap = true, conditionPricing = true, faultTuning2 = true }
   for _, f in ipairs(World.new({ files = F.files(cfg) }):serverConfig().faults.list) do
     if f.id == "alignment" then t.eq(f.pull, 0.028, "(0.015, then +20%, then +1 point)") end
@@ -888,7 +888,7 @@ t.test("saved configs get the alignment pull once", function()
 end)
 
 t.test("worn synchros on a Death Trap: 90% (never 100%, where BeamNG breaks the gear), and grinding adds no wear", function()
-  local base = F.twoRaces(); base.faults = nil; base.workshopEvery = 1   -- (the real severities)
+  local base = F.twoRaces(); base.faults = { tiers = false }; base.workshopEvery = 1   -- (the real severities)
   local w = World.new({ files = F.files(base) })
   local A = w:join("Alice")
   w:chat(A, "/tg start"); w:chat(A, "/tg condition death trap")
@@ -918,7 +918,7 @@ t.test("worn synchros on a Death Trap: 90% (never 100%, where BeamNG breaks the 
 end)
 
 t.test("alignment pull on a Death Trap: 3.64% of full steering (Ryan: +20%, then +1 point)", function()
-  local base = F.twoRaces(); base.faults = nil
+  local base = F.twoRaces(); base.faults = { tiers = false }
   local w = World.new({ files = F.files(base) })
   local A = w:join("Alice")
   w:chat(A, "/tg start"); w:chat(A, "/tg condition death trap")
@@ -928,7 +928,7 @@ t.test("alignment pull on a Death Trap: 3.64% of full steering (Ryan: +20%, then
 end)
 
 t.test("admin fault test 'as' a condition: the same strengths as a car bought that way; the Tools dropdown picks it", function()
-  local base = F.twoRaces(); base.faults = nil   -- (the real severities: Used x0.5 .. Death Trap x1.3)
+  local base = F.twoRaces(); base.faults = { tiers = false }   -- (the real severities: Used x0.5 .. Death Trap x1.3)
   local w = World.new({ files = F.files(base) })
   local A = w:join("Alice")
   w:buy(A, "covet", "base_M"); w:step(2)       -- (idle: just a car to test on)
@@ -959,7 +959,7 @@ t.test("missing bumpers merged into accident damage: saved configs and a saved c
   local list = World.new():serverConfig().faults.list
   table.insert(list, 3, { id = "bumpers", name = "Missing bumpers" })
   for _, f in ipairs(list) do if f.id == "body" then f.name = "Accident damage (dents, broken lights)" end end
-  local cfg = F.twoRaces(); cfg.faults = { list = list }
+  local cfg = F.twoRaces(); cfg.faults = { list = list, tiers = false }
   cfg.faultCaps = { ["covet/base_M"] = { ok = { bumpers = true, tires = true }, no = {} } }
   cfg.migrations = { mileageOverlap = true, conditionPricing = true, faultTuning2 = true }
   local w = World.new({ files = F.files(cfg) })
@@ -990,7 +990,7 @@ t.test("missing bumpers merged into accident damage: saved configs and a saved c
 end)
 
 t.test("the weak starter merged into the ignition problems: one fault, both parts, scaled; saved data moves over", function()
-  local base = F.twoRaces(); base.faults = nil   -- (the real severities)
+  local base = F.twoRaces(); base.faults = { tiers = false }   -- (the real severities)
   local w = World.new({ files = F.files(base) })
   local A = w:join("Alice")
   w:chat(A, "/tg start"); w:chat(A, "/tg condition used")
@@ -1003,7 +1003,7 @@ t.test("the weak starter merged into the ignition problems: one fault, both part
   local list = World.new():serverConfig().faults.list
   for _, f in ipairs(list) do if f.id == "ignition" then f.starter, f.name = nil, "Ignition problems (misfires, cuts out)" end end
   list[#list + 1] = { id = "starter", name = "Weak starter (slow to start)", factor = 0.7 }
-  local cfg = F.twoRaces(); cfg.faults = { list = list }
+  local cfg = F.twoRaces(); cfg.faults = { list = list, tiers = false }
   cfg.migrations = { mileageOverlap = true, conditionPricing = true, faultTuning2 = true, combineBumpers = true }
   for _, f in ipairs(World.new({ files = F.files(cfg) }):serverConfig().faults.list) do
     t.ok(f.id ~= "starter")
@@ -1033,7 +1033,7 @@ end)
 t.test("saved configs: the slipping clutch gets its grip factor once (switched off as before)", function()
   local list = World.new():serverConfig().faults.list
   for _, f in ipairs(list) do if f.id == "clutch" then f.factor = nil end end
-  local cfg = F.twoRaces(); cfg.faults = { list = list }
+  local cfg = F.twoRaces(); cfg.faults = { list = list, tiers = false }
   for _, f in ipairs(World.new({ files = F.files(cfg) }):serverConfig().faults.list) do
     if f.id == "clutch" then t.eq(f.factor, 0.6); t.eq(f.enabled, false) end
   end
@@ -1043,7 +1043,7 @@ t.test("saved configs at the 1.8% alignment pull move to 2.8% once (custom value
   local function load(pull)
     local list = World.new():serverConfig().faults.list
     for _, f in ipairs(list) do if f.id == "alignment" then f.pull = pull end end
-    local cfg = F.twoRaces(); cfg.faults = { list = list }
+    local cfg = F.twoRaces(); cfg.faults = { list = list, tiers = false }
     cfg.migrations = { mileageOverlap = true, conditionPricing = true, faultTuning2 = true, alignmentPull = true, alignmentPull2 = true }
     for _, f in ipairs(World.new({ files = F.files(cfg) }):serverConfig().faults.list) do if f.id == "alignment" then return f.pull end end
   end

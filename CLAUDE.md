@@ -300,6 +300,11 @@ ignition's; bumpers merged into body - SETUP_FAULTS
 body, restore record still keyed "bumpers"; the fix's respawn bills only damage beyond the fault's dents, `p.dentsCredit`), all from the 0.36
 game Lua, NOT yet tried in game (devices found via `powertrain.getDevices()` by `.type`). "unavailable" -> swapped silently and remembered in `cfg.faultCaps["model/config"]` (`/tg fault caps`).
 Next step for "group cars by fault capability": build groups from `faultCaps`.
+0.9.21 **tiers** (Ryan: some problems together made a car undriveable): each fault has `tier` (1 annoying, 2 performance,
+3 can stop the car: ignition, cooling, oilleak) and `groups` (brakes, stalling, heat, gears: never two sharing one);
+`faults.maxTier` per condition {1,2,3,3}, `faults.maxPerTier` {4,4,1}; `CONDITION.tierOK` in `rollFault`; `faults.tiers =
+false` = off (test fixtures and test_faults pin it off - the `pin` roll indices assume the full candidate list);
+migration `faultTiers` fills a saved list; `/tg fault sample <cond> [n]`; test_faulttiers.
 
 ### 4. Upgrade prices - DONE in 0.8.7
 Parts tab (client `buildCatalogue` / `quote` / `fitPart` / `drawParts`): lists slots from the parts tree's

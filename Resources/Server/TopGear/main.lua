@@ -7,7 +7,7 @@
   In game, type /tg help.
 ]]
 
-local SERVER_VERSION = "0.9.20"
+local SERVER_VERSION = "0.9.21"
 local PLUGIN_DIR  = "Resources/Server/TopGear/"
 local CONFIG_PATH = PLUGIN_DIR .. "config.json"
 local COURSES_PATH = PLUGIN_DIR .. "courses.json"   -- saved course library
@@ -85,32 +85,39 @@ local DEFAULT_CONFIG = {
     -- Applied when the car spawns; it stays (resets, repairs, problem fixes). No paint aging: the game does it by
     -- locking every body mesh's colour, which stops repaints from showing (and only the owner would see it).
     mileageKm = { 0, 60000, 100000, 200000, 300000 },
-    list = {                      -- factor = severity (see README)
-      { id = "tires",      name = "Worn, underinflated tires",               factor = 0.3 },   -- pressure = 30% of normal
-      { id = "alignment",  name = "Knocked-out wheel alignment",             factor = 1.4,     -- front toe to its limit + rear 40%
+    -- Problem tiers (0.9.21, Ryan: some problems together make a car undriveable). Each problem has a tier - 1
+    -- annoying, 2 hurts performance, 3 can stop the car - and groups: a car never gets two problems that share a group.
+    -- maxTier: the worst tier each condition can draw (Used, Needs work, Beater, Death Trap); maxPerTier: at most this
+    -- many problems of each tier (1, 2, 3) on one car. A problem without a tier counts as tier 1.
+    tiers = true,                 -- false = no tier or group rules (any problem with any other, as before 0.9.21)
+    maxTier = { 1, 2, 3, 3 },
+    maxPerTier = { 4, 4, 1 },
+    list = {                      -- factor = severity (see README); tier / groups: see maxTier above
+      { id = "tires", tier = 1,      name = "Worn, underinflated tires",               factor = 0.3 },   -- pressure = 30% of normal
+      { id = "alignment", tier = 1,  name = "Knocked-out wheel alignment",             factor = 1.4,     -- front toe to its limit + rear 40%
         pull = 0.028 },   -- and it pulls to one side (random per car): straight ahead moved this share of full steering
-      { id = "engine",     name = "Tired engine (about -20% power)",         factor = 0.8 },
-      { id = "brakes",     name = "Worn brakes (about -40% braking)",        factor = 0.6 },
-      { id = "ignition",   name = "Ignition problems (misfires, cuts out, slow to start)", factor = 0.05,   -- extra misfire chance
+      { id = "engine", tier = 2,     name = "Tired engine (about -20% power)",         factor = 0.8 },
+      { id = "brakes", tier = 2, groups = { "brakes" },     name = "Worn brakes (about -40% braking)",        factor = 0.6 },
+      { id = "ignition", tier = 3, groups = { "stalling" },   name = "Ignition problems (misfires, cuts out, slow to start)", factor = 0.05,   -- extra misfire chance
         cutoutMin = 120, cutoutMax = 240,     -- seconds between cut-outs (a Beater's; / severity: Used 4-8 min)
         starter = 0.6 },                      -- and a weak starter: its torque x this (0.9.13: was its own fault)
-      { id = "cooling",    name = "Cooling problems (leaking radiator)",     factor = 0.05 },  -- radiator damage (0.1 = wrecked)
-      { id = "suspension", name = "Worn-out suspension (soft and bouncy)" },                   -- softest springs/dampers, or no anti-roll bars
-      { id = "fuelleak",   name = "Fuel leak",                                factor = 1.0 },   -- litres per minute
-      { id = "body",       name = "Accident damage (missing bumpers, dents, broken lights)", factor = 3000 },   -- damage it
+      { id = "cooling", tier = 3, groups = { "heat" },    name = "Cooling problems (leaking radiator)",     factor = 0.05 },  -- radiator damage (0.1 = wrecked)
+      { id = "suspension", tier = 1, name = "Worn-out suspension (soft and bouncy)" },                   -- softest springs/dampers, or no anti-roll bars
+      { id = "fuelleak", tier = 2, groups = { "stalling" },   name = "Fuel leak",                                factor = 1.0 },   -- litres per minute
+      { id = "body", tier = 1,       name = "Accident damage (missing bumpers, dents, broken lights)", factor = 3000 },   -- damage it
                                                        -- starts with, plus no front/rear bumper (0.9.13: was its own fault)
-      { id = "clutch",     name = "Slipping clutch", enabled = false,          factor = 0.6 },   -- clutch grip x this (0.9.13: was
+      { id = "clutch", tier = 2, groups = { "gears" },     name = "Slipping clutch", enabled = false,          factor = 0.6 },   -- clutch grip x this (0.9.13: was
                                                        -- BeamNG's "permanently damaged" = 25%); manuals; off: mileage wears the clutch
-      { id = "synchros",   name = "Worn gearbox synchros (gears grind)",     factor = 0.8 },   -- synchro wear (1 = gears break); manuals
-      { id = "turbo",      name = "Damaged turbo (low boost)",               factor = 0.02 },  -- turbo damage; turbo cars
-      { id = "brakefade",  name = "Glazed brake pads (squeal, fade when hot)", factor = 1,     -- pad glazing (1 = fully glazed:
+      { id = "synchros", tier = 2, groups = { "gears" },   name = "Worn gearbox synchros (gears grind)",     factor = 0.8 },   -- synchro wear (1 = gears break); manuals
+      { id = "turbo", tier = 2,      name = "Damaged turbo (low boost)",               factor = 0.02 },  -- turbo damage; turbo cars
+      { id = "brakefade", tier = 2, groups = { "brakes" },  name = "Glazed brake pads (squeal, fade when hot)", factor = 1,     -- pad glazing (1 = fully glazed:
         refresh = 0.5 },   -- the game's brakes x0.8 + squeal); re-glazed every `refresh` s - hard braking scrubs glazing off
-      { id = "abs",        name = "ABS failure (wheels lock)" },
-      { id = "oilleak",    name = "Oil leak (runs hot - might blow the engine)", factor = 0.5, -- engine friction +50%
+      { id = "abs", tier = 1, groups = { "brakes" },        name = "ABS failure (wheels lock)" },
+      { id = "oilleak", tier = 3, groups = { "stalling", "heat" },    name = "Oil leak (runs hot - might blow the engine)", factor = 0.5, -- engine friction +50%
         blowChance = 0.2, blowMin = 60, blowMax = 600,     -- chance the engine is doomed; seconds of hard driving until it goes
         minCondition = 3 },                                -- only Beaters and Death Traps (a Used car's engine doesn't blow)
-      { id = "idle",       name = "Rough idle (hunts and stalls)",           factor = 15, enabled = false },   -- idle-speed error x this
-      { id = "gearbox",    name = "Worn gearbox (power lost to friction)",   factor = 3, enabled = false },    -- gearbox friction x this
+      { id = "idle", tier = 2, groups = { "stalling" },       name = "Rough idle (hunts and stalls)",           factor = 15, enabled = false },   -- idle-speed error x this
+      { id = "gearbox", tier = 2, groups = { "gears" },    name = "Worn gearbox (power lost to friction)",   factor = 3, enabled = false },    -- gearbox friction x this
       -- (idle, gearbox and clutch are off by default since 0.9.12: the car condition's mileage wear does the same)
     },
   },
@@ -509,6 +516,15 @@ local function loadConfig()
       local f = cfg.faults or {}
       if type(f.mileageKm) == "table" and f.mileageKm[5] == 500000 and f.mileageKm[3] == 150000 then f.mileageKm = deepcopy(DEFAULT_CONFIG.faults.mileageKm) end
     end
+    if not cfg.migrations.faultTiers then   -- 0.9.21: problem tiers and groups (a saved list has none)
+      cfg.migrations.faultTiers, changed = true, true
+      for _, f in ipairs((cfg.faults or {}).list or {}) do
+        local def
+        for _, d in ipairs(DEFAULT_CONFIG.faults.list) do if d.id == f.id then def = d end end
+        if def and f.tier == nil then f.tier = def.tier end
+        if def and f.groups == nil and def.groups then f.groups = deepcopy(def.groups) end
+      end
+    end
     if not cfg.migrations.mileageOverlap then   -- 0.9.12: mileage wear replaces rough idle / worn gearbox / slipping clutch;
       cfg.migrations.mileageOverlap, changed = true, true   -- the oil leak only for Beaters and worse
       for _, f in ipairs((cfg.faults or {}).list or {}) do
@@ -699,6 +715,28 @@ function CONDITION.level(p)   -- the condition chosen (before buying) or the car
   if p.boughtCondition then return p.boughtCondition end
   return math.min(#(p.faults or {}) + (p.faultsOwed or 0), 4)
 end
+-- problem tiers (0.9.21): may this car (its condition `level`) get problem f, given the problems it already has?
+function CONDITION.tier(f) return math.max(1, math.floor(tonumber(f and f.tier) or 1)) end
+function CONDITION.tierOK(p, f, level)
+  local fc = cfg.faults or {}
+  if fc.tiers == false then return true end
+  local maxTier = tonumber((fc.maxTier or {})[math.max(1, math.min(level or 1, 4))]) or 3
+  local tier = CONDITION.tier(f)
+  if tier > maxTier then return false end
+  local cap, same = tonumber((fc.maxPerTier or {})[tier]), 0
+  local mine = {}
+  for _, id in ipairs(p.faults or {}) do
+    local g = nil
+    for _, d in ipairs(fc.list or {}) do if d.id == id then g = d end end
+    if g then
+      if CONDITION.tier(g) == tier then same = same + 1 end
+      for _, grp in ipairs(type(g.groups) == "table" and g.groups or {}) do mine[grp] = true end
+    end
+  end
+  if cap and same >= cap then return false end
+  for _, grp in ipairs(type(f.groups) == "table" and f.groups or {}) do if mine[grp] then return false end end
+  return true
+end
 function CONDITION.km(n) return tonumber(((cfg.faults or {}).mileageKm or {})[(n or 0) + 1]) or 0 end
 -- career's used-car price: x (1 - lossPerKm x km) + scrap value (age left out); New = full price
 -- the share of the condition discount a car gets for its 0-100 km/h time (acc; nil = unknown: the full discount)
@@ -860,9 +898,11 @@ end
 -- a random enabled fault this car doesn't have and isn't known to be unable to take
 local function rollFault(p)
   local caps, tried, cands = capsFor(p), p.faultTried or {}, {}
+  local level = CONDITION.level(p)
   for _, f in ipairs(cfg.faults.list or {}) do
-    local tooNew = tonumber(f.minCondition) and CONDITION.level(p) < tonumber(f.minCondition)   -- e.g. oil leak: Beaters and worse
-    if f.enabled ~= false and not tooNew and not hasFault(p, f.id) and not caps.no[f.id] and not tried[f.id] then cands[#cands + 1] = f.id end
+    local tooNew = tonumber(f.minCondition) and level < tonumber(f.minCondition)   -- e.g. oil leak: Beaters and worse
+    if f.enabled ~= false and not tooNew and not hasFault(p, f.id) and not caps.no[f.id] and not tried[f.id]
+       and CONDITION.tierOK(p, f, level) then cands[#cands + 1] = f.id end
   end
   if #cands == 0 then return nil end
   return cands[math.random(#cands)]
@@ -3630,7 +3670,7 @@ PLAYER_CMDS.help = function(pid, name)
     say(pid, "Producers: /tg award <driver> <+/-points> [reason]")
     say(pid, "Traffic: /tg traffic on|off - while on, what you spawn is non-scoring traffic (any phase) and your vehicle menu is open")
     say(pid, "Soundboard: /tg play <clip> plays it for everyone (/tg sounds list)")
-    say(pid, "Faults: /tg fault test [id] (applies to your car) | fault testoff | fault caps (which cars take which faults)")
+    say(pid, "Faults: /tg fault test [id] (applies to your car) | fault testoff | fault caps (which cars take which faults) | fault sample <condition> [n] (example problem sets by the tier rules)")
     say(pid, "Money: /tg budget <amount> | setcash <name> <amount> | give <name> <amount> | importprices [models] | gameprices on|off")
     say(pid, "Course: /tg setstart <n> | addcp <n> | undocp <n> | clearcp <n> | settrap <n> | settype <n> <type> | settime <n> <s>")
     say(pid, "Parking: /tg addbay <n> | undobay <n> | clearbays <n>  (park facing the way the bay faces)")
@@ -3891,6 +3931,29 @@ end
 PLAYER_CMDS.fault = function(pid, name, args)
   if not faultsOn() then say(pid, "Problem cars are switched off."); return end
   local sub, id = (args[3] or ""):lower(), (args[4] or ""):lower()
+  if sub == "sample" then   -- (0.9.21) example problem sets for a condition, drawn by the tier rules (any car)
+    if not isAdmin(name) then say(pid, "That's an admin command."); return end
+    local count = tonumber(args[#args])
+    local cond = CONDITION.parse(table.concat(args, " ", 4, count and (#args - 1) or #args))
+    if not cond or cond < 1 or cond > 4 then say(pid, "Usage: /tg fault sample <Used|Needs work|Beater|Death Trap> [how many, up to 50]"); return end
+    count = math.max(1, math.min(50, math.floor(count or 5)))
+    for i = 1, count do
+      local car = { faults = {}, boughtCondition = cond }
+      for _ = 1, cond do
+        local cands = {}
+        for _, f in ipairs(cfg.faults.list or {}) do
+          local tooNew = tonumber(f.minCondition) and cond < tonumber(f.minCondition)
+          if f.enabled ~= false and not tooNew and not hasFault(car, f.id) and CONDITION.tierOK(car, f, cond) then cands[#cands + 1] = f.id end
+        end
+        if #cands == 0 then break end
+        car.faults[#car.faults + 1] = cands[math.random(#cands)]
+      end
+      local shown = {}
+      for _, fid in ipairs(car.faults) do shown[#shown + 1] = fid .. " (T" .. CONDITION.tier(faultDef(fid)) .. ")" end
+      say(pid, string.format("%s %d: %s", CONDITION.name(cond), i, table.concat(shown, ", ")))
+    end
+    return
+  end
   if sub == "test" or sub == "testoff" then
     if not isAdmin(name) then say(pid, "That's an admin command."); return end
     local list = {}
@@ -5510,7 +5573,9 @@ local function buildUi(pid)
   d.summary = game.summary
   if faultsOn() then
     local all, mine = {}, nil
-    for _, f in ipairs(cfg.faults.list or {}) do all[#all + 1] = { id = f.id, name = f.name } end   -- (admin fault test)
+    for _, f in ipairs(cfg.faults.list or {}) do   -- (admin fault test)
+      all[#all + 1] = { id = f.id, name = f.name, tier = CONDITION.tier(f), groups = type(f.groups) == "table" and f.groups or nil }
+    end
     if p and p.faultsRevealed then
       mine = {}
       for _, id in ipairs(p.faults or {}) do mine[#mine + 1] = { id = id, name = CONDITION.problemName(p, id) } end

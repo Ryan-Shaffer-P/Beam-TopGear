@@ -620,6 +620,18 @@ the market - **every car's price** drops with the condition:
 | Beater | 200,000 km | 45% (55% off) |
 | Death Trap | 300,000 km | **30%** (70% off) |
 
+**Problem tiers** (0.9.21): so a worn car is never undriveable, every problem has a tier - **1** annoying
+(accident damage, worn suspension, worn tires, alignment, ABS failure), **2** hurts performance (tired engine,
+damaged turbo, worn brakes, glazed pads, worn synchros, fuel leak; slipping clutch, rough idle and worn gearbox
+when switched on), **3** can stop the car (ignition problems, cooling problems, oil leak). A **Used** car draws
+tier 1 only, **Needs work** up to tier 2, a **Beater** or **Death Trap** up to tier 3 - one tier 3 at most. And a
+car never gets two problems from the same **group**: brakes (worn brakes, glazed pads, ABS), stalling (ignition,
+fuel leak, oil leak, rough idle), heat (cooling, oil leak), gears (synchros, clutch, gearbox). In `config.json`:
+each problem's `tier` and `groups`, `faults.maxTier` (worst tier per condition, Used .. Death Trap: 1, 2, 3, 3),
+`faults.maxPerTier` (per car, tiers 1-3: 4, 4, 1), `faults.tiers: false` switches the rules off. Admins:
+`/tg fault sample <condition> [n]` (or **Example problem sets** in the Admin tab's fault tester) shows example
+cars drawn by the rules.
+
 The discounts are `faults.discount` in `config.json` (0.25, 0.40, 0.55, 0.70 - steeper early steps since 0.9.13,
 because BeamNG's car values are high: at a $15,000 budget only 7 cars are affordable new, and the old 10% off for
 Used unlocked just 3 more - now it's 20 more, Needs work 49 in all, Beater 103, Death Trap 238). Set it to `[]` to
