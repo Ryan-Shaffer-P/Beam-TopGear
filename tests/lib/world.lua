@@ -928,7 +928,10 @@ function World:driveAll(legs)
     moving = false
     for _, leg in ipairs(legs) do
       local v = leg[1].current
-      if v then
+      -- the mod moved this car (a tow, or back behind the start after a time trial run): a real driver doesn't carry
+      -- on driving to the old target from there - this leg is over
+      if v and leg.car == v and leg.last and (v.pos - leg.last):length() > 2 then leg.done = true end
+      if v and not leg.done then
         local d = leg.target - v.pos
         local len = d:length()
         if len >= 0.01 then
@@ -941,6 +944,7 @@ function World:driveAll(legs)
             if f then f.pos = f.pos + dir * stepLen end
           end
           v.vel = dir * leg.speed
+          leg.car, leg.last = v, vec3(v.pos)
           v.yaw = (math.atan2 or math.atan)(dir.y, dir.x)
           v.fuel = math.max(0, (v.fuel or 0) - stepLen * fuelPerMetre(leg.speed))
           -- an electric car uses about a third of the energy for the same driving

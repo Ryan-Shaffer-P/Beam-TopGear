@@ -317,6 +317,26 @@ next leg → … → finale → standings.
 Admin `/tg next` forces the current phase to end (e.g. someone is stuck: players who
 haven't arrived get a DNS). `/tg stop` cancels everything.
 
+Changed your mind? Every **I'm ready** can be taken back with **Not ready - undo** (`/tg unready`)
+until what it was waiting for starts: the dealership's countdown (it stops), a race start's or the
+workshop's GO, or your GO in a time trial. A trailer event's trailer is dropped behind you when you
+press I'm ready (one driver at a time, so they don't land on each other) - hitch up, then GO.
+
+In a time trial, a driver whose run is over sees "Back to the start in 5..." and then their car - as
+it is, no repairs - is moved to a spot behind the start line, before the next driver goes
+(`defaults.backToStartSeconds`; not for the reasonably priced car or a trailer event). Watching the
+driver on track: **Back to my car** puts you in your own car and leaves a **Watch <name>** button to
+go back to watching.
+
+Stuck or beyond repair in workshop time? `/tg tow` (or the Tow button) takes the car to the nearest
+workshop location (side by side if several arrive), at the normal tow price.
+
+Admin tools (Admin tab): **Restart event** (two clicks, `/tg restartevent`) brings every car back to
+the start line as it is and wipes the runs (nothing's scored yet) - then I'm ready and GO again.
+Players box: **Give / Take** cash, **Award / Dock** points, and **Free respawn**
+(`/tg freerespawn <driver>`: their car fixed where it stands, or a lost car back where it was - no
+cost, no points, no DSQ).
+
 ### Sound bites
 
 Top Gear clips play at key moments. Who hears each one:

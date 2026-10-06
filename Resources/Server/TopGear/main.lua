@@ -7,7 +7,7 @@
   In game, type /tg help.
 ]]
 
-local SERVER_VERSION = "0.9.19"
+local SERVER_VERSION = "0.9.20"
 local PLUGIN_DIR  = "Resources/Server/TopGear/"
 local CONFIG_PATH = PLUGIN_DIR .. "config.json"
 local COURSES_PATH = PLUGIN_DIR .. "courses.json"   -- saved course library
@@ -152,6 +152,7 @@ local DEFAULT_CONFIG = {
     startRadius = 20, cpRadius = 5, viaRadius = 25,   -- (checkpoints: 12 m until 0.9.13 - Ryan: tighter)
     lineWidth = 20,       -- a line checkpoint (course builder: Line): this wide, across the way from the point before it
     countdown = 5, falseStartPenalty = 5, eventTimeLimit = 600,
+    backToStartSeconds = 5,   -- time trial: a finished driver's car goes behind the start line after this countdown
     readyCountdown = 5,   -- seconds from "everyone's ready" at the dealership to the dealership closing (leg 1)
     soloGo = true,        -- time trial mode: each driver after the first starts when GO is pressed (by them or an admin)
     watchRunner = true,   -- time trial mode: everyone else watches the driver on track (their camera; /tg watch off)
@@ -664,6 +665,7 @@ end
 
 local function requestTrailer(p)
   if not p.pid or (p.eventVeh and p.eventVeh.trailer) then return end
+  p.trailerAsked = true
   local tc = (cfg.eventTypes or {}).trailer or {}
   local payload = trailerPayload(tc)
   p.spawnAllow = { untilT = now() + 30, trailer = payload.trailer, cargo = payload.cargo, count = payload.count or 0 }
@@ -1776,7 +1778,7 @@ beginTravel = function(n)
       p.leg = { via = #(e.via or {}) + 1, arrived = true }
       p.towDeliveredTo = nil
       p.arrivalRank = 50
-      if e.type == "trailer" then requestTrailer(p) end
+      if e.type == "trailer" and cfg.defaults.readyToGo == false then requestTrailer(p) end   -- (else at I'm ready)
       say(p.pid, "The tow truck already dropped you at " .. e.name .. " - no arrival bonus, but you're in.")
     end
   end
@@ -1806,7 +1808,7 @@ local function tickTravel()
             p.leg.arrived = true
             game.arrivals = game.arrivals + 1
             p.arrivalRank = game.arrivals
-            if e.type == "trailer" then requestTrailer(p) end
+            if e.type == "trailer" and cfg.defaults.readyToGo == false then requestTrailer(p) end   -- (else at I'm ready)
             local bonus = (cfg.economy.arrivalBonus or {})[game.arrivals] or 0
             p.cash = p.cash + bonus
             sayAll(string.format("%s arrives at %s (%s)%s", p.name, e.name, ordinal(game.arrivals),
@@ -1942,6 +1944,7 @@ function RPC.ready(p)
     if e and e.type == "rpc" and not (p.rpc and p.rpc.vid) then say(p.pid, "Wait for your reasonably priced car first."); return end
     if p.run.ready then say(p.pid, "You're ready - GO when you like."); return end
     p.run.ready = true
+    if e and e.type == "trailer" then requestTrailer(p) end   -- (0.9.20: each trailer comes at its driver's I'm ready)
     sayAll(string.format("%s is ready - %s presses GO (or an admin).", p.name, p.name))
     pushAll()
     return
@@ -1951,6 +1954,7 @@ function RPC.ready(p)
   if isSolo(e) then say(p.pid, "It's one at a time: your turn comes - then you press I'm ready and GO."); return end
   if p.run.ready then say(p.pid, "You're already ready."); return end
   p.run.ready = true
+  if e.type == "trailer" then requestTrailer(p) end   -- (0.9.20: one at a time - they landed on top of each other)
   local all, waiting = RPC.allReady()
   sayAll(all and string.format("%s is ready - everyone is: anyone can press GO.", p.name)
     or string.format("%s is ready (waiting for %s).", p.name, table.concat(waiting, ", ")))
@@ -1960,6 +1964,32 @@ end
 function RPC.drivable(model, config)
   model, config = tostring(model or ""):lower(), tostring(config or ""):lower()
   return not (model == "simple_traffic" or config:find("parked", 1, true))
+end
+-- Not ready after all (0.9.20, Ryan): any I'm ready can be taken back until what it was waiting for has started -
+-- the dealership's countdown (it stops), a race start's / the workshop's GO, a time trial driver's GO
+function RPC.unready(p)
+  local s, e = game.solo, curEvent()
+  if game.phase == "dealer" then
+    if not p.ready then say(p.pid, "You're not marked ready."); return end
+    p.ready = false
+    local stopped = game.dealerGo ~= nil
+    game.dealerGo, game.dealerCount = nil, nil
+    sayAll(string.format("%s isn't ready after all%s.", p.name, stopped and " - the countdown is stopped" or ""))
+  elseif game.phase == "workshop" then
+    if not p.wsReady then say(p.pid, "You're not marked ready."); return end
+    p.wsReady = false
+    sayAll(string.format("%s isn't done in the workshop after all.", p.name))
+  elseif game.phase == "travel" and e and racing(p) and p.run.ready then
+    p.run.ready = false
+    sayAll(string.format("%s isn't ready after all.", p.name))
+  elseif game.phase == "event" and s and s.runner == p and s.waitGo and p.run.ready then
+    p.run.ready = false
+    sayAll(string.format("%s isn't ready after all.", p.name))
+  else
+    say(p.pid, (p.run and p.run.ready) and "Too late - it's already started." or "You're not marked ready.")
+    return
+  end
+  pushAll()
 end
 function RPC.car(e)   -- model, config name
   local tc = typeCfg("rpc")
@@ -2043,9 +2073,49 @@ function RPC.handOver(p, e)
   if e.type == "rpc" and p.rpc and p.rpc.vid and p.run.status == "finished" then
     s.handBack = s.handBack or (now() + (tonumber(typeCfg("rpc").stopSeconds) or 3))
     if now() < s.handBack then return end
-  end
+  elseif RPC.backToStart(p, e) then return end
   s.handBack = nil
   nextSoloRunner()
+end
+-- (0.9.20, Ryan: a driver whose run is over sat on the track while the next one drove - and was switched to watching)
+-- a 5 s countdown on their screen, then their car - as it is, no repair - goes to a spot behind the start line.
+-- Not for the RPC (their own car never left), a trailer event (the trailer is hitched), a tow, or the last run.
+-- Returns true while counting down.
+function RPC.backToStart(p, e)
+  local s = game.solo
+  local later = false
+  for i = s.idx + 1, #s.order do if s.order[i].run.status == "waiting" and racing(s.order[i]) then later = true end end
+  if e.type == "rpc" or e.type == "trailer" or p.run.status == "dsq" or not (later and p.pid and p.carVid and racing(p)) then
+    s.backAt = nil
+    return false
+  end
+  local secs = tonumber(cfg.defaults.backToStartSeconds) or 5
+  if secs <= 0 then s.backAt = now() end
+  if not s.backAt then s.backAt, s.backLast = now() + secs, nil end
+  local left = s.backAt - now()
+  if left > 0 then
+    local sec = math.ceil(left)
+    if sec ~= s.backLast then s.backLast = sec; MP.TriggerClientEvent(p.pid, "tg_msg", "Back to the start in " .. sec) end
+    return true
+  end
+  s.backAt = nil
+  local start = v3(e.start)
+  if not start then return false end
+  local ahead = (e.type == "speedtrap") and v3(e.trap) or v3((e.checkpoints or {})[1]) or v3(((e.bays or {})[1]))
+  local fx, fy = 0, 1
+  if ahead then
+    local len = math.sqrt((ahead.x - start.x) ^ 2 + (ahead.y - start.y) ^ 2)
+    if len > 0.01 then fx, fy = (ahead.x - start.x) / len, (ahead.y - start.y) / len end
+  end
+  s.backSlot = (s.backSlot or 0) + 1
+  local k = s.backSlot - 1
+  local back = (tonumber(cfg.defaults.startRadius) or 20) + 15 + 8 * math.floor(k / 3)   -- clear of the cars waiting at the start
+  local side = ((k % 3) - 1) * 4
+  local pos = { x = start.x - fx * back + fy * side, y = start.y - fy * back - fx * side, z = (start.z or 0) + 0.5 }
+  p.towPending = now()   -- (the move isn't a reset to fine)
+  MP.TriggerClientEvent(p.pid, "tg_tow", Util.JsonEncode({ kind = "return", reset = false, pos = pos, dir = { x = fx, y = fy, z = 0 } }))
+  say(p.pid, "Your car's been moved behind the start line - as it is, no repairs.")
+  return false
 end
 function RPC.tickRunner(p, e)   -- the car didn't arrive in time
   local r = p.rpc
@@ -3256,14 +3326,22 @@ end
 performTow = function(p, carExists)
   local ph = game.phase
   local total, fee, repair = roadsideCost(p, "tow")
-  playSound("out", p)
-  p.cash = p.cash - total
-  spend(p, "towCost", total)
-  p.tows = (p.tows or 0) + 1
+  local free = p.freeTow   -- (an admin's free respawn of a lost car)
+  p.freeTow = nil
+  if free then total, fee, repair = 0, 0, 0 else
+    playSound("out", p)
+    p.cash = p.cash - total
+    spend(p, "towCost", total)
+    p.tows = (p.tows or 0) + 1
+  end
   p.damage = 0
   local msg
   local pos, dir, idx
-  if ph == "event" or ph == "countdown" then
+  if free then   -- back where it was last seen, nothing else changes
+    local lp = p.lastPos
+    if lp and tonumber(lp.x) then pos, dir = { x = lp.x, y = lp.y, z = lp.z + 0.5 }, p.lastDir end
+    msg = "back where it was"
+  elseif ph == "event" or ph == "countdown" then
     if p.run.status == "running" or p.run.status == "staged" or p.run.status == "waiting" or p.run.status == "dnf" then
       p.run.status, p.run.dsqReason = "dsq", "towed"
     end
@@ -3276,7 +3354,7 @@ performTow = function(p, carExists)
       p.leg.via = #(curEvent().via or {}) + 1
       p.leg.arrived = true
       p.arrivalRank = 50
-      if curEvent().type == "trailer" then requestTrailer(p) end
+      if curEvent().type == "trailer" and cfg.defaults.readyToGo == false then requestTrailer(p) end
     end
     msg = "dropped at the start of " .. curEvent().name .. " (no arrival bonus)"
   elseif ph == "finale" then
@@ -3284,6 +3362,16 @@ performTow = function(p, carExists)
     if pos then pos.z = pos.z + 0.5 end
     p.leg.arrived, p.finaleTowed = true, true
     msg = "towed to " .. cfg.finale.name .. " - that's 0 at the finale inspection"
+  elseif ph == "workshop" and #workshopSpots() > 0 and nearestSpot(p.pos or p.lastPos) then
+    -- (0.9.20, Ryan: a car stuck or beyond repair during the workshop goes to one - the nearest, side by side)
+    local sp = nearestSpot(p.pos or p.lastPos)
+    local key = "ws " .. tostring(sp.x) .. " " .. tostring(sp.y)
+    game.towSlots = game.towSlots or {}
+    local slot = game.towSlots[key] or 0
+    game.towSlots[key] = slot + 1
+    local side = (slot % 2 == 1) and 1 or -1
+    pos = { x = sp.x + (slot > 0 and 5 * math.ceil(slot / 2) * side or 0), y = sp.y, z = (sp.z or 0) + 0.5 }
+    msg = "towed to the workshop" .. (sp.name and (" at " .. sp.name) or "")
   else
     msg = "repaired where it stands"
   end
@@ -3295,7 +3383,8 @@ performTow = function(p, carExists)
     config = (not carExists) and p.lastVcf or nil,
   }))
   if CONDITION.level(p) > 0 then sendFaults(p) end   -- unfixed faults (and the mileage) come back with the car
-  sayAll(string.format("%s calls the tow truck (-%s%s): %s.", p.name, costNote(fee, repair), ptNote(), msg))
+  if free then sayAll(string.format("%s's car is back (free, from the producers): %s.", p.name, msg))
+  else sayAll(string.format("%s calls the tow truck (-%s%s): %s.", p.name, costNote(fee, repair), ptNote(), msg)) end
   pushState(p)
 end
 
@@ -3532,11 +3621,12 @@ PLAYER_CMDS.help = function(pid, name)
   say(pid, "Respawn your car: /tg respawn (free at the dealership, repair price in a workshop, otherwise " ..
     "roadside repair + " .. money(cfg.economy.respawnFee or 500) .. ptNote() .. ")")
   say(pid, "Stuck? /tg unstick (free, when stopped) | /tg tow (roadside repair + " .. money(cfg.economy.towFee) ..
-    ptNote() .. ", DSQ from a running event). Roadside repair = the workshop price x " .. tostring(cfg.economy.roadsideMarkup or 1.25) .. ".")
+    ptNote() .. ", DSQ from a running event; in workshop time, to the nearest workshop). Roadside repair = the workshop price x " .. tostring(cfg.economy.roadsideMarkup or 1.25) .. ".")
   say(pid, "Car condition: /tg condition new|used|needs work|beater|death trap (at the dealership; alone = yours) | fix <id> (workshop, once it's found the problem)")
-  say(pid, "/tg menu (window; /tg menu reset if it's squashed) | status | dealer | join | ready | go | quote | repair | standings | diag")
+  say(pid, "/tg menu (window; /tg menu reset if it's squashed) | status | dealer | join | ready | unready | go | quote | repair | standings | diag")
   if isAdmin(name) then
-    say(pid, "Admin: /tg start [force] | next (force the next phase) | stop | where | workshop <minutes> | workshopevery <n>")
+    say(pid, "Admin: /tg start [force] | next (force the next phase) | stop | restartevent | where | workshop <minutes> | workshopevery <n>")
+    say(pid, "Players: /tg give <driver> <+/-cash> | setcash <driver> <cash> | freerespawn <driver> (fixes their car where it stands, free)")
     say(pid, "Producers: /tg award <driver> <+/-points> [reason]")
     say(pid, "Traffic: /tg traffic on|off - while on, what you spawn is non-scoring traffic (any phase) and your vehicle menu is open")
     say(pid, "Soundboard: /tg play <clip> plays it for everyone (/tg sounds list)")
@@ -3663,6 +3753,12 @@ PLAYER_CMDS.ready = function(pid)
   if secs <= 0 then lockDealer(); return end
   game.dealerGo, game.dealerCount = now() + secs, nil   -- (tickDealer counts down, then closes the dealership)
   sayAll(string.format("Everyone's ready! The challenge starts in %d seconds.", math.floor(secs)))
+end
+
+PLAYER_CMDS.unready = function(pid)
+  local p = playerByPid(pid)
+  if not p then say(pid, "You're not in the challenge."); return end
+  RPC.unready(p)
 end
 
 PLAYER_CMDS.quote = function(pid)
@@ -3941,12 +4037,17 @@ PLAYER_CMDS.menu = function(pid, _, args)
 end
 
 local TOW_PHASES = { travel = true, countdown = true, event = true, finale = true }
+-- (0.9.20) the workshop too, when the course has workshop locations and you're not at one: to the nearest one
+function Course.canTow(p)
+  if TOW_PHASES[game.phase] then return true end
+  return game.phase == "workshop" and #workshopSpots() > 0 and not inWorkshop(p)
+end
 
 PLAYER_CMDS.tow = function(pid)
   local p = playerByPid(pid)
   if p and p.rpc then say(pid, "You're in the reasonably priced car - /tg respawn gets you a fresh one on the start line (free)."); return end
   if not (p and p.carVid) then say(pid, "You don't have a car out to tow - respawn it from the vehicle menu (that counts as a tow)."); return end
-  if not TOW_PHASES[game.phase] then say(pid, game.phase == "workshop" and "You're in the workshop - use /tg repair." or "No tow truck needed right now."); return end
+  if not Course.canTow(p) then say(pid, game.phase == "workshop" and "You're in the workshop - use /tg repair." or "No tow truck needed right now."); return end
   if p.finaleTowed or (game.phase == "finale" and p.leg.arrived) then say(pid, "You've already finished."); return end
   performTow(p, true)
 end
@@ -4158,6 +4259,49 @@ ADMIN_CMDS.resume = function(pid)
   pushAll()
 end
 
+-- Restart the event (0.9.20, Ryan): the running event (or its countdown) again from the start line - every car brought
+-- back as it is, every run wiped (nothing's been scored yet), trailers and RPCs removed. Then Ready -> GO as usual.
+ADMIN_CMDS.restartevent = function(pid)
+  if game.phase ~= "event" and game.phase ~= "countdown" then say(pid, "There's no event running to restart."); return end
+  local e = curEvent()
+  cleanupEventVehicles()
+  game.phase, game.allHere, game.solo, game.closeAt, game.countdownEnd = "travel", false, nil, nil, nil
+  game.towSlots, game.trapRecord = {}, nil
+  for _, p in pairs(game.players) do
+    p.run = newRun(); p.leg.arrived = true; p.leg.via = #(e.via or {}) + 1
+    p.trailerAsked = nil
+    if p.pid and p.carVid then
+      local pos, dir = towDestination(p)
+      p.towPending = now()
+      if e.type == "trailer" and cfg.defaults.readyToGo == false then p.trailerAfterRestore = true end
+      MP.TriggerClientEvent(p.pid, "tg_tow", Util.JsonEncode({ kind = "restore", reset = false, pos = pos, dir = dir }))
+    end
+  end
+  sayAll(string.format("%s is restarted - your cars are going back to the start line as they are.%s", e.name,
+    cfg.defaults.readyToGo ~= false and " Then I'm ready and GO, as before." or ""))
+  bigAll("Restart: " .. e.name)
+  pushAll()
+end
+
+-- A free respawn (0.9.20, Ryan): an admin fixes a player's car where it stands - no cost, no points lost, no DSQ.
+-- A lost car comes back the tow truck's way, also free.
+ADMIN_CMDS.freerespawn = function(pid, _, args)
+  local p = Score.findPlayer(table.concat(args, " ", 3))
+  if not p then say(pid, "Usage: /tg freerespawn <player name>"); return end
+  if not p.pid then say(pid, p.name .. " isn't connected."); return end
+  if not p.carVid then
+    if not p.carModel then say(pid, p.name .. " hasn't bought a car yet."); return end
+    p.freeTow = true
+    MP.TriggerClientEvent(p.pid, "tg_respawn", Util.JsonEncode({ spawn = true, model = p.carModel,
+      config = p.carConfig and ("vehicles/" .. p.carModel .. "/" .. p.carConfig .. ".pc") or nil }))
+  else
+    p.respawnPending, p.damage = now(), 0
+    MP.TriggerClientEvent(p.pid, "tg_respawn", Util.JsonEncode({ reset = true }))
+  end
+  sayAll(string.format("The producers give %s a free respawn.", p.name))
+  pushState(p)
+end
+
 ADMIN_CMDS.discard = function(pid)
   if game.phase ~= "paused" then say(pid, "There's no saved challenge waiting."); return end
   game = { phase = "idle", stage = 0, players = {} }
@@ -4260,7 +4404,8 @@ ADMIN_CMDS.give = function(pid, _, args)
   if #args < 4 or not (p and amount) then say(pid, "Usage: /tg give <player name> <amount>"); return end
   amount = math.floor(amount)
   p.cash = p.cash + amount
-  sayAll(string.format("The producers give %s %s.", p.name, money(amount)))
+  sayAll(amount < 0 and string.format("The producers take %s from %s.", money(-amount), p.name)
+    or string.format("The producers give %s %s.", p.name, money(amount)))
   pushState(p)
 end
 
@@ -4896,9 +5041,9 @@ ADMIN_CMDS.testevent = function(pid, _, args)
     sayAll("Test event over - back to normal.")
   end
   sayAll(string.format("TEST EVENT: %s (%s) - %d driver%s, from the start line. /tg testevent stop ends it.", e.name, label, n, n == 1 and "" or "s"))
-  if e.type == "trailer" then for _, q in pairs(players) do requestTrailer(q) end end
+  if e.type == "trailer" and cfg.defaults.readyToGo == false then for _, q in pairs(players) do requestTrailer(q) end end
   if cfg.defaults.readyToGo ~= false then   -- every start is I'm ready, then GO
-    if e.type == "trailer" then sayAll("Trailers are on their way - hitch up first.") end
+    if e.type == "trailer" then sayAll("Your trailer is dropped behind you when you press I'm ready - hitch up, then GO.") end
     if isSolo(e) then beginCountdown()   -- (the turns begin: the first driver's Ready, then GO)
     else
       sayAll("Press I'm ready - once everyone is, anyone can press GO.")
@@ -5344,7 +5489,7 @@ local function buildUi(pid)
       towCost = (roadsideCost(p, "tow")), respawnCost = (roadsideCost(p, "respawn")),
       arrived = p.leg.arrived and true or false, hasCar = p.carVid ~= nil, tows = p.tows or 0,
       startReady = (p.run and p.run.ready) and true or false, wsReady = p.wsReady and true or false,
-      canTow = p.carVid ~= nil and TOW_PHASES[game.phase] and not p.finaleTowed and not (game.phase == "finale" and p.leg.arrived) or false,
+      canTow = p.carVid ~= nil and Course.canTow(p) and not p.finaleTowed and not (game.phase == "finale" and p.leg.arrived) or false,
       canUnstick = p.carVid ~= nil and game.phase ~= "countdown" or false,
       respawns = p.respawns or 0, hasCarModel = p.carModel ~= nil, inShop = inWorkshop(p),
       creditLimit = cfg.workshop.creditLimit or 1500,

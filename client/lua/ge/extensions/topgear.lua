@@ -35,7 +35,7 @@ local RESET_ACTIONS = {
 local VEHSEL_ACTIONS = { "vehicle_selector" }
 local PARTS_ACTIONS  = { "parts_selector" }
 
-local VERSION = "0.9.19"
+local VERSION = "0.9.20"
 local recentErrors = {}
 local function warn(msg)
   log("W", "topgear", tostring(msg))
@@ -1446,7 +1446,9 @@ end
 
 local function onTow(data)
   local ok, t = pcall(jsonDecode, data)
-  if ok and type(t) == "table" then startMove(t.kind == "restore" and "restore" or "tow", t) end   -- (restore: after a crash/rejoin)
+  if ok and type(t) == "table" then   -- (restore: after a crash/rejoin or a restart; return: a time trial run's over)
+    startMove((t.kind == "restore" or t.kind == "return") and t.kind or "tow", t)
+  end
 end
 local function onUnstick() startMove("unstick", {}) end
 
@@ -1554,11 +1556,12 @@ function Rpc.onWatch(data)
     local v = gid and gid ~= -1 and be:getObjectByID(gid)
     if not v then error("that car isn't in this game (yet)") end
     be:enterVehicle(0, v)
-    Rpc.watching = { sid = t.sid, name = t.name }
+    Rpc.watching, Rpc.paused = { sid = t.sid, name = t.name }, nil
   end)
   if not okW then warn("watching " .. tostring(t.name) .. ": " .. tostring(err)) end
 end
-function Rpc.unwatch()
+function Rpc.unwatch(mine)   -- mine = your own Back to my car: the run goes on, so Watch again is offered
+  Rpc.paused = mine and Rpc.watching or nil
   if not Rpc.watching then return end
   Rpc.watching = nil
   local own = getCar()
@@ -2057,7 +2060,7 @@ local function drawDriverButtons(d, me)
   confirmButton(rl, "drv_respawn", "respawn")
   local notes = {}
   if ph ~= "workshop" then notes[#notes + 1] = "Repair: workshops only" end
-  if not me.canTow then notes[#notes + 1] = "Tow: during legs and events" end
+  if not me.canTow then notes[#notes + 1] = "Tow: during legs and events (and in workshop time, to a workshop)" end
   if ph ~= "dealer" and ph ~= "workshop" and ph ~= "results" and ph ~= "idle" then
     notes[#notes + 1] = "Tow/Respawn mid-run = DSQ"
   end
@@ -2124,7 +2127,9 @@ local function drawAdminControls(d)
     if d.soloWait and d.soloWait.ready then bigButton("GO: " .. d.soloWait.name, "go") end   -- (an admin can start a ready driver)
     button("Start", "start"); same(); button("Start (unfinished course)", "start force"); same()
     button("Next phase", "next"); same(); confirmButton("Stop", "stop", "stop")
-    Tabs.help("Next phase: closes the dealership, forces a start, ends a run or event, or closes a workshop.\nStop needs two clicks.")
+    if d.phase == "event" or d.phase == "countdown" then same(); confirmButton("Restart event", "restartevent", "restartevent") end
+    Tabs.help("Next phase: closes the dealership, forces a start, ends a run or event, or closes a workshop.\nStop needs two clicks.\n" ..
+      "Restart event (two clicks): every car back to the start as it is, every run wiped - then I'm ready and GO again.")
     if d.traffic then
       colored(1, 0.8, 0.3, "Traffic mode is ON: what you spawn is non-scoring traffic, and your vehicle menu is open.")
       button("Turn traffic mode off##traffic", "traffic off")
@@ -2154,13 +2159,17 @@ local function drawAdminControls(d)
         local a = intPtr("admcash", nil, 1000)
         im.InputInt("Cash##admcash", a); same()
         button("Give##admgive", "give " .. who .. " " .. a[0]); same()
+        button("Take##admtake", "give " .. who .. " " .. -math.abs(a[0])); same()
         button("Set##admset", "setcash " .. who .. " " .. a[0])
         local pt = intPtr("admpts", nil, 1)
         im.InputInt("Points##admpts", pt)
         local rb = textBuf("admreason")
         im.InputText("Reason (optional)##admreason", rb); same()
-        button("Award##admaward", "award " .. who .. " " .. pt[0] .. " " .. textOf(rb))
-        Tabs.help("A negative amount takes cash or points away. Award: everyone sees it, and it shows in the results.")
+        button("Award##admaward", "award " .. who .. " " .. pt[0] .. " " .. textOf(rb)); same()
+        button("Dock##admdock", "award " .. who .. " " .. -math.abs(pt[0]) .. " " .. textOf(rb))
+        Tabs.help("Take / Dock take that much cash / points away. Award and Dock: everyone sees it, and it shows in the results.")
+        button("Free respawn##admrespawn", "freerespawn " .. who)
+        Tabs.help("Fixes their car where it stands (a lost car comes back where it was) - free: no cost, no points, no DSQ.")
       end
     end
   end, true)
@@ -2171,8 +2180,11 @@ local function drawStatus(d)
   Tabs.box("My car", "mycar", function()
   if Rpc.watching then   -- spectating the time trial driver on track
     colored(0.6, 0.8, 1, "Watching " .. tostring(Rpc.watching.name) .. " - you're back in your car when their run ends.")
-    if im.Button("Back to my car##unwatch") then Rpc.unwatch() end
+    if im.Button("Back to my car##unwatch") then Rpc.unwatch(true) end
     Tabs.help("Settings > Window: turn watching off (/tg watch off).")
+  elseif Rpc.paused then   -- (0.9.20, Ryan: the button stays - back to watching whenever you like)
+    colored(0.6, 0.8, 1, tostring(Rpc.paused.name) .. " is on track.")
+    if im.Button("Watch " .. tostring(Rpc.paused.name) .. "##rewatch") then Rpc.onWatch(jsonEncode(Rpc.paused)) end
   end
   txt(state.title or "")
   if not me then
@@ -2202,7 +2214,7 @@ local function drawStatus(d)
     end
     if d.phase == "dealer" then
       if not me.hasCar then txt("Pick a car in the Dealership tab.")
-      elseif me.ready then colored(0.4, 1, 0.4, "Ready - waiting for the others.")
+      elseif me.ready then colored(0.4, 1, 0.4, "Ready - waiting for the others."); button("Not ready - undo##unready", "unready")
       else button("I'm happy with my car - Ready!", "ready") end
     elseif d.phase == "travel" then
       if not me.arrived then txt("Drive to the start - follow the arrows.")
@@ -2213,10 +2225,12 @@ local function drawStatus(d)
         elseif d.allHere and #(d.notReady or {}) == 0 then
           colored(0.4, 1, 0.4, "Everyone's ready!")
           bigButton("GO! Start the countdown", "go")
+          button("Not ready - undo##unready", "unready")
         else
           colored(0.4, 1, 0.4, "You're ready.")
           colored(1, 0.85, 0.3, d.allHere and ("Waiting for " .. table.concat(d.notReady or {}, ", ") .. " to press I'm ready.")
             or "Waiting for everyone to arrive...")
+          button("Not ready - undo##unready", "unready")
         end
       elseif d.allHere then
         colored(0.4, 1, 0.4, "Everyone's here!")
@@ -2228,6 +2242,7 @@ local function drawStatus(d)
         if sw.carReady then bigButton("I'm ready", "ready") else txt("Your reasonably priced car is on its way...") end
       elseif sw.ready and sw.canGo then bigButton("GO: " .. sw.name, "go")
       else colored(1, 0.85, 0.3, "Waiting for " .. sw.name .. (sw.ready and " to press GO." or " to get ready.")) end
+      if sw.isMe and sw.ready then button("Not ready - undo##unready", "unready") end
     elseif d.phase == "workshop" then
       for _, f in ipairs((d.faults or {}).mine or {}) do
         button("Fix this problem: " .. f.name .. " (" .. commas(d.faults.fix) .. ")##fix_" .. f.id, "fix " .. f.id)
@@ -2238,9 +2253,11 @@ local function drawStatus(d)
         elseif #(d.wsNotReady or {}) == 0 then
           colored(0.4, 1, 0.4, "Everyone's done!")
           bigButton("GO! On to the next leg", "go")
+          button("Not ready - undo##unready", "unready")
         else
           colored(0.4, 1, 0.4, "You're ready.")
           colored(1, 0.85, 0.3, "Waiting for " .. table.concat(d.wsNotReady or {}, ", ") .. " to press I'm ready.")
+          button("Not ready - undo##unready", "unready")
         end
       end
     end
@@ -3455,6 +3472,7 @@ Tabs.quick = function(d)
   -- I'm ready: locks the car in; when everyone is, a 5 s countdown starts the challenge
   if dealer and me and me.ready then
     Tabs.step("I'm ready", "qready", "done")
+    button("Not ready - undo##qunready", "unready")
   elseif dealer and me and me.hasCar then
     if Tabs.step("I'm ready", "qready", "lit") then sendCmd("ready") end
     colored(0.65, 0.65, 0.65, "Locks in your car. When everyone's ready, the challenge starts.")

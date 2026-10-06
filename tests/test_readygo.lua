@@ -9,7 +9,7 @@ local p = F.p
 local WIN = "Top Gear Challenge"
 local function cfgWith(events)
   local cfg = F.config(events)
-  cfg.defaults = { readyCountdown = 0, readyToGo = true }
+  cfg.defaults = { readyCountdown = 0, backToStartSeconds = 0, readyToGo = true }
   return cfg
 end
 local function toTheStart(w, A, B, at)
