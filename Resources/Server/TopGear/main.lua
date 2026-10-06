@@ -7,7 +7,7 @@
   In game, type /tg help.
 ]]
 
-local SERVER_VERSION = "0.9.25"
+local SERVER_VERSION = "0.9.26"
 local PLUGIN_DIR  = "Resources/Server/TopGear/"
 local CONFIG_PATH = PLUGIN_DIR .. "config.json"
 local COURSES_PATH = PLUGIN_DIR .. "courses.json"   -- saved course library
@@ -90,6 +90,7 @@ local DEFAULT_CONFIG = {
     -- annoying, 2 hurts performance, 3 can stop the car - and groups: a car never gets two problems that share a group.
     -- maxTier: the worst tier each condition can draw (Used, Needs work, Beater, Death Trap); maxPerTier: at most this
     -- many problems of each tier (1, 2, 3) on one car. A problem without a tier counts as tier 1.
+    fires = true,                 -- false = a fuel leak never catches fire (fuelleak fireChance: how often it does)
     tiers = true,                 -- false = no tier or group rules (any problem with any other, as before 0.9.21)
     maxTier = { 1, 2, 3, 3 },
     maxPerTier = { 4, 4, 1 },
@@ -104,7 +105,8 @@ local DEFAULT_CONFIG = {
         starter = 0.6 },                      -- and a weak starter: its torque x this (0.9.13: was its own fault)
       { id = "cooling", tier = 3, groups = { "heat" },    name = "Cooling problems (leaking radiator)",     factor = 0.05 },  -- radiator damage (0.1 = wrecked)
       { id = "suspension", tier = 1, name = "Worn-out suspension (soft and bouncy)" },                   -- softest springs/dampers, or no anti-roll bars
-      { id = "fuelleak", tier = 2, groups = { "stalling" },   name = "Fuel leak",                                factor = 1.0 },   -- litres per minute
+      { id = "fuelleak", tier = 2, groups = { "stalling" },   name = "Fuel leak",                                factor = 1.0,   -- litres per minute
+        fireChance = 0.2, fireMin = 60, fireMax = 600 },   -- chance it's the kind that catches fire (once); seconds of driving until it does
       { id = "body", tier = 1,       name = "Accident damage (missing bumpers, dents, broken lights)", factor = 3000 },   -- damage it
                                                        -- starts with, plus no front/rear bumper (0.9.13: was its own fault)
       { id = "clutch", tier = 2, groups = { "gears" },     name = "Slipping clutch", enabled = false,          factor = 0.6 },   -- clutch grip x this (0.9.13: was
@@ -517,6 +519,12 @@ local function loadConfig()
       local f = cfg.faults or {}
       if type(f.mileageKm) == "table" and f.mileageKm[5] == 500000 and f.mileageKm[3] == 150000 then f.mileageKm = deepcopy(DEFAULT_CONFIG.faults.mileageKm) end
     end
+    if not cfg.migrations.fuelFire then   -- 0.9.26: a fuel leak can catch fire (once) - a saved list has no fire settings
+      cfg.migrations.fuelFire, changed = true, true
+      for _, f in ipairs((cfg.faults or {}).list or {}) do
+        if f.id == "fuelleak" and f.fireChance == nil then f.fireChance, f.fireMin, f.fireMax = 0.2, 60, 600 end
+      end
+    end
     if not cfg.migrations.faultTiers then   -- 0.9.21: problem tiers and groups (a saved list has none)
       cfg.migrations.faultTiers, changed = true, true
       for _, f in ipairs((cfg.faults or {}).list or {}) do
@@ -835,7 +843,7 @@ function CONDITION.payload(f, sev, side, doomed)
   local starter = (f.id == "ignition" and tonumber(f.starter)) and CONDITION.scaled({ id = "starter", factor = f.starter }, sev) or nil
   return { id = f.id, factor = CONDITION.scaled(f, sev), refresh = f.refresh, pull = pull, starter = starter,
            cutoutMin = f.cutoutMin and f.cutoutMin / calmer, cutoutMax = f.cutoutMax and f.cutoutMax / calmer,
-           blowMin = f.blowMin, blowMax = f.blowMax, doomed = doomed or nil }
+           blowMin = f.blowMin, blowMax = f.blowMax, fireMin = f.fireMin, fireMax = f.fireMax, doomed = doomed or nil }
 end
 function CONDITION.scaled(f, s)   -- a problem's factor for a car of severity s
   local how, fac = CONDITION.SCALE[f.id], tonumber(f.factor)
@@ -918,6 +926,10 @@ local function drawFaults(p)
       local f = faultDef(id)
       local chance = math.min(1, (tonumber(f and f.blowChance) or 0.2) * CONDITION.severity(p))   -- (a Death Trap's is likelier)
       p.oilDoomed, p.oilBlown = math.random() < chance, false
+    elseif id == "fuelleak" then   -- (0.9.26, Ryan) the secret roll: will this one catch fire? (once)
+      local f = faultDef(id)
+      local chance = cfg.faults.fires == false and 0 or (tonumber(f and f.fireChance) or 0.2)
+      p.fuelDoomed, p.fuelBurnt = chance > 0 and math.random() < chance, false
     end
     p.faults[#p.faults + 1] = id
     p.faultsOwed = p.faultsOwed - 1
@@ -932,6 +944,7 @@ local function redrawFaults(p)
   p.faultsOwed = faultsTaken(p)
   p.faults, p.faultRestore, p.faultTried = {}, {}, {}
   p.oilDoomed, p.oilBlown = nil, nil
+  p.fuelDoomed, p.fuelBurnt = nil, nil
   drawFaults(p)
 end
 -- a workshop diagnoses the car: the player finds out what they've got
@@ -958,7 +971,8 @@ local function sendFaults(p, test)
       if f.id == "alignment" and tonumber(f.pull) and not p.alignSide then   -- which way it pulls: once per car (kept through fixes)
         p.alignSide = math.random() < 0.5 and -1 or 1
       end
-      list[#list + 1] = CONDITION.payload(f, sev, p.alignSide, f.id == "oilleak" and p.oilDoomed and not p.oilBlown)
+      list[#list + 1] = CONDITION.payload(f, sev, p.alignSide, (f.id == "oilleak" and p.oilDoomed and not p.oilBlown)
+        or (f.id == "fuelleak" and p.fuelDoomed and not p.fuelBurnt))
       setup = setup or SETUP_FAULTS[f.id] or false
     end
   end
@@ -3996,7 +4010,7 @@ PLAYER_CMDS.fault = function(pid, name, args)
       for _, f in ipairs(cfg.faults.list) do
         if id == "" or id == f.id then
           -- (a test alignment pulls right; a test oil leak always blows - soon - so it can be seen)
-          list[#list + 1] = CONDITION.payload(f, sev, 1, f.id == "oilleak")
+          list[#list + 1] = CONDITION.payload(f, sev, 1, f.id == "oilleak" or f.id == "fuelleak")   -- (a test shows the worst)
         end
       end
     end
@@ -4115,6 +4129,17 @@ function TG_onEngineBlown(pid)
   sayAll(string.format("%s's engine has let go! That's a tow.", p.name))
   playSound("crash", p)
   log(string.format("engine blown (oil leak) for %s", p.name))
+  pushState(p)
+end
+
+-- client -> server: a doomed fuel leak has just caught fire (once per car - 0.9.26)
+function TG_onCarFire(pid)
+  local p = playerByPid(pid)
+  if not p or not hasFault(p, "fuelleak") or p.fuelBurnt then return end
+  p.fuelBurnt, p.fuelDoomed = true, false
+  sayAll(string.format("%s's car is ON FIRE! The fuel leak's found something hot.", p.name))
+  playSound("crash", p)
+  log(string.format("car fire (fuel leak) for %s", p.name))
   pushState(p)
 end
 
@@ -5875,6 +5900,7 @@ MP.RegisterEvent("tg_gas_reply",       "TG_onGasStations")
 MP.RegisterEvent("tg_partsdiag_reply", "TG_onPartsDiag")
 MP.RegisterEvent("tg_sound_report",    "TG_onSoundReport")
 MP.RegisterEvent("tg_engine_blown",    "TG_onEngineBlown")
+MP.RegisterEvent("tg_car_fire",        "TG_onCarFire")
 MP.RegisterEvent("tg_tick",            "TG_onTick")
 MP.CreateEventTimer("tg_tick", TICK_MS)
 if #cfg.admins == 0 then log("WARNING: no admins set in config.json - everyone can run admin commands") end

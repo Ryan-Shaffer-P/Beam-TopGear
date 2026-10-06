@@ -309,6 +309,9 @@ Next step for "group cars by fault capability": build groups from `faultCaps`.
 `faults.maxTier` per condition {1,2,3,3}, `faults.maxPerTier` {4,4,1}; `CONDITION.tierOK` in `rollFault`; `faults.tiers =
 false` = off (test fixtures and test_faults pin it off - the `pin` roll indices assume the full candidate list);
 migration `faultTiers` fills a saved list; `/tg fault sample <cond> [n]`; test_faulttiers.
+0.9.26 fuel leak fire (Ryan): `fireChance` 0.2 rolled at draw (`p.fuelDoomed`, like `p.oilDoomed`), client ignites once after
+`fireMin`-`fireMax` s of driving > 3 m/s via vlua `fire.igniteVehicle()` (NOT yet tried in game) -> `tg_car_fire` -> `p.fuelBurnt`;
+`faults.fires = false` = off (fixtures pin it off: the roll is random). Harness: fake `fire` module counts `v.onFire`.
 
 ### 4. Upgrade prices - DONE in 0.8.7
 Parts tab (client `buildCatalogue` / `quote` / `fitPart` / `drawParts`): lists slots from the parts tree's

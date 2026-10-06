@@ -35,7 +35,7 @@ local RESET_ACTIONS = {
 local VEHSEL_ACTIONS = { "vehicle_selector" }
 local PARTS_ACTIONS  = { "parts_selector" }
 
-local VERSION = "0.9.25"
+local VERSION = "0.9.26"
 local recentErrors = {}
 local function warn(msg)
   log("W", "topgear", tostring(msg))
@@ -1206,6 +1206,7 @@ local function onFaults(data)
   faults.mileage = type(t.mileage) == "table" and t.mileage or nil
   faults.active = next(faults.want) ~= nil or next(faults.restore) ~= nil or faults.mileage ~= nil
   if faults.test or not (faults.want.oilleak and faults.want.oilleak.doomed) then faults.oilBlown, faults.blowAt = false, nil end
+  if faults.test or not (faults.want.fuelleak and faults.want.fuelleak.doomed) then faults.burnt, faults.fireAt = false, nil end
   faults.report = true
   faults.applyAt = 0.5   -- let a fresh purchase finish spawning first
 end
@@ -1277,6 +1278,29 @@ local function updateTimedFaults(dt)
         pcall(function() car:queueLuaCommand(BLOW_VLUA) end)
         ui_message("BANG! Your engine has let go. That's a tow.", 6, "tg_msg", "warning")
         if TriggerServerEvent and not faults.test then TriggerServerEvent("tg_engine_blown", "") end
+      end
+    end
+  end
+  -- a doomed fuel leak catches fire once, after fireMin-fireMax s of driving (0.9.26, Ryan: 20% of fuel leaks)
+  if leak and leak.doomed and faults.results.fuelleak == "ok" and not faults.burnt and (faults.test or CUTOUT_PHASES[state.phase]) then
+    local car = getCar()
+    local moving = true
+    pcall(function() moving = vec3(car:getVelocity()):length() > 3 end)
+    if car and moving then
+      if not faults.fireAt then
+        local lo, hi = tonumber(leak.fireMin) or 60, tonumber(leak.fireMax) or 600
+        if faults.test then lo, hi = 20, 40 end
+        faults.fireAt = lo + math.random() * math.max(0, hi - lo)
+      end
+      faults.fireAt = faults.fireAt - dt
+      if faults.fireAt <= 0 then
+        faults.fireAt, faults.burnt = nil, true
+        local okF = pcall(function()   -- (BeamNG's own vehicle fire; inline: the chunk is at Lua's 200 locals)
+          car:queueLuaCommand("if fire and fire.igniteVehicle then fire.igniteVehicle() end")
+        end)
+        if not okF then warn("fuel leak fire: couldn't start it") end
+        ui_message("FIRE! The fuel leak has caught - stop and get clear!", 6, "tg_msg", "warning")
+        if TriggerServerEvent and not faults.test then TriggerServerEvent("tg_car_fire", "") end
       end
     end
   end

@@ -707,6 +707,7 @@ function World:freshPhysics(p, v)
     getNodePosition = function(_, cid) return vec3(v.nodePos[cid] or vec3(0, 0, 0)) end,
   })
   sb.set("powertrain", { getDevice = function(name) return v.devices[name] end, getDevices = function() return v.devices end })
+  sb.set("fire", { igniteVehicle = function() v.onFire = (v.onFire or 0) + 1 end })   -- (BeamNG's vehicle fire: counted)
   -- BeamNG's part conditions (career's used cars): mileage + paint wear. Like the game, setting them puts the
   -- engine/gearbox/clutch integrity values back to new, and a reset restores the conditions from their snapshot.
   v.odometer, v.paintLocked, v.partConditionCalls = 0, nil, 0
