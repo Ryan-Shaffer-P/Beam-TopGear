@@ -1,5 +1,5 @@
 -- Quirks (0.9.29, Ryan: "more variety, even cosmetic or silly"): harmless extras a worn car comes with - a fan belt,
--- a possessed radio, backfires, engine knock, squeaky brakes, flickering lights, a haunted horn, hazards, smells.
+-- a possessed radio, backfires, engine knock, squeaky brakes, flickering lights, a haunted horn, hazards.
 local t = require("t")
 local World = require("world")
 local F = require("fixtures")
@@ -63,16 +63,13 @@ t.test("on the road, each quirk has its go: nearby players hear the sounds, far 
   t.ok(has(A.current.sfx, "Afterfire"), "backfires (BeamNG's own afterfire sound)")
   t.ok(has(A.current.sfx, "failure_engine_knock"), "engine knock")
   t.ok(#A.current.sfx >= 2 * 3, "played on Alice's car by both games (hers and Bob's copy)")
-  t.ok(has(A.current.controls, "horn true") and has(A.current.controls, "horn false"), "the horn toots, and stops")
+  t.ok(has(A.current.controls, "horn true") and has(A.current.controls, "horn false"), "the horn beeps, and stops")
   t.ok(has(A.current.controls, "flash true") and has(A.current.controls, "flash false"), "lights off: the high beams flash")
   t.ok(has(A.current.controls, "hazards true"), "the hazards come on")
-  local smelt = false
-  for _, l in ipairs(B.chat) do if l:find("Alice's car", 1, true) or l:find("in Alice's car", 1, true) then smelt = true end end
-  t.ok(smelt, "a mystery smell in chat")
   w:assertClean()
 end)
 
-t.test("parked: only the radio, the horn and the smell go - the rest wait until you're moving", function()
+t.test("parked: only the radio and the horn go - the rest wait until you're moving", function()
   local w = World.new({ files = F.files(everyFive()) })
   local A = w:join("Alice")
   deathTrap(w, A, {})
@@ -111,15 +108,31 @@ t.test("admin: /tg quirk test <id> - one go of it on the car you're in, now", fu
   A.current.sfx, A.current.controls, A.client.sounds = {}, {}, {}
   w:chat(A, "/tg quirk test backfire"); w:step(0.5)
   t.ok(has(A.current.sfx, "Afterfire"))
-  w:chat(A, "/tg quirk test horn"); w:step(1)
-  t.ok(has(A.current.controls, "horn true") and has(A.current.controls, "horn false"))
+  w:chat(A, "/tg quirk test horn"); w:step(2.5)
+  t.eq(count(A.current.controls, "horn true"), 5, "five beeps")
+  t.eq(count(A.current.controls, "horn false"), 5, "...and the horn's off at the end")
+  t.eq(A.current.controls[#A.current.controls], "horn false")
   w:chat(A, "/tg quirk test fanbelt"); w:step(0.5)
   t.eq(count(w:heard(A), "fan-belt-squeal"), 1)
   w:chat(A, "/tg quirk test squeak"); w:step(0.5)
   for _, wd in pairs(A.current.wheels) do t.eq(wd.squealCoefLowSpeed, 1) end
   w:chat(A, "/tg menu"); w:step(2.5)
-  A.client.im.click("Haunted horn##qt_horn"); w:step(1.5)
-  t.ok(w:chatHas(A, "Quirk test: Haunted horn."), "the Admin tab's quirk buttons")
+  A.client.im.click("Haunted horn (beeps five times)##qt_horn"); w:step(2.5)
+  t.ok(w:chatHas(A, "Quirk test: Haunted horn (beeps five times)."), "the Admin tab's quirk buttons")
   w:chat(A, "/tg quirk test nope"); t.ok(w:chatHas(A, "Usage: /tg quirk test <fanbelt|radio|backfire"))
+  w:assertClean()
+end)
+
+t.test("a saved quirk list (0.9.29) loses the mystery smell; the hazards go every 2-4 min", function()
+  local w0 = World.new()
+  local list = w0:serverConfig().quirks.list
+  list[#list + 1] = { id = "smell", name = "Mystery smell", every = { 300, 600 }, say = { "%s smells." } }
+  for _, q in ipairs(list) do if q.id == "hazards" then q.every = { 240, 480 } end end
+  local cfg = F.twoRaces(); cfg.quirks = { list = list }
+  local w = World.new({ files = F.files(cfg) })
+  local ids, haz = {}, nil
+  for _, q in ipairs(w:serverConfig().quirks.list) do ids[q.id] = true; if q.id == "hazards" then haz = q.every end end
+  t.eq(ids.smell, nil, "no mystery smell")
+  t.eq(haz[1], 120); t.eq(haz[2], 240)
   w:assertClean()
 end)

@@ -7,7 +7,7 @@
   In game, type /tg help.
 ]]
 
-local SERVER_VERSION = "0.9.29"
+local SERVER_VERSION = "0.9.30"
 local PLUGIN_DIR  = "Resources/Server/TopGear/"
 local CONFIG_PATH = PLUGIN_DIR .. "config.json"
 local COURSES_PATH = PLUGIN_DIR .. "courses.json"   -- saved course library
@@ -169,11 +169,8 @@ local DEFAULT_CONFIG = {
       { id = "knock", name = "Engine knock", every = { 60, 180 }, events = { "event:>Vehicle>Failures>failure_engine_knock" } },
       { id = "squeak", name = "Squeaky brakes" },   -- (BeamNG's own brake squeal, turned up: whenever you brake gently)
       { id = "lights", name = "Flickering headlights", every = { 60, 180 }, action = "lights" },
-      { id = "horn", name = "Haunted horn", every = { 180, 420 }, action = "horn", parked = true },
-      { id = "hazards", name = "Hazard lights with a mind of their own", every = { 240, 480 }, action = "hazards" },
-      { id = "smell", name = "Mystery smell", every = { 300, 600 }, parked = true,
-        say = { "Something smells like burning hamster in %s's car.", "%s's car smells faintly of old chips and regret.",
-                "There's a strange whiff of hot plastic coming from %s's car.", "%s's car smells like a wet labrador. Nobody knows why." } },
+      { id = "horn", name = "Haunted horn (beeps five times)", every = { 180, 420 }, action = "horn", parked = true },
+      { id = "hazards", name = "Hazard lights with a mind of their own", every = { 120, 240 }, action = "hazards" },
     },
   },
 
@@ -543,6 +540,16 @@ local function loadConfig()
       cfg.migrations.conditionPricing, changed = true, true
       local f = cfg.faults or {}
       if type(f.mileageKm) == "table" and f.mileageKm[5] == 500000 and f.mileageKm[3] == 150000 then f.mileageKm = deepcopy(DEFAULT_CONFIG.faults.mileageKm) end
+    end
+    if not cfg.migrations.quirks2 then   -- 0.9.30, Ryan: no mystery smell; hazards every 2-4 min; the horn beeps five times
+      cfg.migrations.quirks2, changed = true, true
+      local list = (cfg.quirks or {}).list
+      for i = #(list or {}), 1, -1 do
+        local q = list[i]
+        if q.id == "smell" then table.remove(list, i)
+        elseif q.id == "hazards" and type(q.every) == "table" and q.every[1] == 240 and q.every[2] == 480 then q.every = { 120, 240 }
+        elseif q.id == "horn" and q.name == "Haunted horn" then q.name = "Haunted horn (beeps five times)" end
+      end
     end
     if not cfg.migrations.quirkClips then   -- 0.9.28: two new clips (Ryan): a fan belt squeal, a random radio blurt
       cfg.migrations.quirkClips, changed = true, true

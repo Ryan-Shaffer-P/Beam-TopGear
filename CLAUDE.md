@@ -317,7 +317,7 @@ migration `faultTiers` fills a saved list; `/tg fault sample <cond> [n]`; test_f
 `redrawFaults`; cleared by `refundCar`) -> `p.quirks`; server `CONDITION.quirkTick` (in TG_onTick, `QUIRK_PHASES`, moving
 unless `parked`) -> `CONDITION.quirkFire`: clip -> `tg_sound` to players within nearRadius; BeamNG one-shot `events` ->
 `tg_quirkfx` {sid, own, event} (each game plays it on its copy of the car: vlua `sounds.playSoundOnceFollowNode`); `action`
-horn/lights/hazards -> owner only (BeamMP syncs electrics); `say` -> chat. Client `faults.quirkFx` / `faults.quirkTick`
+horn (5 beeps)/lights/hazards -> owner only (BeamMP syncs electrics); `say` -> chat (unused since 0.9.30 dropped the smell). Client `faults.quirkFx` / `faults.quirkTick`
 (own clock `faults.clock`; `faults.later` second halves); squeaky brakes from `state.quirks` (wheels `squealCoef*`, kept
 every 10 s, restored on fix via vlua `tgSqueal`). `/tg fix <quirk>` = `quirks.fixCost`. `/tg quirk test <id>`. Events
 from the 0.39 game Lua (one-shots only - grind, rattle and turbo bov are loops there, left out). NOT yet tried in game.

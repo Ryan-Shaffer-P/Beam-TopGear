@@ -642,9 +642,8 @@ My car in the Status tab, and a workshop sorts one for $150 (`/tg fix <id>`). On
 | Engine knock | `knock` | BeamNG's engine knock sound (sound only) - every 1-3 min while moving |
 | Squeaky brakes | `squeak` | BeamNG's own brake squeal turned up - whenever you brake gently |
 | Flickering headlights | `lights` | lights on: off-on-off-on; lights off: two flashes of the high beams - every 1-3 min |
-| Haunted horn | `horn` | a short toot by itself - every 3-7 min, parked too |
-| Hazards with a mind of their own | `hazards` | the hazard lights come on for 8 s - every 4-8 min |
-| Mystery smell | `smell` | a chat line ("Something smells like burning hamster in ...") - every 5-10 min |
+| Haunted horn | `horn` | five short beeps by itself - every 3-7 min, parked too |
+| Hazards with a mind of their own | `hazards` | the hazard lights come on for 8 s - every 2-4 min |
 
 Everyone within 100 m hears the sounds (their game plays them on its copy of your car); horn, lights and hazards
 are your car's own controls, which BeamMP shows to everyone. In `config.json`: `quirks.enabled`, `count`, `fixCost`,

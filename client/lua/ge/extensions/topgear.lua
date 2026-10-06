@@ -35,7 +35,7 @@ local RESET_ACTIONS = {
 local VEHSEL_ACTIONS = { "vehicle_selector" }
 local PARTS_ACTIONS  = { "parts_selector" }
 
-local VERSION = "0.9.29"
+local VERSION = "0.9.30"
 local recentErrors = {}
 local function warn(msg)
   log("W", "topgear", tostring(msg))
@@ -1359,7 +1359,11 @@ faults.quirkFx = function(data)
     cmd = string.format("if sounds and sounds.playSoundOnceFollowNode then local r = v.data.refNodes and v.data.refNodes[0]; " ..
       "sounds.playSoundOnceFollowNode(%q, r and r.ref or 0, 1) end", t.event)
   elseif t.action == "horn" then
-    cmd = "electrics.horn(true)"; after(0.7, "electrics.horn(false)")
+    cmd = "electrics.horn(true)"   -- five short beeps (Ryan)
+    for i = 1, 5 do
+      after(i * 0.36 - 0.18, "electrics.horn(false)")
+      if i < 5 then after(i * 0.36, "electrics.horn(true)") end
+    end
   elseif t.action == "lights" then   -- headlights on: off-on-off-on; off: two flashes of the high beams
     cmd = "tgLights = electrics.values.lights_state or 0; if tgLights > 0 then electrics.setLightsState(0) else electrics.light_flash_highbeams(true) end"
     local back = "if (tgLights or 0) > 0 then electrics.setLightsState(tgLights) else electrics.light_flash_highbeams(false) end"
