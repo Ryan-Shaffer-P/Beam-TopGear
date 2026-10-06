@@ -81,9 +81,9 @@ t.test("messages: a Messages box under the tabs with a tinted, bordered log of t
   t.ok(child and child.border == 1 and child.size.y == 6 * 17 + 12, "a bordered box, 6 lines tall")
   local after = {}
   for i = at + 1, #items do if items[i].text then after[#after + 1] = items[i] end end
-  t.eq(#after, 6, "the last 6 messages")
-  t.eq(after[6].text, "Colour theme on.", "newest last")
-  t.ok(after[6].color.x > after[1].color.x, "the newest is brightest")
+  t.ok(#after > 6, "every kept message is in the box (6 lines tall: it scrolls) - 0.9.24")
+  t.eq(after[#after].text, "Colour theme on.", "newest last")
+  t.ok(after[#after].color.x > after[1].color.x, "the newest is brightest")
   w:assertClean()
 
   B.client.im.BeginChild1 = nil   -- a game without BeginChild: plain lines, one warning
@@ -94,4 +94,16 @@ t.test("messages: a Messages box under the tabs with a tinted, bordered log of t
   for _, l in ipairs(B.client.log) do if l.level == "W" and l.msg:find("message box unavailable", 1, true) then warned = warned + 1 end end
   t.eq(warned, 1, "warned once")
   t.eq(#B.client.im.problems, 0, "still balanced")
+end)
+
+t.test("Messages box: keeps the last 50 messages, all of them in its scrolling box (not just the last 6)", function()
+  local w = World.new({ files = F.files(F.twoRaces()) })
+  local A = w:join("Alice")
+  w:chat(A, "/tg menu"); w:step(1)
+  for i = 1, 60 do A.client.handlers.tg_log("Message number " .. i .. ".") end
+  w:step(1)
+  local text = A.client.im.textOf("Top Gear Challenge")
+  t.ok(text:find("Message number 60.", 1, true) and text:find("Message number 11.", 1, true), "the last 50 are all in the box")
+  t.ok(not text:find("Message number 10.", 1, true), "older ones are dropped")
+  w:assertClean()
 end)

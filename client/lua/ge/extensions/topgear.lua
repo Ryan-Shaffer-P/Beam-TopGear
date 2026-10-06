@@ -35,7 +35,7 @@ local RESET_ACTIONS = {
 local VEHSEL_ACTIONS = { "vehicle_selector" }
 local PARTS_ACTIONS  = { "parts_selector" }
 
-local VERSION = "0.9.23"
+local VERSION = "0.9.24"
 local recentErrors = {}
 local function warn(msg)
   log("W", "topgear", tostring(msg))
@@ -1877,9 +1877,10 @@ local okffi, ffi = pcall(require, "ffi")
 local im = nil
 local bufs = {}
 
-addLog = function(msg)
+addLog = function(msg)   -- (0.9.24, Ryan: keep 50 - the Messages box scrolls back through them)
   ui.log[#ui.log + 1] = tostring(msg)
-  if #ui.log > 30 then table.remove(ui.log, 1) end
+  ui.logTotal = (ui.logTotal or 0) + 1
+  while #ui.log > 50 do table.remove(ui.log, 1) end
 end
 
 local function sendCmd(cmd)
@@ -3252,17 +3253,23 @@ Tabs.help = function(text)
   if hov then pcall(function() im.SetTooltip((tostring(text):gsub("%%", "%%%%"))) end) end
 end
 
--- The message log under the tabs: a "System messages" heading and a tinted, bordered box (a child window) with the
--- last few lines, newest brightest. BeginChild isn't used anywhere else, so if it fails the lines show plain.
+-- The message log under the tabs: a tinted, bordered box (a child window) showing 6 lines at a time, newest at the
+-- bottom and brightest; it scrolls back through the last 50. A new message scrolls it to the bottom - unless you've
+-- scrolled up to read (then it stays put). If BeginChild fails, the last 6 lines show plain.
 Tabs.messages = function() Tabs.box("Messages", "messages", Tabs.messageLines) end   -- (under every tab)
 Tabs.messageLines = function()
   local MSG_LINES = 6
   local MSG_BOX = { ChildBg = { 0.05, 0.09, 0.22, 1 }, Border = { 0.40, 0.56, 0.95, 0.80 } }
-  local from = math.max(1, #ui.log - MSG_LINES + 1)
-  local function lines()
+  local function lines(from)
     if #ui.log == 0 then colored(0.55, 0.62, 0.70, "No messages yet."); return end
+    -- (read before drawing: were we at the bottom? then a new message keeps us there)
+    local okS, atBottom = pcall(function() return im.GetScrollY() >= im.GetScrollMaxY() - 2 end)
     for i = from, #ui.log do
       if i == #ui.log then colored(0.95, 0.97, 1.00, ui.log[i]) else colored(0.70, 0.76, 0.86, ui.log[i]) end
+    end
+    if ui.logShown ~= ui.logTotal then
+      if not okS or atBottom or not ui.logShown then pcall(im.SetScrollHereY, 1.0) end
+      ui.logShown = ui.logTotal
     end
   end
   local begin = imGet("BeginChild1") or imGet("BeginChild")
@@ -3273,14 +3280,14 @@ Tabs.messageLines = function()
   local okB, err = false, "no BeginChild"
   if begin then okB, err = pcall(begin, "##tgmessages", im.ImVec2(0, MSG_LINES * lh + 12), 1) end   -- 1 = border (bool or child flags)
   if okB then
-    local okL, errL = pcall(lines)
+    local okL, errL = pcall(lines, 1)   -- (all 50: the box scrolls)
     pcall(im.EndChild)   -- always, whatever BeginChild returned
     popColors(rec)
     if not okL and not ui.failed.messages then ui.failed.messages = true; warn("messages UI error: " .. tostring(errL)) end
   else
     popColors(rec)
     if not ui.failed.msgbox then ui.failed.msgbox = true; warn("message box unavailable, plain lines instead: " .. tostring(err)) end
-    lines()
+    lines(math.max(1, #ui.log - MSG_LINES + 1))
   end
 end
 

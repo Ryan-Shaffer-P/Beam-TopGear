@@ -30,8 +30,9 @@ again. Longer explanations hide behind a dim **(?)** - hover the mouse over it t
 **solid blue = a button you click**; **grey box with a blue outline = a field you can type in or change**;
 the standings are a light table. If the colours ever break the window on your BeamNG version, it
 switches them off by itself and keeps working (`/tg diag` shows why); `/tg theme` (or the Settings tab)
-turns them on/off. At the bottom of every tab, the **Messages** box keeps the mod's last 6 messages,
-newest at the bottom and brightest.
+turns them on/off. At the bottom of every tab, the **Messages** box keeps the mod's last 50 messages
+(6 lines at a time - scroll it up to read older ones), newest at the bottom and brightest. A new message
+scrolls it back to the bottom, unless you've scrolled up to read.
 
 - **Start** (far left; the menu opens on it before and during the dealership):
   - **Setup** (admins): three questions - **which course** (dropdown of saved courses, then **Load**),
