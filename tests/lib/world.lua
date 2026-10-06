@@ -693,7 +693,7 @@ function World:freshPhysics(p, v)
   v.wheels = {}
   for i = 0, 3 do v.wheels[i] = { brakeTorque = BRAKE_TORQUE, padGlazingFactor = 0 } end
   local sb = sandbox.new({ label = "vlua:" .. p.name .. ":" .. v.model, allowWrite = function() return true end })
-  sb.declare("tgFaults")
+  sb.declare("tgFaults", "tgSqueal", "tgLights")   -- (the mod's own car-side globals: faults, squeaky brakes, flickering lights)
   sb.set("vec3", vec3)
   sb.set("RESET_PHYSICS", 1)
   sb.set("obj", {
@@ -746,14 +746,22 @@ function World:freshPhysics(p, v)
     return { mainTank = { type = "fuelTank", remainingVolume = v.fuel, storedEnergy = v.fuel * 34.2e6,
                           setRemainingVolume = function(_, vol) v.fuel = math.max(0, math.min(60, vol)) end } }
   end })
-  sb.set("electrics", { values = {}, setIgnitionLevel = function(level)
+  -- the car's controls (quirks: horn, lights, hazards) - each change logged in v.controls; one-shot sounds in v.sfx
+  v.controls, v.sfx = {}, {}
+  local ev = { lights_state = v.lightsState or 0 }
+  sb.set("electrics", { values = ev, setIgnitionLevel = function(level)
     if level == 0 and v.ignition ~= 0 then v.stalls = v.stalls + 1 end
     v.ignition = level
-  end })
+  end,
+    horn = function(on) v.controls[#v.controls + 1] = "horn " .. tostring(on) end,
+    setLightsState = function(n) ev.lights_state = n; v.controls[#v.controls + 1] = "lights " .. tostring(n) end,
+    light_flash_highbeams = function(on) v.controls[#v.controls + 1] = "flash " .. tostring(on) end,
+    set_warn_signal = function(on) v.controls[#v.controls + 1] = "hazards " .. tostring(on) end })
+  sb.set("sounds", { playSoundOnceFollowNode = function(name, node, vol) v.sfx[#v.sfx + 1] = name end })
   sb.set("beamstate", { activateAutoCoupling = function() v.autoCouple = true end, toggleCouplers = function() v.autoCouple = true end,
     addDamage = function(d) v.damage = v.damage + d end,
     breakBreakGroup = function(g) v.broken[g] = true end })
-  sb.set("v", { data = { nodes = v.nodes, activeParts = v.parts, beams = {
+  sb.set("v", { data = { nodes = v.nodes, activeParts = v.parts, refNodes = { [0] = { ref = 0 } }, beams = {
     { cid = 0, breakGroup = "headlight_L" }, { cid = 1, breakGroup = { "glass_windshield", "body" } }, { cid = 2, breakGroup = "hood_hinge" } } } })
   v.vlua = sb
 end

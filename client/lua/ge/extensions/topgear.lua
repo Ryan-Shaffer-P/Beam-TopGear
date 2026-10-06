@@ -35,7 +35,7 @@ local RESET_ACTIONS = {
 local VEHSEL_ACTIONS = { "vehicle_selector" }
 local PARTS_ACTIONS  = { "parts_selector" }
 
-local VERSION = "0.9.28"
+local VERSION = "0.9.29"
 local recentErrors = {}
 local function warn(msg)
   log("W", "topgear", tostring(msg))
@@ -1336,11 +1336,75 @@ faults.now = function(what)
   ui_message(what == "fire" and "FIRE! (admin test)" or "BANG! Engine blown (admin test)", 5, "tg_msg", "warning")
 end
 
+-- Quirks (0.9.29): tg_quirkfx { sid, own, event | action } - a BeamNG one-shot sound on that car (your own, or your
+-- copy of someone else's: everyone nearby hears their backfire), or your own car's horn / lights / hazards (BeamMP
+-- shows those to the others). Squeaky brakes: state.quirks has "squeak" - BeamNG's own brake squeal turned up, kept on.
+faults.later = {}   -- { at, gid, cmd }: the second half of a horn toot, a flicker, the hazards going off again
+faults.SQUEAK_ON = "if wheels and wheels.wheels then tgSqueal = tgSqueal or {}; for i, wd in pairs(wheels.wheels) do " ..
+  "if tgSqueal[i] == nil then tgSqueal[i] = { wd.squealCoefNatural or 0, wd.squealCoefLowSpeed or 0 } end; " ..
+  "wd.squealCoefNatural = math.max(wd.squealCoefNatural or 0, 0.4); wd.squealCoefLowSpeed = 1 end end"
+faults.quirkFx = function(data)
+  local ok, t = pcall(jsonDecode, data)
+  if not (ok and type(t) == "table") then return end
+  local car
+  if t.own then car = getCar()
+  else
+    local okG, gid = pcall(function() return MPVehicleGE.getGameVehicleID(t.sid) end)
+    car = okG and gid and gid ~= -1 and be:getObjectByID(gid) or nil
+  end
+  if not car then return end
+  local gid, cmd = car:getID(), nil
+  local function after(secs, c) faults.later[#faults.later + 1] = { at = (faults.clock or 0) + secs, gid = gid, cmd = c } end
+  if type(t.event) == "string" then
+    cmd = string.format("if sounds and sounds.playSoundOnceFollowNode then local r = v.data.refNodes and v.data.refNodes[0]; " ..
+      "sounds.playSoundOnceFollowNode(%q, r and r.ref or 0, 1) end", t.event)
+  elseif t.action == "horn" then
+    cmd = "electrics.horn(true)"; after(0.7, "electrics.horn(false)")
+  elseif t.action == "lights" then   -- headlights on: off-on-off-on; off: two flashes of the high beams
+    cmd = "tgLights = electrics.values.lights_state or 0; if tgLights > 0 then electrics.setLightsState(0) else electrics.light_flash_highbeams(true) end"
+    local back = "if (tgLights or 0) > 0 then electrics.setLightsState(tgLights) else electrics.light_flash_highbeams(false) end"
+    local off = "if (tgLights or 0) > 0 then electrics.setLightsState(0) else electrics.light_flash_highbeams(true) end"
+    after(0.25, back); after(0.5, off); after(0.8, back)
+  elseif t.action == "hazards" then
+    cmd = "electrics.set_warn_signal(true)"; after(8, "electrics.set_warn_signal(false)")
+  elseif t.action == "squeak" then cmd = faults.SQUEAK_ON end
+  if cmd then
+    local okC, err = pcall(function() car:queueLuaCommand(cmd) end)
+    if not okC then warn("quirk " .. tostring(t.event or t.action) .. ": " .. tostring(err)) end
+  end
+end
+faults.quirkTick = function(dt)
+  faults.clock = (faults.clock or 0) + dt   -- (its own clock: ui.t only runs while the window is open)
+  for i = #faults.later, 1, -1 do
+    local l = faults.later[i]
+    if faults.clock >= l.at then
+      table.remove(faults.later, i)
+      local car = be:getObjectByID(l.gid)
+      if car then pcall(function() car:queueLuaCommand(l.cmd) end) end
+    end
+  end
+  faults.squeakT = (faults.squeakT or 0) - dt
+  if faults.squeakT > 0 then return end
+  faults.squeakT = 10   -- (every 10 s: a reset or respawn builds the brakes again from the car's own values)
+  local want = false
+  for _, id in ipairs(state.quirks or {}) do if id == "squeak" then want = true end end
+  local car = getCar()
+  if not car then return end
+  if want then faults.squeaking = true; pcall(function() car:queueLuaCommand(faults.SQUEAK_ON) end)
+  elseif faults.squeaking then   -- fixed: the brakes' own values back
+    faults.squeaking = false
+    pcall(function() car:queueLuaCommand("if tgSqueal and wheels and wheels.wheels then for i, o in pairs(tgSqueal) do " ..
+      "local wd = wheels.wheels[i]; if wd then wd.squealCoefNatural, wd.squealCoefLowSpeed = o[1], o[2] end end; tgSqueal = nil end") end)
+  end
+end
+
 local function updateFaults(dt)
   if faults.ownRebuild then
     faults.ownRebuild = faults.ownRebuild - dt
     if faults.ownRebuild <= 0 then faults.ownRebuild = nil end
   end
+  local okQ, errQ = pcall(faults.quirkTick, dt)
+  if not okQ and not faults.quirkErrored then faults.quirkErrored = true; warn("quirks: " .. tostring(errQ)) end
   local okT, errT = pcall(updateTimedFaults, dt)
   if not okT and not faults.timedErrored then faults.timedErrored = true; warn("timed faults: " .. tostring(errT)) end
   if faults.applyAt then
@@ -2267,6 +2331,13 @@ local function drawStatus(d)
       colored(1, 0.8, 0.3, string.format("Bought as %s: %d hidden problem%s - a workshop will find %s", (fl.names or {})[fl.count + 1] or "worn",
         fl.count, fl.count == 1 and "" or "s", fl.count == 1 and "it" or "them"))
     end
+    if me.quirks then   -- (harmless extras - 0.9.29)
+      local names = {}
+      for _, q in ipairs(me.quirks) do names[#names + 1] = q.name end
+      colored(0.75, 0.65, 1, "Quirks: " .. table.concat(names, ", "))
+      Tabs.help("Harmless (or just silly) extras that came with the car - they don't cost points.\nA workshop sorts one for " ..
+        commas(me.quirkFix or 150) .. ".")
+    end
     txt(string.format("Cash: %s    Points: %.1f    Wins: %d    Damage: %d", commas(me.cash), me.points or 0, me.wins or 0, me.damage or 0))
     if (me.cash or 0) < 0 then
       colored(1, 0.4, 0.4, string.format("Overdrawn: %s - prize money pays it off. Parts and problem fixes stop at %s overdrawn.",
@@ -2312,6 +2383,9 @@ local function drawStatus(d)
     elseif d.phase == "workshop" then
       for _, f in ipairs((d.faults or {}).mine or {}) do
         button("Fix this problem: " .. f.name .. " (" .. commas(d.faults.fix) .. ")##fix_" .. f.id, "fix " .. f.id)
+      end
+      for _, q in ipairs(me.quirks or {}) do
+        button("Sort the quirk: " .. q.name .. " (" .. commas(me.quirkFix or 150) .. ")##fixq_" .. q.id, "fix " .. q.id)
       end
       txt("Spent in this workshop: " .. commas(me.upgrade or 0) .. " (parts charged as fitted; paint, cosmetics and tuning free)")
       if d.readyToGo then   -- done here? I'm ready - once everyone is, GO starts the next leg (the timer still runs)
@@ -2680,6 +2754,13 @@ local function drawAdmin(d)
       button("Blow the engine now##fblow", "fault blow")
       Tabs.help("Right now, on your car: the fuel leak's fire / the oil leak's blown engine (seized) - to see them work.\n" ..
         "A test: no tow, no bill, nothing told to the others. On a player's car: /tg fault fire <player>, /tg fault blow <player>.")
+      if d.quirkAll and #d.quirkAll > 0 then   -- (0.9.29) one go of each quirk on the car you're in
+        txt("Quirks (harmless extras) - one go now:")
+        for i, q in ipairs(d.quirkAll) do
+          if (i - 1) % 3 ~= 0 then same() end
+          button(q.name .. "##qt_" .. q.id, "quirk test " .. q.id)
+        end
+      end
       button("Which cars take which faults##fcaps", "fault caps"); same()
       button("Example problem sets (" .. lname(ui.testCond) .. ")##fsample", "fault sample " .. ui.testCond .. " 5")
       Tabs.help("Tier 1 annoying, 2 hurts performance, 3 can stop the car. Used: tier 1 only, Needs work: up to 2,\n" ..
@@ -3808,6 +3889,7 @@ local function tryRegister(dt)
     add("tg_faults", onFaults)
     add("tg_tow",    onTow)
     add("tg_faultnow", function(d) faults.now(d) end)
+    add("tg_quirkfx", function(d) faults.quirkFx(d) end)
     add("tg_unstick", onUnstick)
     add("tg_respawn", onRespawn)
     add("tg_trailer", onTrailer)

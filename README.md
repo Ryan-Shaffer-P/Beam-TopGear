@@ -630,6 +630,27 @@ the market - **every car's price** drops with the condition:
 | Beater | 200,000 km | 45% (55% off) |
 | Death Trap | 300,000 km | **30%** (70% off) |
 
+**Quirks** (0.9.29): on top of its problems, a worn car comes with harmless (or just silly) **quirks** - Used 0-1,
+Needs work 1, Beater 1-2, Death Trap 2-3. They don't change its condition, drivability or points, they're listed under
+My car in the Status tab, and a workshop sorts one for $150 (`/tg fix <id>`). On the road, now and then:
+
+| Quirk | id | What happens |
+|---|---|---|
+| Squealing fan belt | `fanbelt` | a fan belt squeal (Ryan's recording) - every 1.5-4 min while moving |
+| Possessed radio | `radio` | the radio switches itself on for a few seconds (`randomradio`) - every 3-7 min, parked too |
+| Backfiring exhaust | `backfire` | BeamNG's own afterfire bang or crackle - every 30-90 s while moving |
+| Engine knock | `knock` | BeamNG's engine knock sound (sound only) - every 1-3 min while moving |
+| Squeaky brakes | `squeak` | BeamNG's own brake squeal turned up - whenever you brake gently |
+| Flickering headlights | `lights` | lights on: off-on-off-on; lights off: two flashes of the high beams - every 1-3 min |
+| Haunted horn | `horn` | a short toot by itself - every 3-7 min, parked too |
+| Hazards with a mind of their own | `hazards` | the hazard lights come on for 8 s - every 4-8 min |
+| Mystery smell | `smell` | a chat line ("Something smells like burning hamster in ...") - every 5-10 min |
+
+Everyone within 100 m hears the sounds (their game plays them on its copy of your car); horn, lights and hazards
+are your car's own controls, which BeamMP shows to everyone. In `config.json`: `quirks.enabled`, `count`, `fixCost`,
+and each quirk's `every` (seconds, min-max), `enabled`. Admins: the fault tester's quirk buttons (`/tg quirk test
+<id>`) play one now on the car you're in.
+
 **Problem tiers** (0.9.21): so a worn car is never undriveable, every problem has a tier - **1** annoying
 (accident damage, worn suspension, worn tires, alignment, ABS failure), **2** hurts performance (tired engine,
 damaged turbo, worn brakes, glazed pads, worn synchros, fuel leak; slipping clutch, rough idle and worn gearbox

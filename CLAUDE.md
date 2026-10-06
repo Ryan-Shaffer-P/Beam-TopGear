@@ -206,7 +206,7 @@ importprices [listed|builtin|models] | gameprices | setprice | class list/use/ne
 course list/save/load/new/delete | addevent/delevent/enable/moveevent | testevent <n>|stop | quicktravel <n|finale> |
 setstart/addcp/undocp/clearcp/settrap/addbay/undobay/clearbays/addvia/undovia/clearvia/setfinale |
 settype/setmode/setlaps/setrpc/settime/rename | addworkshop/undoworkshop/clearworkshops/importgas |
-trailersave/trailercones/trailertest | fault test [id] [as <condition>]/testoff/caps/sample <cond> [n]/fire [player]/blow [player]`. The ImGui window exposes all of these.
+trailersave/trailercones/trailertest | fault test [id] [as <condition>]/testoff/caps/sample <cond> [n]/fire [player]/blow [player] | quirk test <id>`. The ImGui window exposes all of these.
 
 ## Roadmap - Ryan's next issues (one session each, any order)
 
@@ -313,6 +313,15 @@ migration `faultTiers` fills a saved list; `/tg fault sample <cond> [n]`; test_f
 `fireMin`-`fireMax` s of driving > 3 m/s via vlua `fire.igniteVehicle()` (NOT yet tried in game) -> `tg_car_fire` -> `p.fuelBurnt`;
 `faults.fires = false` = off (fixtures pin it off: the roll is random). Harness: fake `fire` module counts `v.onFire`.
 0.9.27: admin `/tg fault fire|blow [player]` (fault tester buttons) -> `tg_faultnow` -> client `faults.now`: at once, a test.
+0.9.29 **quirks** (`cfg.quirks`; harmless extras, NOT faults: no condition/points): `CONDITION.drawQuirks` (in
+`redrawFaults`; cleared by `refundCar`) -> `p.quirks`; server `CONDITION.quirkTick` (in TG_onTick, `QUIRK_PHASES`, moving
+unless `parked`) -> `CONDITION.quirkFire`: clip -> `tg_sound` to players within nearRadius; BeamNG one-shot `events` ->
+`tg_quirkfx` {sid, own, event} (each game plays it on its copy of the car: vlua `sounds.playSoundOnceFollowNode`); `action`
+horn/lights/hazards -> owner only (BeamMP syncs electrics); `say` -> chat. Client `faults.quirkFx` / `faults.quirkTick`
+(own clock `faults.clock`; `faults.later` second halves); squeaky brakes from `state.quirks` (wheels `squealCoef*`, kept
+every 10 s, restored on fix via vlua `tgSqueal`). `/tg fix <quirk>` = `quirks.fixCost`. `/tg quirk test <id>`. Events
+from the 0.39 game Lua (one-shots only - grind, rattle and turbo bov are loops there, left out). NOT yet tried in game.
+Fixtures pin `quirks.enabled = false`; test_quirks.
 
 ### 4. Upgrade prices - DONE in 0.8.7
 Parts tab (client `buildCatalogue` / `quote` / `fitPart` / `drawParts`): lists slots from the parts tree's

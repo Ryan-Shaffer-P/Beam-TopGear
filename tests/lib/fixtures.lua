@@ -13,7 +13,8 @@ function F.config(events, extra)
     finale = { name = "The Test Track", pos = p(5000), radius = 25, timeLimit = 1200, via = {} },
     workshopEvery = 2,
     -- (tests of how each problem works use its listed strength at every condition; test_faults checks the scaling)
-    faults = { severity = { 1, 1, 1, 1 }, tiers = false, fires = false },   -- (fires: random - test_faults pins them)   -- (test_faulttiers checks the tier rules)
+    faults = { severity = { 1, 1, 1, 1 }, tiers = false, fires = false },
+    quirks = { enabled = false },   -- (random draws and timings - test_quirks checks them)   -- (fires: random - test_faults pins them)   -- (test_faulttiers checks the tier rules)
     -- (the dealership closes the moment everyone's ready, as before 0.9.13; test_quickstart checks the 5 s countdown)
     defaults = { readyCountdown = 0,
       soloGo = false, watchRunner = false, readyToGo = false, backToStartSeconds = 0 },   -- (test_readygo checks I'm ready -> GO)   -- (time trial drivers start one after another by themselves; test_timetrial checks GO per driver)

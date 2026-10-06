@@ -7,7 +7,7 @@
   In game, type /tg help.
 ]]
 
-local SERVER_VERSION = "0.9.28"
+local SERVER_VERSION = "0.9.29"
 local PLUGIN_DIR  = "Resources/Server/TopGear/"
 local CONFIG_PATH = PLUGIN_DIR .. "config.json"
 local COURSES_PATH = PLUGIN_DIR .. "courses.json"   -- saved course library
@@ -149,6 +149,31 @@ local DEFAULT_CONFIG = {
       parked     = { to = "near",   clips = { "grunt-yes" } },                                     -- a parking bay measured (not the last: finish plays)
       workshop   = { to = "all",    clips = { "workshop-intro" } },                                -- workshop opens
       champion   = { to = "all",    clips = { "top-gear-theme-intro" } },                          -- the overall winner is announced
+    },
+  },
+
+  -- Quirks (0.9.29, Ryan: "more variety, even cosmetic or silly"): harmless extras a worn car comes with, on top of
+  -- its problems - they don't change its condition, its drivability or its points. count: how many (min, max) for Used,
+  -- Needs work, Beater, Death Trap. A workshop sorts one for fixCost. every = seconds between goes (min, max), on the
+  -- road while moving (parked = standing still too); clip = one of sounds.clips; events = BeamNG's own one-shot sounds;
+  -- action = the car's own controls (horn, lights, hazards - BeamMP shows them to everyone); say = a chat line (%s = name).
+  quirks = {
+    enabled = true,
+    count = { { 0, 1 }, { 1, 1 }, { 1, 2 }, { 2, 3 } },
+    fixCost = 150,
+    list = {
+      { id = "fanbelt", name = "Squealing fan belt", every = { 90, 240 }, clip = "fan-belt-squeal" },
+      { id = "radio", name = "Possessed radio (switches itself on)", every = { 180, 420 }, clip = "randomradio", parked = true },
+      { id = "backfire", name = "Backfiring exhaust", every = { 30, 90 },
+        events = { "event:>Vehicle>Afterfire>01_Single_EQ1", "event:>Vehicle>Afterfire>01_Multi_EQ1" } },
+      { id = "knock", name = "Engine knock", every = { 60, 180 }, events = { "event:>Vehicle>Failures>failure_engine_knock" } },
+      { id = "squeak", name = "Squeaky brakes" },   -- (BeamNG's own brake squeal, turned up: whenever you brake gently)
+      { id = "lights", name = "Flickering headlights", every = { 60, 180 }, action = "lights" },
+      { id = "horn", name = "Haunted horn", every = { 180, 420 }, action = "horn", parked = true },
+      { id = "hazards", name = "Hazard lights with a mind of their own", every = { 240, 480 }, action = "hazards" },
+      { id = "smell", name = "Mystery smell", every = { 300, 600 }, parked = true,
+        say = { "Something smells like burning hamster in %s's car.", "%s's car smells faintly of old chips and regret.",
+                "There's a strange whiff of hot plastic coming from %s's car.", "%s's car smells like a wet labrador. Nobody knows why." } },
     },
   },
 
@@ -955,6 +980,7 @@ local function redrawFaults(p)
   p.oilDoomed, p.oilBlown = nil, nil
   p.fuelDoomed, p.fuelBurnt = nil, nil
   drawFaults(p)
+  CONDITION.drawQuirks(p)   -- (and its quirks)
 end
 -- a workshop diagnoses the car: the player finds out what they've got
 local function revealFaults(p)
@@ -1341,6 +1367,7 @@ end
 local function refundCar(p)
   p.faultsOwed = #(p.faults or {}) + (p.faultsOwed or 0)   -- faults stay paid for; drawn again for the next car
   p.faults, p.faultRestore, p.faultTried = {}, {}, {}
+  p.quirks, p.quirkAt = nil, nil
   p.cash = p.cash + (p.carPrice or 0) + (p.dealerParts or 0)   -- upgrades fitted at the dealership go back with it
   if (p.dealerParts or 0) ~= 0 then spend(p, "upgrades", -p.dealerParts) end
   p.dealerParts = 0
@@ -1557,6 +1584,7 @@ local function stateFor(p)
     allowReset = (ph == "dealer" or ph == "results"),
     timeLeft = timeLeft(),
     eventType = curEvent() and curEvent().type or nil,
+    quirks = (p.quirks and #p.quirks > 0) and p.quirks or nil,   -- (the client keeps the squeaky brakes squeaking)
   }
   if ph == "countdown" and game.countdownEnd then
     s.lights = { left = game.countdownEnd - now(), total = cfg.defaults.countdown }
@@ -2952,6 +2980,8 @@ function TG_onTick()
   if not okS then log("save error: " .. tostring(errS)) end
   if game.phase == "idle" or game.phase == "paused" then return end
   Save.tickRestore()
+  local okQ, errQ = pcall(CONDITION.quirkTick)
+  if not okQ then log("quirks error: " .. tostring(errQ)) end
   for _, p in pairs(game.players) do
     if racing(p) then
       local rpcVid = p.rpc and p.rpc.vid   -- on a reasonably priced car turn, the run follows the RPC
@@ -2990,7 +3020,7 @@ Save.PATH = PLUGIN_DIR .. "session.json"
 Save.EVERY = 5   -- seconds between saves while a challenge runs (and at every phase change)
 Save.TIMERS = { "closeAt", "workshopEnd", "countdownEnd", "phaseStart", "eventStart" }
 -- per-player runtime state that means nothing after a restart (game ids, positions, short time windows)
-Save.TRANSIENT = { "pid", "carVid", "pos", "prevPos", "speed", "eventVeh", "spawnAllow", "rpc", "towPending", "repairPending",
+Save.TRANSIENT = { "quirkAt", "pid", "carVid", "pos", "prevPos", "speed", "eventVeh", "spawnAllow", "rpc", "towPending", "repairPending",
   "respawnPending", "unstickPending", "faultEditUntil", "lastEditAt", "outsideEditAt", "putBackAt", "swapAt", "lastUnstick",
   "lastCrashSound", "pendingCharge", "restoring", "restoreAt", "restoreTries" }
 
@@ -3713,6 +3743,7 @@ PLAYER_CMDS.help = function(pid, name)
     say(pid, "Producers: /tg award <driver> <+/-points> [reason]")
     say(pid, "Traffic: /tg traffic on|off - while on, what you spawn is non-scoring traffic (any phase) and your vehicle menu is open")
     say(pid, "Soundboard: /tg play <clip> plays it for everyone (/tg sounds list)")
+    say(pid, "Quirks: /tg quirk test <id> (one go of it on your car, now)")
     say(pid, "Faults: /tg fault test [id] (applies to your car) | fault testoff | fault caps (which cars take which faults) | fault sample <condition> [n] (example problem sets by the tier rules) | fault fire [player] / fault blow [player] (right now)")
     say(pid, "Money: /tg budget <amount> | setcash <name> <amount> | give <name> <amount> | importprices [models] | gameprices on|off")
     say(pid, "Course: /tg setstart <n> | addcp <n> | undocp <n> | clearcp <n> | settrap <n> | settype <n> <type> | settime <n> <s>")
@@ -4094,6 +4125,17 @@ PLAYER_CMDS.fix = function(pid, _, args)
   if not inWorkshop(p) then say(pid, "Drive to a workshop first - the arrows show the nearest."); return end
   revealFaults(p)   -- (a workshop always diagnoses the car first)
   local id = (args[3] or ""):lower()
+  if CONDITION.hasQuirk(p, id) then   -- a quirk: a flat fee (0.9.29)
+    local q, cost = CONDITION.quirkDef(id), math.floor(tonumber((cfg.quirks or {}).fixCost) or 150)
+    if cost > creditLeft(p) then say(pid, string.format("Sorting that costs %s - you have %s.", money(cost), money(p.cash))); return end
+    for i, x in ipairs(p.quirks) do if x == id then table.remove(p.quirks, i); break end end
+    if p.quirkAt then p.quirkAt[id] = nil end
+    p.cash = p.cash - cost
+    spend(p, "faultFixes", cost)
+    sayAll(string.format("%s pays %s to get rid of the %s.", p.name, money(cost), (q and q.name or id):lower()))
+    pushState(p)
+    return
+  end
   local f = faultDef(id)
   if not (f and hasFault(p, id)) then say(pid, "Your car doesn't have that problem. Yours: " .. (#p.faults > 0 and table.concat(p.faults, ", ") or "none")); return end
   local cost = fixCost(p)
@@ -4162,6 +4204,95 @@ function TG_onCarFire(pid)
   playSound("crash", p)
   log(string.format("car fire (fuel leak) for %s", p.name))
   pushState(p)
+end
+
+-- Quirks (0.9.29): drawn with the car's problems, fired by the server's tick, heard by everyone nearby ----------------
+function CONDITION.quirkDef(id)
+  for _, q in ipairs((cfg.quirks or {}).list or {}) do if q.id == id then return q end end
+  return nil
+end
+function CONDITION.hasQuirk(p, id)
+  for _, x in ipairs(p.quirks or {}) do if x == id then return true end end
+  return false
+end
+function CONDITION.quirkList(p)   -- { { id, name } } for the menu
+  local out = {}
+  for _, id in ipairs(p.quirks or {}) do local q = CONDITION.quirkDef(id); out[#out + 1] = { id = id, name = q and q.name or id } end
+  return #out > 0 and out or nil
+end
+function CONDITION.drawQuirks(p)
+  p.quirks, p.quirkAt = {}, nil
+  local qc = cfg.quirks or {}
+  local range = (qc.count or {})[CONDITION.level(p)]
+  if qc.enabled == false or type(range) ~= "table" then return end
+  local lo, hi = math.floor(tonumber(range[1]) or 0), math.floor(tonumber(range[2]) or 0)
+  local n = hi > lo and math.random(lo, hi) or lo
+  local pool = {}
+  for _, q in ipairs(qc.list or {}) do if q.enabled ~= false then pool[#pool + 1] = q.id end end
+  for _ = 1, n do
+    if #pool == 0 then break end
+    p.quirks[#p.quirks + 1] = table.remove(pool, math.random(#pool))
+  end
+end
+-- one go of quirk q on car "pid-vid" (owner = pid): to the owner, and to everyone within sounds.nearRadius for sounds
+function CONDITION.quirkFire(pid, vid, name, pos, q)
+  if type(q.say) == "table" and #q.say > 0 then sayAll(string.format(q.say[math.random(#q.say)], name)); return end
+  local sid = tostring(pid) .. "-" .. tostring(vid)
+  if q.action then   -- (the owner's game works the controls; BeamMP shows them to the others)
+    MP.TriggerClientEvent(pid, "tg_quirkfx", Util.JsonEncode({ sid = sid, own = true, action = q.action }))
+    return
+  end
+  local event = type(q.events) == "table" and #q.events > 0 and q.events[math.random(#q.events)] or nil
+  local r = tonumber((cfg.sounds or {}).nearRadius) or 100
+  for qpid, qname in pairs(MP.GetPlayers() or {}) do
+    local qp = playerByPid(qpid)
+    local near = qpid == pid or (pos and qp and qp.pos and dist(qp.pos, pos) <= r)
+    if near and not soundsOff[qname] then
+      if q.clip then MP.TriggerClientEvent(qpid, "tg_sound", Util.JsonEncode({ clip = q.clip }))
+      elseif event then MP.TriggerClientEvent(qpid, "tg_quirkfx", Util.JsonEncode({ sid = sid, own = qpid == pid, event = event })) end
+    end
+  end
+end
+CONDITION.QUIRK_PHASES = { travel = true, event = true, finale = true }   -- on the road (never during a countdown; a table field: 200 locals)
+function CONDITION.quirkTick()
+  if not CONDITION.QUIRK_PHASES[game.phase] or (cfg.quirks or {}).enabled == false then return end
+  for _, p in pairs(game.players) do
+    if racing(p) and not p.rpc and p.quirks and #p.quirks > 0 then
+      p.quirkAt = p.quirkAt or {}
+      for _, id in ipairs(p.quirks) do
+        local q = CONDITION.quirkDef(id)
+        local every = q and type(q.every) == "table" and q.every
+        if every then
+          local lo, hi = tonumber(every[1]) or 120, tonumber(every[2]) or 300
+          p.quirkAt[id] = p.quirkAt[id] or (now() + lo + math.random(0, math.max(0, math.floor(hi - lo))))
+          if now() >= p.quirkAt[id] then
+            if q.parked or (p.speed or 0) > 3 then
+              p.quirkAt[id] = nil
+              CONDITION.quirkFire(p.pid, p.carVid, p.name, p.pos, q)
+            else p.quirkAt[id] = now() + 5 end   -- (it waits until you're moving)
+          end
+        end
+      end
+    end
+  end
+end
+-- /tg quirk test <id> (admin): one go of it on the car you're in, now
+ADMIN_CMDS.quirk = function(pid, name, args)
+  local id = (args[4] or ""):lower()
+  local q = (args[3] or ""):lower() == "test" and CONDITION.quirkDef(id)
+  if not q then
+    local ids = {}
+    for _, x in ipairs((cfg.quirks or {}).list or {}) do ids[#ids + 1] = x.id end
+    say(pid, "Usage: /tg quirk test <" .. table.concat(ids, "|") .. ">"); return
+  end
+  local vid = activeVeh[pid]
+  if not vid then local p = playerByPid(pid); vid = p and p.carVid end
+  if not vid then say(pid, "Get in a car first."); return end
+  local raw = MP.GetPositionRaw(pid, vid)
+  if q.id == "squeak" then
+    MP.TriggerClientEvent(pid, "tg_quirkfx", Util.JsonEncode({ sid = tostring(pid) .. "-" .. tostring(vid), own = true, action = "squeak" }))
+  else CONDITION.quirkFire(pid, vid, MP.GetPlayerName(pid), type(raw) == "table" and v3(raw.pos) or nil, q) end
+  say(pid, "Quirk test: " .. q.name .. (q.id == "squeak" and " - brake gently to hear it (until your car resets)" or "") .. ".")
 end
 
 PLAYER_CMDS.menu = function(pid, _, args)
@@ -5688,6 +5819,7 @@ local function buildUi(pid)
       canUnstick = p.carVid ~= nil and game.phase ~= "countdown" or false,
       respawns = p.respawns or 0, hasCarModel = p.carModel ~= nil, inShop = inWorkshop(p),
       creditLimit = cfg.workshop.creditLimit or 1500,
+      quirks = CONDITION.quirkList(p), quirkFix = (cfg.quirks or {}).fixCost or 150,
     }
   end
   d.dealer = dealerOffers(p)   -- (sendUi leaves it out when the client already has this exact list)
@@ -5714,6 +5846,9 @@ local function buildUi(pid)
     end
     local levels = {}
     for n = 0, 4 do levels[n + 1] = { name = CONDITION[n], km = CONDITION.km(n), off = CONDITION.percentOff(n), sev = CONDITION.sevOf(n) } end
+    local quirkAll = {}   -- (admin quirk tests)
+    for _, q in ipairs((cfg.quirks or {}).list or {}) do quirkAll[#quirkAll + 1] = { id = q.id, name = q.name } end
+    d.quirkAll = quirkAll
     d.faults = { all = all, max = math.min(cfg.faults.maxPerCar or 4, 4), count = CONDITION.level(p), levels = levels,
                  fixPercent = tonumber(cfg.faults.fixPercent) or 0.05, fixMin = tonumber(cfg.faults.fixMin) or 500,
                  names = { CONDITION[0], CONDITION[1], CONDITION[2], CONDITION[3], CONDITION[4] },
