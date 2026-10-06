@@ -143,7 +143,7 @@ copies cached per list in `selector.cache`) and calls `ui_vehicleSelector_genera
 `gameGetModel`. 0.39 Lua reference: github.com/wlkmanist/BeamNG_lua (lua/ge/extensions/ui/vehicleSelector/)), vlua `v.data.nodes[].partOrigin` +
 `obj:getNodePosition` (trailer load %), `quatFromDir` convention + `setPositionRotation` (tow/unstick,
 self-verifying), `energyStorage.getStorages` (fuel), `partCondition.initConditions` (mileage wear, vehicle Lua), `freeroam_facilities` (gas stations),
-`getSpawnWorldOOBB` / `be:getObjectOOBB*` (trailer placement), spectating the time trial driver (`tg_watch` {sid}: `MPVehicleGE.getGameVehicleID` + `be:enterVehicle` on another player's
+`getSpawnWorldOOBB` / `be:getObjectOOBB*` (trailer placement), `be:getSurfaceHeightBelow` (/tg bring's ground height), spectating the time trial driver (`tg_watch` {sid}: `MPVehicleGE.getGameVehicleID` + `be:enterVehicle` on another player's
 car = BeamMP's spectate, like its own `focusCameraOnPlayer`; `tg_watch_end` / Back to my car = enter `getCar()`; `RPC.watch/
 unwatch`, `RPC.watchOff`; harness: `p.viewing`), switching the player between their car and the RPC
 (`spawnNewVehicle` autoEnter + `be:enterVehicle`, `MP.RemoveVehicle` of a car the player is driving), `beamstate.activateAutoCoupling`, vlua `hydros.hydros[]` steering mapping (`cOut`/`cIn`, alignment pull; is + steering input = right?),
@@ -197,7 +197,7 @@ for the `/tg diag` "Client error" line or the matching `[TopGear]` server-consol
 
 Players: `/tg menu | status | dealer | ready | unready | go | repair | fix <id> | tow | respawn | unstick | hitchup |
 condition [name] | faults | fault take [n] | quote | standings | diag | partsdiag | lights | lightstest | flag | flagtest | sounds on|off|list | soundtest [clip|next] | theme`.
-Admins: `start [force] | next | stop | restartevent | freerespawn <driver> | resume | discard | award <driver> <pts> [reason] | traffic on|off | play <clip> | budget | setcash | give | workshop <min> | workshopevery <n> |
+Admins: `start [force] | next | stop | restartevent | freerespawn <driver> | bring <driver> | resume | discard | award <driver> <pts> [reason] | traffic on|off | play <clip> | budget | setcash | give | workshop <min> | workshopevery <n> |
 importprices [listed|builtin|models] | gameprices | setprice | class list/use/new/preset/delete/show/rule/unrule/include/exclude/clear/price/multiplier/values |
 course list/save/load/new/delete | addevent/delevent/enable/moveevent | testevent <n>|stop | quicktravel <n|finale> |
 setstart/addcp/undocp/clearcp/settrap/addbay/undobay/clearbays/addvia/undovia/clearvia/setfinale |

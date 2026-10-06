@@ -35,7 +35,7 @@ local RESET_ACTIONS = {
 local VEHSEL_ACTIONS = { "vehicle_selector" }
 local PARTS_ACTIONS  = { "parts_selector" }
 
-local VERSION = "0.9.21"
+local VERSION = "0.9.22"
 local recentErrors = {}
 local function warn(msg)
   log("W", "topgear", tostring(msg))
@@ -1447,7 +1447,12 @@ end
 local function onTow(data)
   local ok, t = pcall(jsonDecode, data)
   if ok and type(t) == "table" then   -- (restore: after a crash/rejoin or a restart; return: a time trial run's over)
-    startMove((t.kind == "restore" or t.kind == "return") and t.kind or "tow", t)
+    if t.ground and type(t.pos) == "table" then   -- (bring: the server only knows the admin's height - find the ground here)
+      local okG, h = pcall(function() return be:getSurfaceHeightBelow(vec3(t.pos.x, t.pos.y, t.pos.z + 30)) end)
+      if okG and tonumber(h) and h > -1e6 then t.pos.z = h + 0.5
+      else warn("bring: ground height unavailable (" .. tostring(h) .. ") - using the admin's height") end
+    end
+    startMove((t.kind == "restore" or t.kind == "return" or t.kind == "bring") and t.kind or "tow", t)
   end
 end
 local function onUnstick() startMove("unstick", {}) end
@@ -2168,8 +2173,10 @@ local function drawAdminControls(d)
         button("Award##admaward", "award " .. who .. " " .. pt[0] .. " " .. textOf(rb)); same()
         button("Dock##admdock", "award " .. who .. " " .. -math.abs(pt[0]) .. " " .. textOf(rb))
         Tabs.help("Take / Dock take that much cash / points away. Award and Dock: everyone sees it, and it shows in the results.")
-        button("Free respawn##admrespawn", "freerespawn " .. who)
-        Tabs.help("Fixes their car where it stands (a lost car comes back where it was) - free: no cost, no points, no DSQ.")
+        button("Free respawn##admrespawn", "freerespawn " .. who); same()
+        button("Bring to me##admbring", "bring " .. who)
+        Tabs.help("Free respawn: fixes their car where it stands (a lost car comes back where it was) - free: no cost, no\n" ..
+          "points, no DSQ. Bring to me: their car, as it is, 50 m in front of yours, facing the way you face.")
       end
     end
   end, true)

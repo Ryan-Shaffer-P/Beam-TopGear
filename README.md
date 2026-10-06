@@ -335,7 +335,8 @@ Admin tools (Admin tab): **Restart event** (two clicks, `/tg restartevent`) brin
 the start line as it is and wipes the runs (nothing's scored yet) - then I'm ready and GO again.
 Players box: **Give / Take** cash, **Award / Dock** points, and **Free respawn**
 (`/tg freerespawn <driver>`: their car fixed where it stands, or a lost car back where it was - no
-cost, no points, no DSQ).
+cost, no points, no DSQ), and **Bring to me** (`/tg bring <driver>`: their car, as it is, 50 m in front of
+yours, facing the way you face - `defaults.bringDistance`).
 
 ### Sound bites
 

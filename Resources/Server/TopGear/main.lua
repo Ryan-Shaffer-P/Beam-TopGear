@@ -7,7 +7,7 @@
   In game, type /tg help.
 ]]
 
-local SERVER_VERSION = "0.9.21"
+local SERVER_VERSION = "0.9.22"
 local PLUGIN_DIR  = "Resources/Server/TopGear/"
 local CONFIG_PATH = PLUGIN_DIR .. "config.json"
 local COURSES_PATH = PLUGIN_DIR .. "courses.json"   -- saved course library
@@ -3666,7 +3666,7 @@ PLAYER_CMDS.help = function(pid, name)
   say(pid, "/tg menu (window; /tg menu reset if it's squashed) | status | dealer | join | ready | unready | go | quote | repair | standings | diag")
   if isAdmin(name) then
     say(pid, "Admin: /tg start [force] | next (force the next phase) | stop | restartevent | where | workshop <minutes> | workshopevery <n>")
-    say(pid, "Players: /tg give <driver> <+/-cash> | setcash <driver> <cash> | freerespawn <driver> (fixes their car where it stands, free)")
+    say(pid, "Players: /tg give <driver> <+/-cash> | setcash <driver> <cash> | freerespawn <driver> (fixes their car where it stands, free) | bring <driver> (50 m in front of you)")
     say(pid, "Producers: /tg award <driver> <+/-points> [reason]")
     say(pid, "Traffic: /tg traffic on|off - while on, what you spawn is non-scoring traffic (any phase) and your vehicle menu is open")
     say(pid, "Soundboard: /tg play <clip> plays it for everyone (/tg sounds list)")
@@ -4363,6 +4363,26 @@ ADMIN_CMDS.freerespawn = function(pid, _, args)
   end
   sayAll(string.format("The producers give %s a free respawn.", p.name))
   pushState(p)
+end
+
+-- Bring to me (0.9.22, Ryan): a player's car - as it is, no repair - to 50 m in front of the admin's car, facing the
+-- same way. The direction is the admin's game's own (tg_activeveh); the ground height is found by the player's game.
+ADMIN_CMDS.bring = function(pid, _, args)
+  local p = Score.findPlayer(table.concat(args, " ", 3))
+  if not p then say(pid, "Usage: /tg bring <player name>"); return end
+  if not (p.pid and p.carVid) then say(pid, p.name .. " has no car out to bring."); return end
+  if p.pid == pid then say(pid, "That's you."); return end
+  local pos, _, dir = adminPose(pid)
+  if not (pos and dir) then say(pid, "Get in your car (and move it a little) first - the server needs to know which way you face."); return end
+  local len = math.sqrt(dir.x * dir.x + dir.y * dir.y)
+  local dist = tonumber(cfg.defaults.bringDistance) or 50
+  local to = { x = pos.x + dir.x / len * dist, y = pos.y + dir.y / len * dist, z = pos.z + 0.5 }
+  if p.rpc then RPC.remove(p) end   -- (their own car comes, not the reasonably priced one)
+  p.towPending = now()   -- (the move isn't a reset to fine)
+  MP.TriggerClientEvent(p.pid, "tg_tow", Util.JsonEncode({ kind = "bring", reset = false, pos = to, ground = true,
+    dir = { x = dir.x / len, y = dir.y / len, z = 0 } }))
+  say(p.pid, "An admin brought your car to them.")
+  say(pid, string.format("Bringing %s's car to %d m in front of you.", p.name, math.floor(dist)))
 end
 
 ADMIN_CMDS.discard = function(pid)

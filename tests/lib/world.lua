@@ -342,6 +342,7 @@ function World:loadClient(p)
   -- (every player's cars exist in everyone's game: entering someone else's = spectating it - p.viewing; you
   -- can't drive it, so p.current stays your own)
   function be:getPlayerVehicle() local v = p.viewing or p.current; return v and v.obj or nil end
+  function be:getSurfaceHeightBelow(_) return 0 end   -- (the test world is flat, at z = 0)
   function be:getObjectByID(gid)
     for _, v in pairs(p.vehicles) do if v.gid == gid then return v.obj end end
     for _, q in pairs(w.players) do for _, v in pairs(q.vehicles) do if v.gid == gid then return v.obj end end end
