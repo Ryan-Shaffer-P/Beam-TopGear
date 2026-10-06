@@ -206,7 +206,7 @@ importprices [listed|builtin|models] | gameprices | setprice | class list/use/ne
 course list/save/load/new/delete | addevent/delevent/enable/moveevent | testevent <n>|stop | quicktravel <n|finale> |
 setstart/addcp/undocp/clearcp/settrap/addbay/undobay/clearbays/addvia/undovia/clearvia/setfinale |
 settype/setmode/setlaps/setrpc/settime/rename | addworkshop/undoworkshop/clearworkshops/importgas |
-trailersave/trailercones/trailertest | fault test [id] [as <condition>]/testoff/caps`. The ImGui window exposes all of these.
+trailersave/trailercones/trailertest | fault test [id] [as <condition>]/testoff/caps/sample <cond> [n]/fire [player]/blow [player]`. The ImGui window exposes all of these.
 
 ## Roadmap - Ryan's next issues (one session each, any order)
 
@@ -312,6 +312,7 @@ migration `faultTiers` fills a saved list; `/tg fault sample <cond> [n]`; test_f
 0.9.26 fuel leak fire (Ryan): `fireChance` 0.2 rolled at draw (`p.fuelDoomed`, like `p.oilDoomed`), client ignites once after
 `fireMin`-`fireMax` s of driving > 3 m/s via vlua `fire.igniteVehicle()` (NOT yet tried in game) -> `tg_car_fire` -> `p.fuelBurnt`;
 `faults.fires = false` = off (fixtures pin it off: the roll is random). Harness: fake `fire` module counts `v.onFire`.
+0.9.27: admin `/tg fault fire|blow [player]` (fault tester buttons) -> `tg_faultnow` -> client `faults.now`: at once, a test.
 
 ### 4. Upgrade prices - DONE in 0.8.7
 Parts tab (client `buildCatalogue` / `quote` / `fitPart` / `drawParts`): lists slots from the parts tree's

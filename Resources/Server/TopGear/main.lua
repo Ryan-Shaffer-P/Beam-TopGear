@@ -7,7 +7,7 @@
   In game, type /tg help.
 ]]
 
-local SERVER_VERSION = "0.9.26"
+local SERVER_VERSION = "0.9.27"
 local PLUGIN_DIR  = "Resources/Server/TopGear/"
 local CONFIG_PATH = PLUGIN_DIR .. "config.json"
 local COURSES_PATH = PLUGIN_DIR .. "courses.json"   -- saved course library
@@ -3704,7 +3704,7 @@ PLAYER_CMDS.help = function(pid, name)
     say(pid, "Producers: /tg award <driver> <+/-points> [reason]")
     say(pid, "Traffic: /tg traffic on|off - while on, what you spawn is non-scoring traffic (any phase) and your vehicle menu is open")
     say(pid, "Soundboard: /tg play <clip> plays it for everyone (/tg sounds list)")
-    say(pid, "Faults: /tg fault test [id] (applies to your car) | fault testoff | fault caps (which cars take which faults) | fault sample <condition> [n] (example problem sets by the tier rules)")
+    say(pid, "Faults: /tg fault test [id] (applies to your car) | fault testoff | fault caps (which cars take which faults) | fault sample <condition> [n] (example problem sets by the tier rules) | fault fire [player] / fault blow [player] (right now)")
     say(pid, "Money: /tg budget <amount> | setcash <name> <amount> | give <name> <amount> | importprices [models] | gameprices on|off")
     say(pid, "Course: /tg setstart <n> | addcp <n> | undocp <n> | clearcp <n> | settrap <n> | settype <n> <type> | settime <n> <s>")
     say(pid, "Parking: /tg addbay <n> | undobay <n> | clearbays <n>  (park facing the way the bay faces)")
@@ -3969,6 +3969,18 @@ end
 PLAYER_CMDS.fault = function(pid, name, args)
   if not faultsOn() then say(pid, "Problem cars are switched off."); return end
   local sub, id = (args[3] or ""):lower(), (args[4] or ""):lower()
+  if sub == "fire" or sub == "blow" then   -- (0.9.27) right now, on your car (or a player's): a fuel leak fire / a blown engine
+    if not isAdmin(name) then say(pid, "That's an admin command."); return end
+    local who = table.concat(args, " ", 4)
+    local target = who ~= "" and Score.findPlayer(who) or nil
+    if who ~= "" and not (target and target.pid) then say(pid, "Usage: /tg fault " .. sub .. " [player] - no connected player " .. who .. "."); return end
+    local tpid = target and target.pid or pid
+    MP.TriggerClientEvent(tpid, "tg_faultnow", sub)
+    say(pid, (sub == "fire" and "Setting fire to " or "Blowing the engine of ") .. (target and (target.name .. "'s car") or "your car") ..
+      " - a test: no tow, no message to the others, nothing on the bill.")
+    if target and tpid ~= pid then say(tpid, "An admin is testing a " .. (sub == "fire" and "car fire" or "blown engine") .. " on your car.") end
+    return
+  end
   if sub == "sample" then   -- (0.9.21) example problem sets for a condition, drawn by the tier rules (any car)
     if not isAdmin(name) then say(pid, "That's an admin command."); return end
     local count = tonumber(args[#args])

@@ -35,7 +35,7 @@ local RESET_ACTIONS = {
 local VEHSEL_ACTIONS = { "vehicle_selector" }
 local PARTS_ACTIONS  = { "parts_selector" }
 
-local VERSION = "0.9.26"
+local VERSION = "0.9.27"
 local recentErrors = {}
 local function warn(msg)
   log("W", "topgear", tostring(msg))
@@ -1323,6 +1323,17 @@ local function updateTimedFaults(dt)
   else
     faults.cutAt = nil
   end
+end
+
+-- tg_faultnow "fire" | "blow" (admin, 0.9.27): a fuel leak fire / a blown engine on this car right now - a test
+faults.now = function(what)
+  local car = getCar()
+  if not car then warn("fault " .. tostring(what) .. ": no car"); return end
+  local okC, err = pcall(function()
+    car:queueLuaCommand(what == "fire" and "if fire and fire.igniteVehicle then fire.igniteVehicle() end" or BLOW_VLUA)
+  end)
+  if not okC then warn("fault " .. tostring(what) .. " failed: " .. tostring(err)); return end
+  ui_message(what == "fire" and "FIRE! (admin test)" or "BANG! Engine blown (admin test)", 5, "tg_msg", "warning")
 end
 
 local function updateFaults(dt)
@@ -2665,6 +2676,10 @@ local function drawAdmin(d)
             (type(f.groups) == "table" and #f.groups > 0 and (" - " .. table.concat(f.groups, ", ")) or ""))
         end
       end
+      button("Start a fire now##ffire", "fault fire"); same()
+      button("Blow the engine now##fblow", "fault blow")
+      Tabs.help("Right now, on your car: the fuel leak's fire / the oil leak's blown engine (seized) - to see them work.\n" ..
+        "A test: no tow, no bill, nothing told to the others. On a player's car: /tg fault fire <player>, /tg fault blow <player>.")
       button("Which cars take which faults##fcaps", "fault caps"); same()
       button("Example problem sets (" .. lname(ui.testCond) .. ")##fsample", "fault sample " .. ui.testCond .. " 5")
       Tabs.help("Tier 1 annoying, 2 hurts performance, 3 can stop the car. Used: tier 1 only, Needs work: up to 2,\n" ..
@@ -3792,6 +3807,7 @@ local function tryRegister(dt)
     add("tg_log",    addLog)
     add("tg_faults", onFaults)
     add("tg_tow",    onTow)
+    add("tg_faultnow", function(d) faults.now(d) end)
     add("tg_unstick", onUnstick)
     add("tg_respawn", onRespawn)
     add("tg_trailer", onTrailer)
