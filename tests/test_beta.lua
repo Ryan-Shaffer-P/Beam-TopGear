@@ -195,3 +195,37 @@ t.test("admin: Bring to me - a player's car, as it is, 50 m in front of the admi
   t.ok(B.current.damage >= 2000, "as it is - no repair")
   w:assertClean()
 end)
+
+t.test("event starts face a way: Set start here takes the way the admin's car points; drivers see an arrow", function()
+  local w = World.new({ files = F.files(F.config({ race() })) })
+  local A, B = w:join("Alice"), w:join("Bob")
+  w:buy(A, "covet", "base_M")
+  w:place(A, p(500, 0), math.pi / 2); w:step(1.5)   -- facing +y (the first checkpoint is +x: the arrow says otherwise)
+  w:chat(A, "/tg setstart 1")
+  t.ok(w:chatHas(A, "event 1 start set (500.0, 0.0, 0.0), facing the way your car points"))
+  local sd = w:serverConfig().events[1].startDir
+  t.ok(math.abs(sd.x) < 0.01 and math.abs(sd.y - 1) < 0.01, "stored")
+  w:assertClean()
+  w = World.new({ files = w.files })   -- (the saved course, in a fresh challenge)
+  A, B = w:join("Alice"), w:join("Bob")
+  w:chat(A, "/tg start"); buyAll(w, A, B)
+  w:chat(A, "/tg ready"); w:chat(B, "/tg ready"); w:step(2.5)
+  local face = w:state(A).target.face
+  t.ok(face and math.abs(face.y - 1) < 0.01, "the leg's target carries the way to face")
+  local heads = 0
+  for _, cy in ipairs(A.client.cylinders) do
+    if math.abs(cy.a.x - 500) < 0.01 and math.abs(cy.a.y - 5) < 0.01 and cy.b.y < cy.a.y and cy.r == 0.15 then heads = heads + 1 end
+  end
+  t.eq(heads, 2, "an arrowhead 5 m up +y from the start")
+  w:assertClean()
+end)
+
+t.test("a start set before 0.9.23 (no direction) faces its first checkpoint", function()
+  local w = World.new({ files = F.files(F.config({ race() })) })
+  local A, B = w:join("Alice"), w:join("Bob")
+  w:chat(A, "/tg start"); buyAll(w, A, B)
+  w:chat(A, "/tg ready"); w:chat(B, "/tg ready"); w:step(2.5)
+  local face = w:state(A).target.face
+  t.ok(face and math.abs(face.x - 1) < 0.01, "towards the first checkpoint (+x)")
+  w:assertClean()
+end)

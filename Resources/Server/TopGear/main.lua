@@ -7,7 +7,7 @@
   In game, type /tg help.
 ]]
 
-local SERVER_VERSION = "0.9.22"
+local SERVER_VERSION = "0.9.23"
 local PLUGIN_DIR  = "Resources/Server/TopGear/"
 local CONFIG_PATH = PLUGIN_DIR .. "config.json"
 local COURSES_PATH = PLUGIN_DIR .. "courses.json"   -- saved course library
@@ -1392,6 +1392,28 @@ local function enabledEvents()
   for _, e in ipairs(cfg.events) do if e.enabled ~= false then out[#out + 1] = e end end
   return out
 end
+local Course = {}   -- course helpers (filled in further down; declared here for the targets just below)
+-- which way a start faces (0.9.23, Ryan: drivers didn't know which way to line up): the way the admin's car pointed at
+-- Set start here (e.startDir, from their game), else towards the first checkpoint / trap / bay. { x, y } or nil.
+function Course.startFace(e)
+  local d = type(e) == "table" and e.startDir
+  if type(d) == "table" and tonumber(d.x) and tonumber(d.y) and (d.x * d.x + d.y * d.y) > 0.01 then
+    local len = math.sqrt(d.x * d.x + d.y * d.y)
+    return { x = d.x / len, y = d.y / len }
+  end
+  local start = type(e) == "table" and v3(e.start)
+  local ahead = start and (v3((e.checkpoints or {})[1]) or v3(e.trap) or v3((e.bays or {})[1] or e.bay))
+  if not ahead then return nil end
+  local dx, dy = ahead.x - start.x, ahead.y - start.y
+  local len = math.sqrt(dx * dx + dy * dy)
+  if len < 0.5 then return nil end
+  return { x = dx / len, y = dy / len }
+end
+function Course.startLook(e)   -- a point 20 m ahead of the start, the way it faces (for "facing ..." placements)
+  local f, start = Course.startFace(e), v3(e.start)
+  if not (f and start) then return nil end
+  return { x = start.x + f.x * 20, y = start.y + f.y * 20, z = start.z }
+end
 local function yawFromQuat(q)
   if not q then return nil end
   local x, y, z, w = q.x or q[1], q.y or q[2], q.z or q[3], q.w or q[4]
@@ -1409,7 +1431,9 @@ local function legTarget(p, via, destPos, destR, destLabel)
   return { pos = destPos, r = destR, label = destLabel, kind = "dest" }
 end
 local function eventStartTarget(p, e)
-  return legTarget(p, e.via, e.start, e.startRadius or cfg.defaults.startRadius, e.name .. " - start")
+  local tgt = legTarget(p, e.via, e.start, e.startRadius or cfg.defaults.startRadius, e.name .. " - start")
+  if tgt and tgt.kind == "dest" then tgt.face = Course.startFace(e) end   -- (an arrow: which way to line up)
+  return tgt
 end
 local function finaleTarget(p)
   local f = cfg.finale
@@ -1420,10 +1444,10 @@ local function currentTarget(p)
   local e, ph = curEvent(), game.phase
   if ph == "travel" and e then return eventStartTarget(p, e)
   elseif ph == "countdown" and e then
-    return { pos = e.start, r = e.startRadius or cfg.defaults.startRadius, label = e.name .. " - start" }
+    return { pos = e.start, r = e.startRadius or cfg.defaults.startRadius, label = e.name .. " - start", face = Course.startFace(e) }
   elseif ph == "event" and e and (p.run.status == "waiting" or (p.run.status == "staged" and isSolo(e))) then
     local runner = game.solo and game.solo.runner
-    return { pos = e.start, r = e.startRadius or cfg.defaults.startRadius,
+    return { pos = e.start, r = e.startRadius or cfg.defaults.startRadius, face = Course.startFace(e),
              label = (p.run.status == "staged" and game.solo and game.solo.waitGo) and "Your turn - press GO when ready"
                or p.run.status == "staged" and "Your run - get ready"
                or ("Wait at the start" .. (runner and (" - " .. runner.name .. ((game.solo and game.solo.waitGo) and "'s turn (waiting for GO)" or " is running")) or "")) }
@@ -1517,7 +1541,7 @@ local function stateFor(p)
   end
   local tgt = currentTarget(p)
   local tp = tgt and v3(tgt.pos)
-  if tp then s.target = { x = tp.x, y = tp.y, z = tp.z, r = tgt.r, label = tgt.label, line = tgt.line, dir = tgt.dir } end
+  if tp then s.target = { x = tp.x, y = tp.y, z = tp.z, r = tgt.r, label = tgt.label, line = tgt.line, dir = tgt.dir, face = tgt.face } end
   return s
 end
 local function pushState(p)
@@ -1649,8 +1673,8 @@ local function towDestination(p)
   local e = idx and game.events[idx]
   if not (e and v3(e.start)) then return nil end
   local start = v3(e.start)
-  local ahead = (e.type == "speedtrap") and v3(e.trap) or v3((e.checkpoints or {})[1])
-  local dir = ahead and { x = ahead.x - start.x, y = ahead.y - start.y, z = 0 } or nil
+  local face = Course.startFace(e)
+  local dir = face and { x = face.x, y = face.y, z = 0 } or nil
   -- park towed cars side by side, not on top of each other
   game.towSlots = game.towSlots or {}
   local slot = game.towSlots[idx] or 0
@@ -1667,8 +1691,7 @@ local function towDestination(p)
   return pos, dir, idx
 end
 
--- course checks (one table: main.lua is near Lua's 200-local limit)
-local Course = {}
+-- course checks (one table: main.lua is near Lua's 200-local limit; declared further up, by yawFromQuat)
 -- a checkpoint on top of the start (or of the checkpoint before it) is reached the moment the run starts - e.g. one
 -- placed from a parked car instead of the one being driven. Returns why, or nil.
 -- a checkpoint reached: within its own radius (cp.r - 5/10/20 m from the course builder), or for a line checkpoint
@@ -2043,7 +2066,7 @@ end
 function RPC.request(p, e)   -- a fresh RPC on the start line (the old one, if any, already removed)
   if not p.pid then return end
   local model, config = RPC.car(e)
-  local look = (e.checkpoints or {})[1]
+  local look = Course.startLook(e)   -- (the RPC faces the way the start does)
   p.rpc = p.rpc or {}
   p.rpc.want, p.rpc.vid, p.rpc.model = true, nil, model
   p.rpc.allowUntil = now() + (tonumber(typeCfg("rpc").spawnTimeout) or 20)
@@ -2141,12 +2164,8 @@ function RPC.backToStart(p, e)
   s.backAt = nil
   local start = v3(e.start)
   if not start then return false end
-  local ahead = (e.type == "speedtrap") and v3(e.trap) or v3((e.checkpoints or {})[1]) or v3(((e.bays or {})[1]))
-  local fx, fy = 0, 1
-  if ahead then
-    local len = math.sqrt((ahead.x - start.x) ^ 2 + (ahead.y - start.y) ^ 2)
-    if len > 0.01 then fx, fy = (ahead.x - start.x) / len, (ahead.y - start.y) / len end
-  end
+  local face = Course.startFace(e)
+  local fx, fy = face and face.x or 0, face and face.y or 1
   s.backSlot = (s.backSlot or 0) + 1
   local k = s.backSlot - 1
   local back = (tonumber(cfg.defaults.startRadius) or 20) + 15 + 8 * math.floor(k / 3)   -- clear of the cars waiting at the start
@@ -4907,7 +4926,14 @@ end
 
 ADMIN_CMDS.setstart = function(pid, _, args)
   local e, label = eventArg(pid, args[3]); if not e then return end
-  withPos(pid, function(pos) e.start = pos; markDirty(); say(pid, label .. " start set " .. fmtPos(pos) .. " (/tg save)") end)
+  withPos(pid, function(pos)
+    local _, _, dir = adminPose(pid)   -- (the way your car points: drivers get an arrow to line up)
+    e.start = pos
+    e.startDir = dir and { x = math.floor(dir.x * 1000 + 0.5) / 1000, y = math.floor(dir.y * 1000 + 0.5) / 1000 } or nil
+    markDirty()
+    say(pid, label .. " start set " .. fmtPos(pos) .. (dir and ", facing the way your car points" or
+      " (the way you face isn't known yet - it faces the first checkpoint)") .. " (/tg save)")
+  end)
 end
 ADMIN_CMDS.addcp = function(pid, _, args)   -- /tg addcp <n> [5|10|20|line]: the checkpoint's size (default: defaults.cpRadius)
   local e, label = eventArg(pid, args[3]); if not e then return end
@@ -5151,7 +5177,7 @@ ADMIN_CMDS.quicktravel = function(pid, _, args)
   local pos = v3(e.start or e.pos)
   local what = label == "finale" and "finish" or "start"
   if not pos then say(pid, label .. " has no " .. what .. " yet."); return end
-  local look = v3((e.checkpoints or {})[1] or e.trap or (eventBays(e)[1]) or (e.via or {})[1])
+  local look = Course.startLook(e) or v3((e.via or {})[1])
   MP.TriggerClientEvent(pid, "tg_quicktravel", Util.JsonEncode({ pos = pos, look = look }))
   say(pid, "Off to " .. label .. "'s " .. what .. ".")
 end

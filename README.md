@@ -74,7 +74,9 @@ newest at the bottom and brightest.
   under the checkpoint buttons, **Next checkpoint: 5 m / 10 m / 20 m / Line** sets the size of the next one you
   add - a Line is a 20 m gate across the road (`defaults.lineWidth`), at right angles to the way from the point
   before it, and counts when you cross it; `/tg addcp <n> [5|10|20|line]`. **Set start here** moves the start -
-  your checkpoints stay;
+  your checkpoints stay - and takes the way your car points: drivers see a big white arrow on the ground at the
+  start showing which way to line up (towed, restarted and reasonably priced cars face that way too). Starts set
+  before 0.9.23 face their first checkpoint;
   pick the one to edit, **Delete event**; under it big **Set start here / Add
   checkpoint / Undo / Clear** buttons and **# of laps** for laps events - drive to the spot first, the (?)
   explains; under them **Test event** - that event on its own, from its countdown, with everyone who's in a car

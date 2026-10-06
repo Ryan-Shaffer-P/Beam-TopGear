@@ -35,7 +35,7 @@ local RESET_ACTIONS = {
 local VEHSEL_ACTIONS = { "vehicle_selector" }
 local PARTS_ACTIONS  = { "parts_selector" }
 
-local VERSION = "0.9.22"
+local VERSION = "0.9.23"
 local recentErrors = {}
 local function warn(msg)
   log("W", "topgear", tostring(msg))
@@ -281,6 +281,17 @@ local function drawTarget()
       debugDrawer:drawTextAdvanced(p + vec3(0, 0, 5), String(t.label or ""), ColorF(1, 1, 1, 1), true, false, ColorI(0, 0, 0, 180))
     end)
     if okL then return end
+  end
+  if type(t.face) == "table" and tonumber(t.face.x) and tonumber(t.face.y) then   -- an event's start: a big arrow on the
+    pcall(function()   -- ground the way to line up (0.9.23: the way the admin's car faced at Set start here)
+      local f = vec3(t.face.x, t.face.y, 0):normalized()
+      local rt = vec3(f.y, -f.x, 0)
+      local z, col = vec3(0, 0, 0.15), ColorF(1, 1, 1, 0.85)
+      local tip = p + f * 5 + z
+      debugDrawer:drawCylinder(p - f * 4 + z, tip, 0.15, col)
+      debugDrawer:drawCylinder(tip, tip - f * 2.2 + rt * 1.6, 0.15, col)
+      debugDrawer:drawCylinder(tip, tip - f * 2.2 - rt * 1.6, 0.15, col)
+    end)
   end
   local ok = pcall(function()
     debugDrawer:drawCylinder(p, p + vec3(0, 0, 6), r, ColorF(1, 0.45, 0, 0.18))
