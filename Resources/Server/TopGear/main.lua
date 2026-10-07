@@ -7,7 +7,7 @@
   In game, type /tg help.
 ]]
 
-local SERVER_VERSION = "0.9.31"
+local SERVER_VERSION = "0.9.32"
 local PLUGIN_DIR  = "Resources/Server/TopGear/"
 local CONFIG_PATH = PLUGIN_DIR .. "config.json"
 local COURSES_PATH = PLUGIN_DIR .. "courses.json"   -- saved course library
@@ -24,7 +24,27 @@ local DEFAULT_CONFIG = {
   -- Game modes (0.9.31, Ryan): switches for the next challenge - Start tab and the Admin tab's Game modes box.
   -- freeRepair: repairs, tows, respawns and unstick repairs cost nothing (a tow/respawn in an event still disqualifies);
   -- noFaults: every car is New (no problems, no condition discounts); noQuirks: no quirks; turbo: prizes (planned).
-  modes = { freeRepair = false, noFaults = false, noQuirks = false, turbo = false },                -- BeamMP name -> the name everyone sees (/tg name, admin /tg setname; BeamMP's guests are random)
+  modes = { freeRepair = false, noFaults = false, noQuirks = false, turbo = false },   -- (turbo: Turbo Mode, below)
+  -- Turbo Mode's prizes (0.9.32): earned for everything but winning - first to arrive at an event, the cleanest car at
+  -- the finish, last place (a helpful prize), first into a workshop, or an admin's /tg prize. Kept in the player's
+  -- glovebox (at most maxHeld) and used when they like; the nasty ones pick a rival (not mid-run, once a leg each).
+  turbo = {
+    maxHeld = 3,
+    envelope = { 500, 2000 }, taxman = 500, headStart = 2, penalty = 3, tune = 1.1, frontRight = 3,
+    prizes = {
+      { id = "tune", name = "Free engine tune", good = true, help = "+10% power for your next event." },
+      { id = "favour", name = "Mechanic's favour", good = true, help = "One of your car's problems fixed, free, right now." },
+      { id = "exorcism", name = "Quirk exorcism", good = true, help = "One of your quirks gone." },
+      { id = "jail", name = "Get out of jail", good = true, help = "Your next tow or respawn costs no points." },
+      { id = "envelope", name = "Producers' envelope", good = true, help = "Cash: $500 to $2,000." },
+      { id = "headstart", name = "Head start", good = true, help = "2 seconds off your time in the next event." },
+      { id = "horn", name = "Sabotage: haunted horn", target = true, help = "A rival's horn sounds every time they brake - until their next workshop." },
+      { id = "frbrake", name = "Brake \"upgrade\"", target = true, help = "A rival's brakes upgraded - the front right one only, 3x stronger. Until their next workshop." },
+      { id = "sugar", name = "Sugar in the tank", target = true, help = "A rival's engine gets tired (or springs a fuel leak) - a workshop can fix it." },
+      { id = "taxman", name = "Taxman", target = true, help = "$500 from a rival, to you." },
+      { id = "penalty", name = "Penalty card", target = true, help = "3 seconds on a rival's time in their next event." },
+    },
+  },                -- BeamMP name -> the name everyone sees (/tg name, admin /tg setname; BeamMP's guests are random)
   adminExtraVehicles = true,   -- admins may spawn extra non-scoring vehicles (AI traffic, parked obstacles)
   clearVehiclesOnStart = true, -- delete everyone's vehicles when /tg start runs
   debugSpawns = false,         -- print raw spawn data to the server console
@@ -1596,6 +1616,9 @@ local function stateFor(p)
     timeLeft = timeLeft(),
     eventType = curEvent() and curEvent().type or nil,
     quirks = (p.quirks and #p.quirks > 0) and p.quirks or nil,   -- (the client keeps the squeaky brakes squeaking)
+    turbo = p.effects and (p.effects.horn or p.effects.frbrake or p.effects.tune) and {   -- (Turbo Mode on this car)
+      horn = p.effects.horn or nil, frontRight = p.effects.frbrake and (tonumber((cfg.turbo or {}).frontRight) or 3) or nil,
+      tune = (p.effects.tune and (ph == "countdown" or ph == "event")) and (tonumber((cfg.turbo or {}).tune) or 1.1) or nil } or nil,
   }
   if ph == "countdown" and game.countdownEnd then
     s.lights = { left = game.countdownEnd - now(), total = cfg.defaults.countdown }
@@ -1656,6 +1679,10 @@ end
 function Score.workshop(p, late)
   if p.wsInspectedAt == game.workshopNo then return end
   p.wsInspectedAt = game.workshopNo
+  if not late and #workshopSpots() > 0 and game.wsFirst ~= game.workshopNo then   -- (Turbo Mode: first one in)
+    game.wsFirst = game.workshopNo
+    Score.turboAward(p, "first into a workshop")
+  end
   local sc = Score.inspect(p, "Workshop " .. tostring(game.workshopNo))
   say(p.pid, string.format("Workshop inspection%s: damage %d -> %.1f/%s drivability (all your inspections are averaged at the end).",
     late and " (you didn't make it to a workshop)" or "", math.floor(p.damage or 0), sc, tostring(cfg.scoring.drivabilityMaxPoints or 20)))
@@ -1685,7 +1712,7 @@ local function roadsideCost(p, kind)
   return fee + repair, fee, repair
 end
 local function ptNote()   -- ", -2 pts" (tows and respawns cost points at the final standings)
-  local n = tonumber(cfg.scoring.towPenaltyPoints) or 0
+  local n = (cfg.modes or {}).freeRepair and 0 or (tonumber(cfg.scoring.towPenaltyPoints) or 0)   -- (none in Free Repair)
   return n > 0 and (", -" .. pts(n)) or ""
 end
 local function costNote(fee, repair)   -- "-$1,250: repair $250 + fee $1,000" (with its minus sign)
@@ -1937,6 +1964,7 @@ local function tickTravel()
             game.arrivals = game.arrivals + 1
             p.arrivalRank = game.arrivals
             if e.type == "trailer" and cfg.defaults.readyToGo == false then requestTrailer(p) end   -- (else at I'm ready)
+            if game.arrivals == 1 and not game.test then Score.turboAward(p, "first to arrive at " .. e.name) end
             local bonus = (cfg.economy.arrivalBonus or {})[game.arrivals] or 0
             p.cash = p.cash + bonus
             sayAll(string.format("%s arrives at %s (%s)%s", p.name, e.name, ordinal(game.arrivals),
@@ -2736,6 +2764,7 @@ finishEvent = function()
     local tm = tonumber(p.run.time)
     if tm and tm > 0 then ctx.bestTime = math.min(ctx.bestTime or tm, tm) end
   end
+  Score.turboTimes(ranked, e)   -- (Turbo Mode: head starts and penalty cards)
   for _, p in ipairs(ranked) do finalizeScore(p, e, ctx) end
   table.sort(ranked, function(a, b) return a.run.score < b.run.score end)
   sayAll("===== RESULTS: " .. e.name .. " =====")
@@ -2754,6 +2783,8 @@ finishEvent = function()
     sayAll(string.format("--   %s - %s", p.name, st))
     if p.run.status ~= "dsq" then playSound("out", p) end   -- towed/respawned drivers heard it at the time
   end
+  if not game.test then Score.turboEventPrizes(ranked) end   -- (Turbo Mode: the cleanest car, and last place)
+  for _, p in pairs(game.players) do if p.effects then p.effects.tune = nil end end   -- (a tune lasts one event)
   cleanupEventVehicles()   -- (no free repair after a fragile delivery since 0.9.12: the dents are yours to pay for)
   game.solo, game.closeAt = nil, nil
   if game.test and game.testFinish then return game.testFinish() end   -- (a test event: the course builder's Test event)
@@ -2767,7 +2798,13 @@ end
 beginWorkshop = function()
   game.phase, game.workshopEnd, game.warned = "workshop", now() + cfg.workshop.minutes * 60, false
   game.workshopNo = (game.workshopNo or 0) + 1
-  for _, p in pairs(game.players) do p.wsLabour, p.wsSpent, p.wsCharged, p.wsReady = false, 0, p.partsValue, nil end
+  for _, p in pairs(game.players) do
+    p.wsLabour, p.wsSpent, p.wsCharged, p.wsReady = false, 0, p.partsValue, nil
+    if p.effects and (p.effects.horn or p.effects.frbrake) then   -- (Turbo Mode sabotage lasts until a workshop)
+      p.effects.horn, p.effects.frbrake = nil, nil
+      say(p.pid, "The workshop has sorted the sabotage on your car (the horn and the brakes).")
+    end
+  end
   if #workshopSpots() > 0 then
     sayAll(string.format("WORKSHOP open for %s minutes: drive to any workshop (the arrows show the nearest). " ..
       "Repairs, problem fixes, parts, paint and tuning work while you're parked there.", tostring(cfg.workshop.minutes)))
@@ -2908,6 +2945,8 @@ showResults = function()
     local parts = {}
     local function add(n, text) if n > 0 then parts[#parts + 1] = { n = n, text = text } end end
     local nReset, nHelp, nFault = p.recoveries or 0, (p.tows or 0) + (p.respawns or 0), #(p.faults or {})
+    if (cfg.modes or {}).freeRepair then nHelp = 0 end   -- (Free Repair mode: tows and respawns cost no points - Ryan)
+    nHelp = math.max(0, nHelp - (p.pardons or 0))        -- (Turbo Mode's Get out of jail)
     add(nReset * (sc.recoveryPenaltyPoints or 0), string.format("%d illegal reset%s", nReset, nReset == 1 and "" or "s"))
     add(nHelp * (sc.towPenaltyPoints or 0), string.format("%d tow%s/respawn%s", nHelp, nHelp == 1 and "" or "s", nHelp == 1 and "" or "s"))
     if faultsOn() then
@@ -3749,9 +3788,9 @@ PLAYER_CMDS.help = function(pid, name)
   say(pid, "Stuck? /tg unstick (free, when stopped) | /tg tow (roadside repair + " .. money(cfg.economy.towFee) ..
     ptNote() .. ", DSQ from a running event; in workshop time, to the nearest workshop). Roadside repair = the workshop price x " .. tostring(cfg.economy.roadsideMarkup or 1.25) .. ".")
   say(pid, "Car condition: /tg condition new|used|needs work|beater|death trap (at the dealership; alone = yours) | fix <id> (workshop, once it's found the problem)")
-  say(pid, "/tg menu (window; /tg menu reset if it's squashed) | name <what to call you> | status | dealer | join | ready | unready | go | quote | repair | standings | diag")
+  say(pid, "/tg menu (window; /tg menu reset if it's squashed) | name <what to call you> | use <n> [rival] (Turbo Mode prizes) | status | dealer | join | ready | unready | go | quote | repair | standings | diag")
   if isAdmin(name) then
-    say(pid, "Game modes: /tg mode <freerepair|nofaults|noquirks|turbo> [on|off]")
+    say(pid, "Game modes: /tg mode <freerepair|nofaults|noquirks|turbo> [on|off] | Turbo Mode: /tg prize <player> [prize] (the producers' choice)")
     say(pid, "Admin: /tg start [force] | next (force the next phase) | stop | restartevent | where | workshop <minutes> | workshopevery <n>")
     say(pid, "Players: /tg give <driver> <+/-cash> | setcash <driver> <cash> | freerespawn <driver> (fixes their car where it stands, free) | bring <driver> (50 m in front of you) | setname <player> <new name>")
     say(pid, "Producers: /tg award <driver> <+/-points> [reason]")
@@ -4222,6 +4261,149 @@ function TG_onCarFire(pid)
   pushState(p)
 end
 
+-- Turbo Mode (0.9.32, Ryan): prizes for everything but winning, kept in a glovebox, used when the player likes --------
+function Score.turboOn() return (cfg.modes or {}).turbo == true end
+function Score.prizeDef(id)
+  for _, pr in ipairs((cfg.turbo or {}).prizes or {}) do if pr.id == id then return pr end end
+  return nil
+end
+function Score.prizeUsable(id)   -- (not one the game modes have switched off)
+  if (id == "favour" or id == "sugar") and not faultsOn() then return false end
+  if id == "exorcism" and ((cfg.modes or {}).noQuirks or (cfg.quirks or {}).enabled == false) then return false end
+  return true
+end
+function Score.gloveboxList(p)
+  if not Score.turboOn() or not p.glovebox or #p.glovebox == 0 then return nil end
+  local out = {}
+  for _, id in ipairs(p.glovebox) do
+    local pr = Score.prizeDef(id)
+    if pr then out[#out + 1] = { id = id, name = pr.name, help = pr.help, target = pr.target or nil } end
+  end
+  return out
+end
+-- a prize for p: `id`, or one at random (goodOnly: only the helpful ones - last place's comeback)
+function Score.turboAward(p, why, goodOnly, id)
+  if not Score.turboOn() or not p then return end
+  local tc = cfg.turbo or {}
+  p.glovebox = p.glovebox or {}
+  if #p.glovebox >= (tonumber(tc.maxHeld) or 3) then
+    say(p.pid, "Your glovebox is full (" .. why .. ") - use a prize to make room."); return
+  end
+  if not id then
+    local pool = {}
+    for _, pr in ipairs(tc.prizes or {}) do
+      if pr.enabled ~= false and Score.prizeUsable(pr.id) and (pr.good or not goodOnly) then pool[#pool + 1] = pr.id end
+    end
+    if #pool == 0 then return end
+    id = pool[math.random(#pool)]
+  end
+  local pr = Score.prizeDef(id)
+  if not pr then return end
+  p.glovebox[#p.glovebox + 1] = id
+  sayAll(string.format("TURBO: %s wins a prize for %s - it's in their glovebox.", p.name, why))
+  say(p.pid, string.format("Your prize: %s - %s (Status tab: Glovebox)", pr.name, pr.help))
+  pushState(p)
+end
+function Score.turboEventPrizes(ranked)
+  if not Score.turboOn() or #ranked < 2 then return end
+  local clean, cleanD = nil, nil
+  for _, p in ipairs(ranked) do
+    local d = math.max(0, (p.run.endDamage or p.damage or 0) - (p.run.startDamage or 0))
+    if not cleanD or d < cleanD then clean, cleanD = p, d end
+  end
+  local last = ranked[#ranked]
+  if clean then Score.turboAward(clean, "the cleanest car at the finish") end
+  if last then Score.turboAward(last, "last place (a comeback prize)", true) end
+end
+function Score.turboTimes(ranked, e)   -- head starts and penalty cards, on the time before the event is scored
+  for _, p in ipairs(ranked) do
+    local ef = p.effects or {}
+    local adj = (ef.penalty or 0) - (ef.headstart or 0)
+    if adj ~= 0 and e.type ~= "speedtrap" and tonumber(p.run.time) then
+      p.run.time = math.max(0, p.run.time + adj)
+      sayAll(string.format("TURBO: %s's time %s %s s (%s).", p.name, adj > 0 and "gets" or "loses", tostring(math.abs(adj)),
+        adj > 0 and "a penalty card" or "a head start"))
+    end
+    ef.penalty, ef.headstart = nil, nil
+  end
+end
+-- /tg use <n> [rival]: use the nth prize in your glovebox
+function Score.turboUse(p, n, targetText)
+  local tc = cfg.turbo or {}
+  local id = (p.glovebox or {})[n]
+  local pr = id and Score.prizeDef(id)
+  if not pr then say(p.pid, "No prize " .. tostring(n) .. " in your glovebox."); return end
+  local q
+  if pr.target then
+    q = Score.findPlayer(targetText or "")
+    if not q or q == p then say(p.pid, pr.name .. ": pick a rival (/tg use " .. n .. " <name>)."); return end
+    if q.run and q.run.status == "running" then say(p.pid, q.name .. " is on a run - try again after it."); return end
+    if q.sabotagedAt == game.stage then say(p.pid, q.name .. " has already been got at this leg - try again later."); return end
+  end
+  p.effects = p.effects or {}
+  local msg
+  if id == "tune" then p.effects.tune = true; msg = "%s has their engine tuned: +10% power for the next event"
+  elseif id == "favour" then
+    if #(p.faults or {}) == 0 then say(p.pid, "Your car has no problems to fix - keep it for later."); return end
+    local fid = p.faults[math.random(#p.faults)]
+    removeFault(p, fid); sendFaults(p)
+    msg = "%s calls in a mechanic's favour: the " .. CONDITION.problemName(p, fid):lower() .. " is fixed, free"
+  elseif id == "exorcism" then
+    if #(p.quirks or {}) == 0 then say(p.pid, "Your car has no quirks - keep it for later."); return end
+    local qid = table.remove(p.quirks, math.random(#p.quirks))
+    local qd = CONDITION.quirkDef(qid)
+    msg = "%s has their car exorcised: no more " .. ((qd and qd.name) or qid):lower()
+  elseif id == "jail" then p.pardons = (p.pardons or 0) + 1; msg = "%s has a get out of jail card: their next tow or respawn costs no points"
+  elseif id == "envelope" then
+    local lo, hi = tonumber((tc.envelope or {})[1]) or 500, tonumber((tc.envelope or {})[2]) or 2000
+    local cash = math.floor(math.random(math.floor(lo / 100), math.floor(hi / 100))) * 100
+    p.cash = p.cash + cash
+    msg = "%s opens the producers' envelope: " .. money(cash)
+  elseif id == "headstart" then p.effects.headstart = tonumber(tc.headStart) or 2; msg = "%s takes a head start: 2 s off their next event time"
+  else   -- the nasty ones
+    q.effects = q.effects or {}
+    q.sabotagedAt = game.stage
+    if id == "horn" then q.effects.horn = true; msg = "%s sabotages " .. q.name .. ": their horn now goes off every time they brake"
+    elseif id == "frbrake" then q.effects.frbrake = true; msg = "%s kindly upgrades " .. q.name .. "'s brakes - the front right one"
+    elseif id == "sugar" then
+      local fid = hasFault(q, "engine") and "fuelleak" or "engine"
+      if hasFault(q, fid) then say(p.pid, q.name .. "'s engine is already as bad as it gets - pick another rival."); return end
+      q.faults = q.faults or {}
+      q.faults[#q.faults + 1] = fid
+      sendFaults(q)
+      msg = "%s puts sugar in " .. q.name .. "'s tank: " .. CONDITION.problemName(q, fid):lower()
+    elseif id == "taxman" then
+      local amt = tonumber(tc.taxman) or 500
+      q.cash, p.cash = q.cash - amt, p.cash + amt
+      msg = "%s sends the taxman round to " .. q.name .. ": " .. money(amt) .. " changes hands"
+    elseif id == "penalty" then q.effects.penalty = (q.effects.penalty or 0) + (tonumber(tc.penalty) or 3); msg = "%s shows " .. q.name .. " a penalty card: +3 s on their next event time" end
+    pushState(q)
+  end
+  table.remove(p.glovebox, n)
+  -- (msg starts "%s" = the user's name; not string.format: a problem's name can hold a % - "Tired engine (about -20% power)")
+  sayAll("TURBO: " .. p.name .. msg:sub(3) .. "!")
+  playSound("trapRecord", p)
+  pushState(p)
+end
+PLAYER_CMDS.use = function(pid, _, args)   -- /tg use <n> [rival]
+  local p = playerByPid(pid)
+  if not p then say(pid, "You're not in the challenge."); return end
+  if not Score.turboOn() then say(pid, "Turbo Mode is off."); return end
+  Score.turboUse(p, math.floor(tonumber(args[3]) or 0), table.concat(args, " ", 4))
+end
+ADMIN_CMDS.prize = function(pid, _, args)   -- /tg prize <player> [prize id]: the producers' choice
+  if not Score.turboOn() then say(pid, "Turbo Mode is off (/tg mode turbo on)."); return end
+  local last = (args[#args] or ""):lower()
+  local id = Score.prizeDef(last) and last or nil
+  local p = Score.findPlayer(table.concat(args, " ", 3, id and (#args - 1) or #args))
+  if not p then
+    local ids = {}
+    for _, pr in ipairs((cfg.turbo or {}).prizes or {}) do ids[#ids + 1] = pr.id end
+    say(pid, "Usage: /tg prize <player> [" .. table.concat(ids, "|") .. "]"); return
+  end
+  Score.turboAward(p, "the producers' choice", false, id)
+end
+
 -- Quirks (0.9.29): drawn with the car's problems, fired by the server's tick, heard by everyone nearby ----------------
 function CONDITION.quirkDef(id)
   for _, q in ipairs((cfg.quirks or {}).list or {}) do if q.id == id then return q end end
@@ -4624,7 +4806,6 @@ ADMIN_CMDS.mode = function(pid, _, args)
   local want = (args[4] or ""):lower()
   local on
   if want == "on" then on = true elseif want == "off" then on = false else on = not m[key] end
-  if key == "turbo" then say(pid, "Turbo Mode isn't built yet - its prizes are still being planned."); return end
   if (key == "noFaults" or key == "noQuirks") and game.phase ~= "idle" and (m[key] or false) ~= on then
     say(pid, Course.MODE_NAMES[key] .. " can only be changed before the challenge starts (the cars' problems are already drawn)."); return
   end
@@ -5825,7 +6006,7 @@ local function buildUi(pid)
     admin = isAdmin(name), phase = game.phase, budget = budget, baseBudget = cfg.economy.startingCash,
     towFee = cfg.economy.towFee, workshopSpots = #workshopSpots(),
     respawnFee = cfg.economy.respawnFee,
-    helpPoints = cfg.scoring.towPenaltyPoints or 0,
+    helpPoints = (cfg.modes or {}).freeRepair and 0 or (cfg.scoring.towPenaltyPoints or 0),
     workshopEvery = tonumber(cfg.workshopEvery) or 2,
     workshopMinutes = cfg.workshop.minutes,
     gamePrices = cfg.dealer.useGamePrices and true or false, allHere = game.allHere and true or false,
@@ -5847,7 +6028,7 @@ local function buildUi(pid)
   }
   if p then
     d.me = {
-      cash = p.cash, points = p.points, wins = p.wins, car = p.carName, damage = math.floor(p.damage or 0),
+      name = p.name, cash = p.cash, points = p.points, wins = p.wins, car = p.carName, damage = math.floor(p.damage or 0),
       repair = repairQuote(p), upgrade = (upgradeBill(p)), ready = p.ready and true or false,
       dentsOnly = (repairQuote(p) == 0 and CONDITION.dents(p) > 0 and (p.damage or 0) > 0) or nil,
       towCost = (roadsideCost(p, "tow")), respawnCost = (roadsideCost(p, "respawn")),
@@ -5858,6 +6039,7 @@ local function buildUi(pid)
       respawns = p.respawns or 0, hasCarModel = p.carModel ~= nil, inShop = inWorkshop(p),
       creditLimit = cfg.workshop.creditLimit or 1500,
       quirks = CONDITION.quirkList(p), quirkFix = (cfg.quirks or {}).fixCost or 150,
+      glovebox = Score.gloveboxList(p),
     }
   end
   d.dealer = dealerOffers(p)   -- (sendUi leaves it out when the client already has this exact list)

@@ -1,5 +1,5 @@
 -- Game modes (0.9.31, Ryan): switches in the Start tab and the Admin tab - Free Repair, No faults, No quirks
--- (Turbo Mode: planned). Admins switch them; everyone sees which are on.
+-- and Turbo Mode (prizes). Admins switch them; everyone sees which are on.
 local t = require("t")
 local World = require("world")
 local F = require("fixtures")
@@ -12,7 +12,7 @@ t.test("the switches: Start tab and the Admin tab's Game modes box, each with it
   local w = World.new({ files = F.files(F.twoRaces()) })
   local A, B = w:join("Alice"), w:join("Bob")   -- (Alice is the admin)
   w:chat(A, "/tg menu"); w:chat(B, "/tg menu"); w:step(2.5)
-  for _, label in ipairs({ "Free Repair: OFF", "Turbo Mode: coming next", "No faults: OFF", "No quirks: OFF" }) do
+  for _, label in ipairs({ "Free Repair: OFF", "Turbo Mode: OFF", "No faults: OFF", "No quirks: OFF" }) do
     t.ok(A.client.im.hasButton(label), label)
   end
   t.ok(text(A):find("Every repair is free", 1, true), "the (?) explains it")
@@ -22,9 +22,8 @@ t.test("the switches: Start tab and the Admin tab's Game modes box, each with it
   t.ok(A.client.im.hasButton("Free Repair: ON"))
   t.ok(text(B):find("Game modes: Free Repair", 1, true), "Bob sees it")
   w:chat(B, "/tg mode freerepair off"); t.ok(w:chatHas(B, "That's an admin command."))
-  A.client.im.click("Turbo Mode: coming next##mode_turbo"); w:step(0.5)
-  t.noLine(B.chat, "Turbo Mode is ON", "Turbo isn't switchable yet")
-  w:chat(A, "/tg mode turbo on"); t.ok(w:chatHas(A, "Turbo Mode isn't built yet"))
+  A.client.im.click("Turbo Mode: OFF##mode_turbo"); w:step(0.5)
+  t.ok(w:chatHas(B, "Game mode: Turbo Mode is ON."))
   w:assertClean()
 end)
 
@@ -83,5 +82,114 @@ t.test("No quirks: a Death Trap comes with none", function()
   w:chat(A, "/tg start"); w:chat(A, "/tg condition death trap"); w:buy(A, "covet", "base_M"); w:step(2.5)
   t.eq((w:ui(A).me or {}).quirks, nil, "no quirks")
   t.ok(#((w:ui(A).faults or {}).levels or {}) > 0, "faults are still on")
+  w:assertClean()
+end)
+
+t.test("Free Repair: tows and respawns cost no points at the results either", function()
+  local cfg = F.twoRaces(); cfg.modes = { freeRepair = true }
+  local w = World.new({ files = F.files(cfg) })
+  local A, B = w:join("Alice"), w:join("Bob")
+  w:chat(A, "/tg start"); w:buy(A, "covet", "base_M"); w:buy(B, "pessima", "base_M")
+  w:chat(A, "/tg ready"); w:chat(B, "/tg ready"); w:step(1)
+  w:chat(A, "/tg tow"); w:step(3)
+  t.ok(w:chatHas(B, "Alice calls the tow truck (free - Free Repair mode): "), "no points mentioned")
+  t.eq(w:ui(A).helpPoints, 0)
+  w:assertClean()
+end)
+
+-- Turbo Mode (0.9.32) --------------------------------------------------------------------------------------------
+local function turbo(extra)
+  local cfg = F.twoRaces(); cfg.modes = { turbo = true }; cfg.workshopEvery = 1
+  for k, v in pairs(extra or {}) do cfg[k] = v end
+  return cfg
+end
+local function lineUp(w, A, B)
+  w:chat(A, "/tg start"); w:buy(A, "covet", "base_M"); w:buy(B, "pessima", "base_M")
+  w:chat(A, "/tg ready"); w:chat(B, "/tg ready"); w:step(1)
+  w:drive(A, p(500, 3), 40); w:drive(B, p(500, -3), 40); w:step(1)
+end
+
+t.test("Turbo: prizes for arriving first, the cleanest car and last place (a helpful one) - in the glovebox", function()
+  local w = World.new({ files = F.files(turbo()) })
+  local A, B = w:join("Alice"), w:join("Bob")
+  lineUp(w, A, B)
+  t.ok(w:chatHas(B, "TURBO: Alice wins a prize for first to arrive at Race One - it's in their glovebox."))
+  t.eq(#(w:ui(A).me.glovebox or {}), 1)
+  w:chat(A, "/tg go"); w:waitFor(function() return w:sawMessage(A, "GO!") end, 10, "GO")
+  w:damage(A, 1500)
+  w:driveAll({ { A, p(900), 40 }, { B, p(900), 30 } })
+  w:waitFor(function() return w:state(A).phase == "workshop" end, 15, "the workshop")
+  t.ok(w:chatHas(A, "TURBO: Bob wins a prize for the cleanest car at the finish"))
+  t.ok(w:chatHas(A, "TURBO: Bob wins a prize for last place (a comeback prize)"))
+  local good = {}
+  for _, pr in ipairs(w:serverConfig().turbo.prizes) do good[pr.id] = pr.good end
+  local gb = w:ui(B).me.glovebox
+  t.eq(#gb, 2)
+  t.ok(good[gb[2].id], "last place's prize is a helpful one")
+  w:step(1)   -- (the window draws the new list on its next frame)
+  t.ok(B.client.im.textOf(WIN):find("Glovebox (Turbo Mode prizes)", 1, true), "the Status tab's Glovebox")
+  w:assertClean()
+end)
+
+t.test("Turbo: the haunted horn (sounds when they brake) and the front-right brake 'upgrade' - until their workshop", function()
+  local w = World.new({ files = F.files(turbo()) })
+  local A, B = w:join("Alice"), w:join("Bob")
+  lineUp(w, A, B)
+  w:chat(A, "/tg prize alice horn"); w:chat(A, "/tg prize alice frbrake")
+  local n = #w:ui(A).me.glovebox
+  w:chat(A, "/tg use " .. (n - 1) .. " bob")
+  t.ok(w:chatHas(B, "TURBO: Alice sabotages Bob: their horn now goes off every time they brake!"))
+  w:chat(A, "/tg use " .. (n - 1) .. " bob")
+  t.ok(w:chatHas(A, "Bob has already been got at this leg - try again later."), "once a leg")
+  w:step(1)
+  B.current.electrics.brake = 1; w:step(0.5)
+  t.eq(B.current.controls[#B.current.controls], "horn true", "braking: the horn")
+  B.current.electrics.brake = 0; w:step(0.5)
+  t.eq(B.current.controls[#B.current.controls], "horn false", "off the brake: quiet")
+  -- next leg: the brake upgrade
+  w:chat(A, "/tg go"); w:waitFor(function() return w:sawMessage(A, "GO!") end, 10, "GO")
+  w:driveAll({ { A, p(900), 40 }, { B, p(900), 30 } })
+  w:waitFor(function() return w:state(A).phase == "workshop" end, 15, "the workshop")
+  t.ok(w:chatHas(B, "The workshop has sorted the sabotage on your car"))
+  w:chat(A, "/tg next"); w:step(1)   -- (leg 2)
+  local gb = w:ui(A).me.glovebox
+  for i, pr in ipairs(gb) do if pr.id == "frbrake" then w:chat(A, "/tg use " .. i .. " bob") end end
+  t.ok(w:chatHas(B, "Alice kindly upgrades Bob's brakes - the front right one!"))
+  w:step(1)
+  local base = B.current.wheels[0].brakeTorque
+  t.eq(B.current.wheels[1].name, "FR")
+  t.eq(B.current.wheels[1].brakeTorque, base * 3, "the front right: 3x")
+  t.eq(B.current.wheels[2].brakeTorque, base, "the others as they were")
+  w:assertClean()
+end)
+
+t.test("Turbo: envelope, taxman, mechanic's favour, engine tune, head start and penalty card", function()
+  local cfg = turbo(); cfg.faults = { tiers = false, fires = false, severity = { 1, 1, 1, 1 } }
+  local w = World.new({ files = F.files(cfg) })
+  local A, B = w:join("Alice"), w:join("Bob")
+  w:chat(A, "/tg start"); w:chat(A, "/tg condition used"); w:buy(A, "covet", "base_M"); w:buy(B, "pessima", "base_M")
+  w:chat(A, "/tg ready"); w:chat(B, "/tg ready"); w:step(1)
+  local function use(who, id, target)
+    w:chat(A, "/tg prize " .. who.name .. " " .. id)
+    w:chat(who, "/tg use " .. #w:ui(who).me.glovebox .. (target and (" " .. target) or ""))
+  end
+  local a0, b0 = w:state(A).cash, w:state(B).cash
+  use(A, "envelope")
+  local got = w:state(A).cash - a0
+  t.ok(got >= 500 and got <= 2000 and got % 100 == 0, "an envelope: $500-2,000 (" .. got .. ")")
+  use(A, "taxman", "bob")
+  t.eq(w:state(B).cash, b0 - 500); t.eq(w:state(A).cash, a0 + got + 500)
+  use(A, "favour")
+  t.ok(w:chatHas(B, "Alice calls in a mechanic's favour: the "), "a problem fixed, free")
+  use(A, "tune"); use(A, "headstart"); use(B, "penalty", "alice")
+  w:drive(A, p(500, 3), 40); w:drive(B, p(500, -3), 40); w:step(1)
+  w:chat(A, "/tg go"); w:waitFor(function() return w:sawMessage(A, "GO!") end, 10, "GO")
+  w:step(11)
+  t.ok(math.abs(A.current.engine.outputTorqueState - 1.1) < 1e-9, "+10% for the event")
+  w:driveAll({ { A, p(900), 40 }, { B, p(900), 30 } })
+  w:waitFor(function() return w:state(A).phase == "workshop" end, 15, "the workshop")
+  t.ok(w:chatHas(A, "TURBO: Alice's time gets 1 s (a penalty card)."), "3 s on, 2 s off")
+  w:step(11)
+  t.ok(math.abs(A.current.engine.outputTorqueState - 1) < 1e-9, "the tune is over")
   w:assertClean()
 end)

@@ -35,7 +35,7 @@ local RESET_ACTIONS = {
 local VEHSEL_ACTIONS = { "vehicle_selector" }
 local PARTS_ACTIONS  = { "parts_selector" }
 
-local VERSION = "0.9.31"
+local VERSION = "0.9.32"
 local recentErrors = {}
 local function warn(msg)
   log("W", "topgear", tostring(msg))
@@ -1402,11 +1402,53 @@ faults.quirkTick = function(dt)
   end
 end
 
+-- Turbo Mode on this car (0.9.32, state.turbo): horn = the horn sounds while braking (checked 10x a second, switched only
+-- when it changes); frontRight = the front right brake x that; tune = engine power x that (for one event). Kept on
+-- every 10 s (a reset builds the car again from its own values); each put back when it ends.
+faults.turboTick = function(dt)
+  local tb = state.turbo or {}
+  local car = getCar()
+  if not car then return end
+  if tb.horn then
+    faults.hornT = (faults.hornT or 0) - dt
+    if faults.hornT <= 0 then
+      faults.hornT, faults.hornOn = 0.1, true
+      pcall(function() car:queueLuaCommand("local b = (electrics.values.brake or 0) > 0.15; if b ~= tgHornB then tgHornB = b; electrics.horn(b) end") end)
+    end
+  elseif faults.hornOn then
+    faults.hornOn = false
+    pcall(function() car:queueLuaCommand("if tgHornB then electrics.horn(false) end; tgHornB = nil") end)
+  end
+  faults.turboT = (faults.turboT or 0) - dt
+  local fr, tune = tonumber(tb.frontRight), tonumber(tb.tune)
+  local changed = (fr ~= faults.frOn) or (tune ~= faults.tuneOn)
+  if faults.turboT > 0 and not changed then return end
+  faults.turboT = 10
+  if fr then
+    pcall(function() car:queueLuaCommand(string.format("if wheels and wheels.wheels then for i, wd in pairs(wheels.wheels) do " ..
+      "if wd.name == 'FR' and tonumber(wd.brakeTorque) then local o = tgFaults and tgFaults.brakeOrig and tgFaults.brakeOrig[i]; " ..
+      "tgFRBase = (o and o * (tgFaults.brakes or 1)) or tgFRBase or wd.brakeTorque; wd.brakeTorque = tgFRBase * %g end end end", fr)) end)
+  elseif faults.frOn then
+    pcall(function() car:queueLuaCommand("if tgFRBase and wheels and wheels.wheels then for _, wd in pairs(wheels.wheels) do " ..
+      "if wd.name == 'FR' then wd.brakeTorque = tgFRBase end end end; tgFRBase = nil") end)
+  end
+  if tune then
+    pcall(function() car:queueLuaCommand(string.format("local e = powertrain and powertrain.getDevice and powertrain.getDevice('mainEngine'); " ..
+      "if e then tgTuneBase = tgTuneBase or e.outputTorqueState or 1; e.outputTorqueState = tgTuneBase * %g end", tune)) end)
+  elseif faults.tuneOn then
+    pcall(function() car:queueLuaCommand("local e = powertrain and powertrain.getDevice and powertrain.getDevice('mainEngine'); " ..
+      "if e and tgTuneBase then e.outputTorqueState = tgTuneBase end; tgTuneBase = nil") end)
+  end
+  faults.frOn, faults.tuneOn = fr, tune
+end
+
 local function updateFaults(dt)
   if faults.ownRebuild then
     faults.ownRebuild = faults.ownRebuild - dt
     if faults.ownRebuild <= 0 then faults.ownRebuild = nil end
   end
+  local okTb, errTb = pcall(faults.turboTick, dt)
+  if not okTb and not faults.turboErrored then faults.turboErrored = true; warn("turbo: " .. tostring(errTb)) end
   local okQ, errQ = pcall(faults.quirkTick, dt)
   if not okQ and not faults.quirkErrored then faults.quirkErrored = true; warn("quirks: " .. tostring(errQ)) end
   local okT, errT = pcall(updateTimedFaults, dt)
@@ -2409,6 +2451,26 @@ local function drawStatus(d)
     drawDriverButtons(d, me)
   end
   end)
+  if me and me.glovebox then   -- Turbo Mode prizes (0.9.32)
+    Tabs.box("Glovebox (Turbo Mode prizes)", "glovebox", function()
+      local rivals = {}
+      for _, st in ipairs(d.standings or {}) do if st.name ~= me.name then rivals[#rivals + 1] = { st.name, st.name, st.name == ui.rival } end end
+      if not ui.rival and rivals[1] then ui.rival = rivals[1][2] end
+      for i, pr in ipairs(me.glovebox) do
+        txt(pr.name); Tabs.help(pr.help)
+        if pr.target then
+          same()
+          local pick = Tabs.combo("rival" .. i, ui.rival or "Pick a rival", rivals)
+          if pick then ui.rival = pick end
+          same()
+          if im.Button("Use on " .. tostring(ui.rival or "?") .. "##use" .. i) and ui.rival then sendCmd("use " .. i .. " " .. ui.rival) end
+        else
+          same()
+          if im.Button("Use##use" .. i) then sendCmd("use " .. i) end
+        end
+      end
+    end)
+  end
   if d.paused then Tabs.box("Challenge saved", "paused", function() drawPaused(d) end) end
   if #(d.standings or {}) > 0 then Tabs.box("Standings", "standings", function() drawStandings(d) end) end
 end
@@ -3434,9 +3496,11 @@ Tabs.MODES = {
   { key = "freeRepair", cmd = "freerepair", label = "Free Repair",
     help = "Every repair is free: workshop repairs, tows, respawns and unstick repairs.\n" ..
            "A tow or respawn during an event still disqualifies you from it - and still costs its points." },
-  { key = "turbo", cmd = "turbo", label = "Turbo Mode", soon = true,
-    help = "Prizes and surprises for more than just event wins: free engine upgrades, problems fixed,\n" ..
-           "and a few nasty ones to hand to a rival. (Coming next - the prizes are being planned.)" },
+  { key = "turbo", cmd = "turbo", label = "Turbo Mode",
+    help = "Prizes for everything but winning: first to arrive at an event, the cleanest car at the finish,\n" ..
+           "last place (a comeback prize), first into a workshop. They go in your glovebox (Status tab) to use\n" ..
+           "when you like: an engine tune, a free fix, cash, a head start... or a haunted horn, a front-right-only\n" ..
+           "brake upgrade, sugar in the tank, the taxman or a penalty card for a rival." },
   { key = "noFaults", cmd = "nofaults", label = "No faults", locks = true,
     help = "No hidden problems: every car is New (no condition discounts either).\nSet before the challenge starts." },
   { key = "noQuirks", cmd = "noquirks", label = "No quirks", locks = true,

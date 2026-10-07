@@ -691,9 +691,9 @@ function World:freshPhysics(p, v)
     v.engine.thermals = { applyDeformGroupDamageRadiator = function(a) v.radiatorDamage = v.radiatorDamage + a end }
   end
   v.wheels = {}
-  for i = 0, 3 do v.wheels[i] = { brakeTorque = BRAKE_TORQUE, padGlazingFactor = 0 } end
+  for i = 0, 3 do v.wheels[i] = { name = ({ [0] = "FL", "FR", "RL", "RR" })[i], brakeTorque = BRAKE_TORQUE, padGlazingFactor = 0 } end
   local sb = sandbox.new({ label = "vlua:" .. p.name .. ":" .. v.model, allowWrite = function() return true end })
-  sb.declare("tgFaults", "tgSqueal", "tgLights")   -- (the mod's own car-side globals: faults, squeaky brakes, flickering lights)
+  sb.declare("tgFaults", "tgSqueal", "tgLights", "tgHornB", "tgFRBase", "tgTuneBase")   -- (the mod's own car-side globals: faults, squeaky brakes, flickering lights)
   sb.set("vec3", vec3)
   sb.set("RESET_PHYSICS", 1)
   sb.set("obj", {
@@ -749,6 +749,7 @@ function World:freshPhysics(p, v)
   -- the car's controls (quirks: horn, lights, hazards) - each change logged in v.controls; one-shot sounds in v.sfx
   v.controls, v.sfx = {}, {}
   local ev = { lights_state = v.lightsState or 0 }
+  v.electrics = ev   -- (tests set ev.brake to press the brake pedal)
   sb.set("electrics", { values = ev, setIgnitionLevel = function(level)
     if level == 0 and v.ignition ~= 0 then v.stalls = v.stalls + 1 end
     v.ignition = level

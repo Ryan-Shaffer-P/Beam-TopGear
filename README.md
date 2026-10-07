@@ -315,10 +315,32 @@ modes** box, each with a (?) that explains it; everyone sees which are on. `/tg 
 
 | Mode | What it does |
 |---|---|
-| **Free Repair** (`freerepair`) | Workshop repairs, tows, respawns, unstick repairs and bringing a lost car back cost nothing. A tow or respawn during an event still disqualifies you from it, and still costs its points at the results. Can be switched any time. |
+| **Free Repair** (`freerepair`) | Workshop repairs, tows, respawns, unstick repairs and bringing a lost car back cost nothing - and tows and respawns cost no points either. A tow or respawn during an event still disqualifies you from it. Can be switched any time. |
 | **No faults** (`nofaults`) | No hidden problems: every car is New (no condition to pick, no discounts). Before `/tg start` only. |
 | **No quirks** (`noquirks`) | No quirks. Before `/tg start` only. |
-| **Turbo Mode** (`turbo`) | Prizes and surprises - being planned (the switch shows "coming next"). |
+| **Turbo Mode** (`turbo`) | Prizes for everything but winning - see below. |
+
+**Turbo Mode prizes** (0.9.32): won for being **first to arrive** at an event, the **cleanest car at the finish**
+(least damage taken), **last place** (always a helpful prize - a comeback), **first into a workshop** (with workshop
+locations), or the **producers' choice** (`/tg prize <player> [prize]`). They go in your **Glovebox** (a box in the
+Status tab, at most 3) - use one when you like (`/tg use <n> [rival]`); everyone's told who did what to whom.
+
+| Prize | What it does |
+|---|---|
+| Free engine tune | +10% power for your next event |
+| Mechanic's favour | one of your car's problems fixed, free, right now |
+| Quirk exorcism | one of your quirks gone |
+| Get out of jail | your next tow or respawn costs no points |
+| Producers' envelope | $500-2,000 |
+| Head start | 2 s off your time in the next event |
+| Sabotage: haunted horn | a rival's horn sounds every time they brake - until their next workshop |
+| Brake "upgrade" | a rival's brakes upgraded - the front right one only, 3x stronger - until their next workshop |
+| Sugar in the tank | a rival's engine gets tired (or springs a fuel leak) - a workshop can fix it |
+| Taxman | $500 from a rival, to you |
+| Penalty card | 3 s on a rival's time in their next event |
+
+The nasty ones can't hit a driver mid-run, and each driver can only be got at once a leg. Settings in `config.json`
+(`turbo`: `maxHeld`, `envelope`, `taxman`, `headStart`, `penalty`, `tune`, `frontRight`, each prize's `enabled`).
 
 `/tg start` → dealership phase. Players spawn a car from the normal vehicle menu. The
 server charges them, rejects unlisted cars and unaffordable ones, and refunds if they
