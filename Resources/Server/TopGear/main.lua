@@ -7,7 +7,7 @@
   In game, type /tg help.
 ]]
 
-local SERVER_VERSION = "0.9.30"
+local SERVER_VERSION = "0.9.31"
 local PLUGIN_DIR  = "Resources/Server/TopGear/"
 local CONFIG_PATH = PLUGIN_DIR .. "config.json"
 local COURSES_PATH = PLUGIN_DIR .. "courses.json"   -- saved course library
@@ -20,7 +20,11 @@ local PUSH_EVERY  = 8     -- ticks between HUD refreshes (8 x 250 ms = 2 s)
 ---------------------------------------------------------------------------
 local DEFAULT_CONFIG = {
   admins = {},                 -- names allowed to use admin commands. EMPTY = EVERYONE (testing only)
-  aliases = {},                -- BeamMP name -> the name everyone sees (/tg name, admin /tg setname; BeamMP's guests are random)
+  aliases = {},
+  -- Game modes (0.9.31, Ryan): switches for the next challenge - Start tab and the Admin tab's Game modes box.
+  -- freeRepair: repairs, tows, respawns and unstick repairs cost nothing (a tow/respawn in an event still disqualifies);
+  -- noFaults: every car is New (no problems, no condition discounts); noQuirks: no quirks; turbo: prizes (planned).
+  modes = { freeRepair = false, noFaults = false, noQuirks = false, turbo = false },                -- BeamMP name -> the name everyone sees (/tg name, admin /tg setname; BeamMP's guests are random)
   adminExtraVehicles = true,   -- admins may spawn extra non-scoring vehicles (AI traffic, parked obstacles)
   clearVehiclesOnStart = true, -- delete everyone's vehicles when /tg start runs
   debugSpawns = false,         -- print raw spawn data to the server console
@@ -743,7 +747,7 @@ local function requestTrailer(p)
 end
 
 -- faults ---------------------------------------------------------------------
-local function faultsOn() return cfg.faults and cfg.faults.enabled end
+local function faultsOn() return cfg.faults and cfg.faults.enabled and not (cfg.modes or {}).noFaults end
 local function playerBudget(p)   -- what the dealership lets this player spend up to
   return cfg.economy.startingCash
 end
@@ -1674,6 +1678,7 @@ local function roadsideRepair(p)
 end
 -- kind = "tow" | "respawn": total, service fee, repair part
 local function roadsideCost(p, kind)
+  if (cfg.modes or {}).freeRepair then return 0, 0, 0 end   -- (Free Repair mode)
   local ec = cfg.economy
   local fee = kind == "tow" and (tonumber(ec.towFee) or 1000) or (tonumber(ec.respawnFee) or 500)
   local repair = roadsideRepair(p)
@@ -1683,9 +1688,10 @@ local function ptNote()   -- ", -2 pts" (tows and respawns cost points at the fi
   local n = tonumber(cfg.scoring.towPenaltyPoints) or 0
   return n > 0 and (", -" .. pts(n)) or ""
 end
-local function costNote(fee, repair)
-  if repair <= 0 then return money(fee) end
-  return string.format("%s: repair %s + fee %s", money(fee + repair), money(repair), money(fee))
+local function costNote(fee, repair)   -- "-$1,250: repair $250 + fee $1,000" (with its minus sign)
+  if (cfg.modes or {}).freeRepair then return "free - Free Repair mode" end
+  if repair <= 0 then return "-" .. money(fee) end
+  return string.format("-%s: repair %s + fee %s", money(fee + repair), money(repair), money(fee))
 end
 -- (which parts are free - looks only - is decided on the client: isFreeSlot in topgear.lua)
 local function chargeLabour(p)
@@ -3148,7 +3154,7 @@ end
 -- charge = true: the owner pays the car's repair price (its damage when it was lost).
 function Save.restoreCar(p, charge, pos, dir)
   if not (p.pid and p.carModel) or p.carVid then return end
-  local cost = charge and repairQuote(p, true) or 0
+  local cost = (charge and not (cfg.modes or {}).freeRepair) and repairQuote(p, true) or 0
   p.restoring = { pos = pos, dir = dir, cost = cost }
   p.restoreAt, p.restoreTries = now() + 3, 0   -- (sent from the tick: the client mod may still be loading)
 end
@@ -3432,7 +3438,7 @@ end
 
 -- Unstick is free, but if the game repaired the car while moving it, that roadside repair is billed (once)
 billUnstickRepair = function(p)
-  local cost = p.unstickRepairQuote or 0
+  local cost = (cfg.modes or {}).freeRepair and 0 or (p.unstickRepairQuote or 0)
   p.unstickRepairQuote = 0
   if cost > 0 then
     p.cash = p.cash - cost
@@ -3504,7 +3510,7 @@ performTow = function(p, carExists)
   }))
   if CONDITION.level(p) > 0 then sendFaults(p) end   -- unfixed faults (and the mileage) come back with the car
   if free then sayAll(string.format("%s's car is back (free, from the producers): %s.", p.name, msg))
-  else sayAll(string.format("%s calls the tow truck (-%s%s): %s.", p.name, costNote(fee, repair), ptNote(), msg)) end
+  else sayAll(string.format("%s calls the tow truck (%s%s): %s.", p.name, costNote(fee, repair), ptNote(), msg)) end
   pushState(p)
 end
 
@@ -3629,7 +3635,7 @@ function TG_onReport(pid, data)
       local dc = p.dentsCredit
       if dc and now() - dc.at < 15 then billable, p.dentsCredit = math.max(0, before - dc.amount), nil end
       local cost = repairQuote(p, game.phase ~= "workshop", billable)   -- (the workshop discount in a workshop)
-      if cost <= 0 then cost = nil end
+      if cost <= 0 or (cfg.modes or {}).freeRepair then cost = nil end
       if cost then
       p.cash = p.cash - cost
       spend(p, "repairs", cost)
@@ -3745,6 +3751,7 @@ PLAYER_CMDS.help = function(pid, name)
   say(pid, "Car condition: /tg condition new|used|needs work|beater|death trap (at the dealership; alone = yours) | fix <id> (workshop, once it's found the problem)")
   say(pid, "/tg menu (window; /tg menu reset if it's squashed) | name <what to call you> | status | dealer | join | ready | unready | go | quote | repair | standings | diag")
   if isAdmin(name) then
+    say(pid, "Game modes: /tg mode <freerepair|nofaults|noquirks|turbo> [on|off]")
     say(pid, "Admin: /tg start [force] | next (force the next phase) | stop | restartevent | where | workshop <minutes> | workshopevery <n>")
     say(pid, "Players: /tg give <driver> <+/-cash> | setcash <driver> <cash> | freerespawn <driver> (fixes their car where it stands, free) | bring <driver> (50 m in front of you) | setname <player> <new name>")
     say(pid, "Producers: /tg award <driver> <+/-points> [reason]")
@@ -3908,12 +3915,14 @@ PLAYER_CMDS.repair = function(pid)
   end
   -- (repairs, like tows, respawns and fines, may take you as far into the red as they need to; only parts and
   -- fault fixes stop at the overdraft limit)
+  if (cfg.modes or {}).freeRepair then cost = 0 end   -- (Free Repair mode)
   p.cash = p.cash - cost
   spend(p, "repairs", cost)
   p.repairPending = now()  -- the repair's own reset is excused for a few seconds only
   p.damage = 0
   MP.TriggerClientEvent(p.pid, "tg_repair", "")
-  sayAll(string.format("%s paid %s to have their %s repaired.", p.name, money(cost), p.carName))
+  sayAll(cost > 0 and string.format("%s paid %s to have their %s repaired.", p.name, money(cost), p.carName)
+    or string.format("%s had their %s repaired (free).", p.name, p.carName))
   overdraftNote(p)
   pushState(p)
 end
@@ -4231,7 +4240,7 @@ function CONDITION.drawQuirks(p)
   p.quirks, p.quirkAt = {}, nil
   local qc = cfg.quirks or {}
   local range = (qc.count or {})[CONDITION.level(p)]
-  if qc.enabled == false or type(range) ~= "table" then return end
+  if qc.enabled == false or (cfg.modes or {}).noQuirks or type(range) ~= "table" then return end
   local lo, hi = math.floor(tonumber(range[1]) or 0), math.floor(tonumber(range[2]) or 0)
   local n = hi > lo and math.random(lo, hi) or lo
   local pool = {}
@@ -4262,7 +4271,7 @@ function CONDITION.quirkFire(pid, vid, name, pos, q)
 end
 CONDITION.QUIRK_PHASES = { travel = true, event = true, finale = true }   -- on the road (never during a countdown; a table field: 200 locals)
 function CONDITION.quirkTick()
-  if not CONDITION.QUIRK_PHASES[game.phase] or (cfg.quirks or {}).enabled == false then return end
+  if not CONDITION.QUIRK_PHASES[game.phase] or (cfg.quirks or {}).enabled == false or (cfg.modes or {}).noQuirks then return end
   for _, p in pairs(game.players) do
     if racing(p) and not p.rpc and p.quirks and #p.quirks > 0 then
       p.quirkAt = p.quirkAt or {}
@@ -4367,7 +4376,7 @@ PLAYER_CMDS.respawn = function(pid)
     extra = " - a fresh car scores 0 drivability at the inspection"
   end
   MP.TriggerClientEvent(pid, "tg_respawn", Util.JsonEncode({ reset = true }))
-  sayAll(string.format("%s respawns their %s on the spot (-%s%s)%s.", p.name, p.carName or "car", costNote(fee, repair),
+  sayAll(string.format("%s respawns their %s on the spot (%s%s)%s.", p.name, p.carName or "car", costNote(fee, repair),
     ptNote(), extra))
   pushState(p)
 end
@@ -4601,6 +4610,28 @@ ADMIN_CMDS.setname = function(pid, _, args)   -- /tg setname <player> <new name>
   end
   if not login then say(pid, "Usage: /tg setname <player> <new name> - who? (their current name, or the start of it)"); return end
   Score.setAlias(pid, login, table.concat(args, " ", 4))
+end
+
+-- /tg mode <freerepair|nofaults|noquirks|turbo> [on|off] (admin): a game mode for the next challenge. Free Repair can
+-- change any time; No faults / No quirks only before /tg start (cars and their problems are drawn at the dealership).
+Course.MODES = { freerepair = "freeRepair", nofaults = "noFaults", noquirks = "noQuirks", turbo = "turbo" }
+Course.MODE_NAMES = { freeRepair = "Free Repair", noFaults = "No faults", noQuirks = "No quirks", turbo = "Turbo Mode" }
+ADMIN_CMDS.mode = function(pid, _, args)
+  local key = Course.MODES[(args[3] or ""):lower()]
+  if not key then say(pid, "Usage: /tg mode <freerepair|nofaults|noquirks|turbo> [on|off]"); return end
+  local m = cfg.modes or {}
+  cfg.modes = m
+  local want = (args[4] or ""):lower()
+  local on
+  if want == "on" then on = true elseif want == "off" then on = false else on = not m[key] end
+  if key == "turbo" then say(pid, "Turbo Mode isn't built yet - its prizes are still being planned."); return end
+  if (key == "noFaults" or key == "noQuirks") and game.phase ~= "idle" and (m[key] or false) ~= on then
+    say(pid, Course.MODE_NAMES[key] .. " can only be changed before the challenge starts (the cars' problems are already drawn)."); return
+  end
+  m[key] = on
+  saveConfig()
+  sayAll(string.format("Game mode: %s is %s.", Course.MODE_NAMES[key], on and "ON" or "off"))
+  pushAll()
 end
 
 ADMIN_CMDS.discard = function(pid)
@@ -5842,6 +5873,8 @@ local function buildUi(pid)
   if activeClass() then d.dealerClass = { name = chosenClass, summary = classSummary(activeClass()) }
   elseif Class.selling() then d.dealerClass = { name = "every car and truck", summary = "No class picked: everything imported is for sale (props and trailers aside)." } end
   d.summary = game.summary
+  d.modes = { freeRepair = (cfg.modes or {}).freeRepair or false, noFaults = (cfg.modes or {}).noFaults or false,
+              noQuirks = (cfg.modes or {}).noQuirks or false, turbo = (cfg.modes or {}).turbo or false, locked = game.phase ~= "idle" }
   if faultsOn() then
     local all, mine = {}, nil
     for _, f in ipairs(cfg.faults.list or {}) do   -- (admin fault test)

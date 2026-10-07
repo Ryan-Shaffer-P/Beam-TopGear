@@ -309,6 +309,17 @@ Italy is a great alternative theme (narrow villages, mountain passes, gravel): c
 
 ## Running a challenge
 
+**Game modes** (0.9.31): switches in the Start tab's Setup box ("4. Any game modes?") and the Admin tab's **Game
+modes** box, each with a (?) that explains it; everyone sees which are on. `/tg mode <name> [on|off]`; kept in
+`config.json` (`modes`).
+
+| Mode | What it does |
+|---|---|
+| **Free Repair** (`freerepair`) | Workshop repairs, tows, respawns, unstick repairs and bringing a lost car back cost nothing. A tow or respawn during an event still disqualifies you from it, and still costs its points at the results. Can be switched any time. |
+| **No faults** (`nofaults`) | No hidden problems: every car is New (no condition to pick, no discounts). Before `/tg start` only. |
+| **No quirks** (`noquirks`) | No quirks. Before `/tg start` only. |
+| **Turbo Mode** (`turbo`) | Prizes and surprises - being planned (the switch shows "coming next"). |
+
 `/tg start` → dealership phase. Players spawn a car from the normal vehicle menu. The
 server charges them, rejects unlisted cars and unaffordable ones, and refunds if they
 delete it. `/tg ready` from everyone (or admin `/tg next`) closes the dealership.

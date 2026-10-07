@@ -89,6 +89,11 @@ tab; helpers `Tabs.step`/`Tabs.combo`; Top Gear colour theme), F1 start lights a
 car-side work: faults, tow/unstick placement, trailer spawn + load measurement, fuel/damage reports,
 parts snapshots/diffs, reverting refused parts.
 
+Game modes (0.9.31): `cfg.modes` {freeRepair, noFaults, noQuirks, turbo}; `/tg mode` (`Course.MODES`), UI `Tabs.modes`
+(Start Setup box + Admin "Game modes" box), `d.modes` (`locked` once started: noFaults/noQuirks idle-only). freeRepair
+zeroes `roadsideCost`, `costNote`, `billUnstickRepair`, the repair command, damage-drop billing, `Save.restoreCar`'s
+charge (DSQ and tow points stay); noFaults = `faultsOn()` false; noQuirks stops `drawQuirks`/`quirkTick`. test_gamemodes.
+
 Players: `game.players` is keyed by the BeamMP name (= `p.login`, used for admin checks, mutes, saves); `p.name` is what
 everyone sees - an alias from `cfg.aliases[login]` (0.9.25, `/tg name`, `/tg setname`, `Score.setAlias`). Never look a
 player up by `p.name` alone; `Score.findPlayer` matches either.
@@ -201,7 +206,7 @@ for the `/tg diag` "Client error" line or the matching `[TopGear]` server-consol
 
 Players: `/tg menu | name <alias> | status | dealer | ready | unready | go | repair | fix <id> | tow | respawn | unstick | hitchup |
 condition [name] | faults | fault take [n] | quote | standings | diag | partsdiag | lights | lightstest | flag | flagtest | sounds on|off|list | soundtest [clip|next] | theme`.
-Admins: `start [force] | next | stop | restartevent | freerespawn <driver> | bring <driver> | setname <player> <name> | resume | discard | award <driver> <pts> [reason] | traffic on|off | play <clip> | budget | setcash | give | workshop <min> | workshopevery <n> |
+Admins: `start [force] | next | stop | mode <freerepair|nofaults|noquirks|turbo> [on|off] | restartevent | freerespawn <driver> | bring <driver> | setname <player> <name> | resume | discard | award <driver> <pts> [reason] | traffic on|off | play <clip> | budget | setcash | give | workshop <min> | workshopevery <n> |
 importprices [listed|builtin|models] | gameprices | setprice | class list/use/new/preset/delete/show/rule/unrule/include/exclude/clear/price/multiplier/values |
 course list/save/load/new/delete | addevent/delevent/enable/moveevent | testevent <n>|stop | quicktravel <n|finale> |
 setstart/addcp/undocp/clearcp/settrap/addbay/undobay/clearbays/addvia/undovia/clearvia/setfinale |

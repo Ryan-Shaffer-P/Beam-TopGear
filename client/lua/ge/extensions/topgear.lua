@@ -35,7 +35,7 @@ local RESET_ACTIONS = {
 local VEHSEL_ACTIONS = { "vehicle_selector" }
 local PARTS_ACTIONS  = { "parts_selector" }
 
-local VERSION = "0.9.30"
+local VERSION = "0.9.31"
 local recentErrors = {}
 local function warn(msg)
   log("W", "topgear", tostring(msg))
@@ -2257,6 +2257,7 @@ local function drawAdminControls(d)
       button("Traffic mode (add AI traffic / parked cars)##traffic", "traffic on")
     end
   end)
+  Tabs.box("Game modes", "admmodes", function() Tabs.modes(d, true) end)
   Tabs.box("Players", "admplayers", function()
     txt("Player cash & points")
     if #(d.standings or {}) == 0 then
@@ -3427,6 +3428,39 @@ Tabs.messageLines = function()
   end
 end
 
+-- Game modes (0.9.31): an ON/OFF switch per mode with a "(?)" that explains it. Admins click; everyone else sees which
+-- are on. No faults / No quirks are fixed once the challenge has started (d.modes.locked).
+Tabs.MODES = {
+  { key = "freeRepair", cmd = "freerepair", label = "Free Repair",
+    help = "Every repair is free: workshop repairs, tows, respawns and unstick repairs.\n" ..
+           "A tow or respawn during an event still disqualifies you from it - and still costs its points." },
+  { key = "turbo", cmd = "turbo", label = "Turbo Mode", soon = true,
+    help = "Prizes and surprises for more than just event wins: free engine upgrades, problems fixed,\n" ..
+           "and a few nasty ones to hand to a rival. (Coming next - the prizes are being planned.)" },
+  { key = "noFaults", cmd = "nofaults", label = "No faults", locks = true,
+    help = "No hidden problems: every car is New (no condition discounts either).\nSet before the challenge starts." },
+  { key = "noQuirks", cmd = "noquirks", label = "No quirks", locks = true,
+    help = "No quirks: no fan belts, haunted horns, backfires and the like.\nSet before the challenge starts." },
+}
+Tabs.modes = function(d, canEdit)
+  local m = d.modes or {}
+  for _, md in ipairs(Tabs.MODES) do
+    local on = m[md.key] == true
+    local off = md.soon or not canEdit or (md.locks and m.locked)
+    local rec = { c = 0 }
+    local col = on and { 0.20, 0.62, 0.30, 1 } or { 0.30, 0.32, 0.34, 1 }
+    pcall(pushColors, { Button = col, ButtonHovered = off and col or { col[1] + 0.08, col[2] + 0.08, col[3] + 0.08, 1 },
+      ButtonActive = col, Text = off and not on and { 0.62, 0.64, 0.68, 1 } or { 1, 1, 1, 1 } }, rec)
+    local okB, clicked = pcall(im.Button, string.format("%s: %s##mode_%s", md.label, md.soon and "coming next" or (on and "ON" or "OFF"), md.key),
+      im.ImVec2(220, 0))
+    popColors(rec)
+    if not okB then error(clicked) end
+    if clicked and not off then sendCmd("mode " .. md.cmd .. (on and " off" or " on")) end
+    Tabs.help(md.help)
+  end
+  if canEdit and m.locked then colored(0.65, 0.65, 0.65, "No faults / No quirks are set before the challenge starts.") end
+end
+
 -- A step button on the Quick start tab: "lit" (green, clickable), "done" (dim, says so) or "wait" (grey, ignores
 -- clicks). Every colour push is popped here, whatever the button does.
 Tabs.step = function(label, id, how)
@@ -3559,6 +3593,14 @@ Tabs.quick = function(d)
     else
       txt("   " .. tostring(d.dealerClass and d.dealerClass.name or cl.active or "Any car"))
     end
+
+    txt("4. Any game modes?")
+    Tabs.modes(d, true)
+  end
+  if not admin then   -- (everyone sees which modes are on)
+    local on = {}
+    for _, md in ipairs(Tabs.MODES) do if (d.modes or {})[md.key] then on[#on + 1] = md.label end end
+    if #on > 0 then colored(0.4, 1, 0.4, "Game modes: " .. table.concat(on, ", ")) end
   end
 
   end)
