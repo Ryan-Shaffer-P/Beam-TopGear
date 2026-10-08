@@ -35,7 +35,7 @@ local RESET_ACTIONS = {
 local VEHSEL_ACTIONS = { "vehicle_selector" }
 local PARTS_ACTIONS  = { "parts_selector" }
 
-local VERSION = "0.9.32"
+local VERSION = "0.9.33"
 local recentErrors = {}
 local function warn(msg)
   log("W", "topgear", tostring(msg))
@@ -1442,7 +1442,33 @@ faults.turboTick = function(dt)
   faults.frOn, faults.tuneOn = fr, tune
 end
 
+-- Air time (0.9.33, Turbo Mode's "most air time" prize): the car is in the air while it falls freely - its vertical
+-- speed dropping at about 1 g. A streak counts once it has lasted 0.3 s (a bump or a crest isn't a jump); the running
+-- total (seconds) goes to the server with every report, which works out each driver's share of an event.
+faults.airTotal = 0
+faults.airTick = function(dt)
+  local car = getCar()
+  local id = car and car:getID()
+  if not car or dt <= 0 or dt > 0.5 or id ~= faults.airCar then
+    faults.airCar, faults.airVz, faults.airStreak = id, nil, 0
+    return
+  end
+  local vz = car:getVelocity().z
+  local az = faults.airVz and (vz - faults.airVz) / dt
+  faults.airVz = vz
+  if az and az < -6.5 and az > -13 then
+    faults.airStreak = (faults.airStreak or 0) + dt
+    if faults.airStreak >= 0.3 then
+      faults.airTotal = faults.airTotal + (faults.airStreak - dt >= 0.3 and dt or faults.airStreak)
+    end
+  else
+    faults.airStreak = 0
+  end
+end
+
 local function updateFaults(dt)
+  local okA, errA = pcall(faults.airTick, dt)
+  if not okA and not faults.airErrored then faults.airErrored = true; warn("air time: " .. tostring(errA)) end
   if faults.ownRebuild then
     faults.ownRebuild = faults.ownRebuild - dt
     if faults.ownRebuild <= 0 then faults.ownRebuild = nil end
@@ -3498,7 +3524,7 @@ Tabs.MODES = {
            "A tow or respawn during an event still disqualifies you from it - and still costs its points." },
   { key = "turbo", cmd = "turbo", label = "Turbo Mode",
     help = "Prizes for everything but winning: first to arrive at an event, the cleanest car at the finish,\n" ..
-           "last place (a comeback prize), first into a workshop. They go in your glovebox (Status tab) to use\n" ..
+           "last place (a comeback prize), the most air time, the biggest crash, first into a workshop. They go in your glovebox (Status tab) to use\n" ..
            "when you like: an engine tune, a free fix, cash, a head start... or a haunted horn, a front-right-only\n" ..
            "brake upgrade, sugar in the tank, the taxman or a penalty card for a rival." },
   { key = "noFaults", cmd = "nofaults", label = "No faults", locks = true,
@@ -4312,7 +4338,7 @@ local function report()
   end
   measureCargo()   -- answer arrives before the next report
   TriggerServerEvent("tg_report", jsonEncode({ damage = getDamage(v), partsValue = partsValue or nil, fuel = fuelValue,
-    energy = energyValue, cargo = cargoValue }))
+    energy = energyValue, cargo = cargoValue, air = math.floor((faults.airTotal or 0) * 10 + 0.5) / 10 }))
 end
 
 -- hooks ------------------------------------------------------------------------

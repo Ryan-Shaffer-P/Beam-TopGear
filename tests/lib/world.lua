@@ -530,7 +530,11 @@ local function makeObj(w, p, v)
   function obj:getDirectionVector() return vecmath.dirFromQuat(vecmath.quatFromYaw(v.yaw or 0)) end
   function obj:getDirectionVectorUp() return v.upsideDown and vec3(0, 0, -1) or vec3(0, 0, 1) end
   function obj:getRotation() return vecmath.quatFromYaw(v.yaw or 0) end
-  function obj:getVelocity() return vec3(v.vel) end
+  function obj:getVelocity()   -- (w:jump: falling freely, 1 g down)
+    local out = vec3(v.vel)
+    if v.jump and w.t < v.jump.t0 + v.jump.dur then out.z = 5 - 9.81 * (w.t - v.jump.t0) end
+    return out
+  end
   function obj:getJBeamFilename() return v.model end
   function obj:queueLuaCommand(code) w:runVehicleLua(p, v, code) end
   function obj:setPositionRotation(x, y, z, qx, qy, qz, qw)
@@ -1023,6 +1027,12 @@ function World:setLoad(p, frac)
       i = i + 1
     end
   end
+end
+
+-- the player's car flies through the air for `seconds` (its vertical speed falls at 1 g)
+function World:jump(p, seconds)
+  assert(p.current, p.name .. " has no car")
+  p.current.jump = { t0 = self.t, dur = seconds }
 end
 
 function World:damage(p, amount)

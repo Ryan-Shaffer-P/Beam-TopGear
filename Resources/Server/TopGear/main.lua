@@ -7,7 +7,7 @@
   In game, type /tg help.
 ]]
 
-local SERVER_VERSION = "0.9.32"
+local SERVER_VERSION = "0.9.33"
 local PLUGIN_DIR  = "Resources/Server/TopGear/"
 local CONFIG_PATH = PLUGIN_DIR .. "config.json"
 local COURSES_PATH = PLUGIN_DIR .. "courses.json"   -- saved course library
@@ -26,11 +26,12 @@ local DEFAULT_CONFIG = {
   -- noFaults: every car is New (no problems, no condition discounts); noQuirks: no quirks; turbo: prizes (planned).
   modes = { freeRepair = false, noFaults = false, noQuirks = false, turbo = false },   -- (turbo: Turbo Mode, below)
   -- Turbo Mode's prizes (0.9.32): earned for everything but winning - first to arrive at an event, the cleanest car at
-  -- the finish, last place (a helpful prize), first into a workshop, or an admin's /tg prize. Kept in the player's
+  -- the finish, last place (a helpful prize), most air time, the biggest crash, first into a workshop, or an admin's /tg prize. Kept in the player's
   -- glovebox (at most maxHeld) and used when they like; the nasty ones pick a rival (not mid-run, once a leg each).
   turbo = {
     maxHeld = 3,
     envelope = { 500, 2000 }, taxman = 500, headStart = 2, penalty = 3, tune = 1.1, frontRight = 3,
+    minAir = 1, minCrash = 1000,   -- (0.9.33) the least air time (s) / crash damage that wins those prizes
     prizes = {
       { id = "tune", name = "Free engine tune", good = true, help = "+10% power for your next event." },
       { id = "favour", name = "Mechanic's favour", good = true, help = "One of your car's problems fixed, free, right now." },
@@ -2006,6 +2007,7 @@ local function startRun(p)
   r.bay, r.parks, r.needMove, r.stillSince = 1, {}, false, nil
   r.startDamage, r.startFuel, r.startEnergy = p.damage or 0, p.fuel, p.energy
   r.endDamage, r.endFuel, r.endEnergy, r.sampleAfter = nil, nil, nil, nil
+  r.startAir, r.startCrash, r.endAir, r.endCrash = p.airTotal or 0, p.crashTotal or 0, nil, nil
 end
 
 -- the finish flag on this player's screen: { event, detail, seconds }
@@ -2783,7 +2785,7 @@ finishEvent = function()
     sayAll(string.format("--   %s - %s", p.name, st))
     if p.run.status ~= "dsq" then playSound("out", p) end   -- towed/respawned drivers heard it at the time
   end
-  if not game.test then Score.turboEventPrizes(ranked) end   -- (Turbo Mode: the cleanest car, and last place)
+  if not game.test then Score.turboEventPrizes(ranked, others) end   -- (Turbo Mode: cleanest car, last place, air, crash)
   for _, p in pairs(game.players) do if p.effects then p.effects.tune = nil end end   -- (a tune lasts one event)
   cleanupEventVehicles()   -- (no free repair after a fragile delivery since 0.9.12: the dents are yours to pay for)
   game.solo, game.closeAt = nil, nil
@@ -3074,7 +3076,7 @@ Save.TIMERS = { "closeAt", "workshopEnd", "countdownEnd", "phaseStart", "eventSt
 -- per-player runtime state that means nothing after a restart (game ids, positions, short time windows)
 Save.TRANSIENT = { "quirkAt", "pid", "carVid", "pos", "prevPos", "speed", "eventVeh", "spawnAllow", "rpc", "towPending", "repairPending",
   "respawnPending", "unstickPending", "faultEditUntil", "lastEditAt", "outsideEditAt", "putBackAt", "swapAt", "lastUnstick",
-  "lastCrashSound", "pendingCharge", "restoring", "restoreAt", "restoreTries" }
+  "lastCrashSound", "airSeen", "pendingCharge", "restoring", "restoreAt", "restoreTries" }
 
 -- JSON can't hold every Lua table (number keys, holes): arrays stay arrays, other number keys become "#n"
 function Save.pack(v, path)
@@ -3693,14 +3695,26 @@ function TG_onReport(pid, data)
       p.lastCrashSound = now()
       playSound("crash", p)
     end
+    -- (Turbo Mode's biggest crash: every rise in damage adds up, so a repair or a tow mid-event doesn't hide a crash -
+    -- but not the dents the accident-damage problem puts back after one)
+    if nowDmg > before and not (p.towPending and now() - p.towPending < 15)
+       and not (p.respawnPending and now() - p.respawnPending < 15) and not (p.repairPending and now() - p.repairPending < 15) then
+      p.crashTotal = (p.crashTotal or 0) + (nowDmg - before)
+    end
     p.damage = nowDmg
   end
   if tonumber(t.fuel) then p.fuel = tonumber(t.fuel) end
   if tonumber(t.energy) then p.energy = tonumber(t.energy) end   -- joules in tanks + batteries
   if tonumber(t.cargo) then p.cargoFrac = tonumber(t.cargo) end
+  if tonumber(t.air) then   -- the game's running air-time total (s); it starts again from 0 when the game does
+    local a = tonumber(t.air)
+    p.airTotal = (p.airTotal or 0) + math.max(0, a - ((p.airSeen and p.airSeen <= a) and p.airSeen or 0))
+    p.airSeen = a
+  end
   local r = p.run
   if r and r.sampleAfter and now() >= r.sampleAfter and r.endDamage == nil then
     r.endDamage, r.endFuel, r.endEnergy = p.damage, p.fuel, p.energy   -- finish reading for fragile / economy scoring
+    r.endAir, r.endCrash = p.airTotal or 0, p.crashTotal or 0   -- (Turbo Mode: air time, biggest crash)
   end
   if tonumber(t.partsValue) then
     p.partsValue = tonumber(t.partsValue)
@@ -4304,7 +4318,7 @@ function Score.turboAward(p, why, goodOnly, id)
   say(p.pid, string.format("Your prize: %s - %s (Status tab: Glovebox)", pr.name, pr.help))
   pushState(p)
 end
-function Score.turboEventPrizes(ranked)
+function Score.turboEventPrizes(ranked, others)
   if not Score.turboOn() or #ranked < 2 then return end
   local clean, cleanD = nil, nil
   for _, p in ipairs(ranked) do
@@ -4314,6 +4328,22 @@ function Score.turboEventPrizes(ranked)
   local last = ranked[#ranked]
   if clean then Score.turboAward(clean, "the cleanest car at the finish") end
   if last then Score.turboAward(last, "last place (a comeback prize)", true) end
+  -- (0.9.33) most air time and the biggest crash: everyone who started the event, finished or not
+  local tc = cfg.turbo or {}
+  local air, airS, crash, crashD = nil, tonumber(tc.minAir) or 1, nil, tonumber(tc.minCrash) or 1000
+  for _, list in ipairs({ ranked, others or {} }) do
+    for _, p in ipairs(list) do
+      local r = p.run or {}
+      if r.startT then
+        local a = (r.endAir or p.airTotal or 0) - (r.startAir or 0)
+        local c = (r.endCrash or p.crashTotal or 0) - (r.startCrash or 0)
+        if a >= airS then air, airS = p, a end
+        if c >= crashD and p ~= clean then crash, crashD = p, c end
+      end
+    end
+  end
+  if air then Score.turboAward(air, string.format("the most air time (%.1f s)", airS)) end
+  if crash then Score.turboAward(crash, "the biggest crash") end
 end
 function Score.turboTimes(ranked, e)   -- head starts and penalty cards, on the time before the event is scored
   for _, p in ipairs(ranked) do

@@ -320,8 +320,10 @@ modes** box, each with a (?) that explains it; everyone sees which are on. `/tg 
 | **No quirks** (`noquirks`) | No quirks. Before `/tg start` only. |
 | **Turbo Mode** (`turbo`) | Prizes for everything but winning - see below. |
 
-**Turbo Mode prizes** (0.9.32): won for being **first to arrive** at an event, the **cleanest car at the finish**
-(least damage taken), **last place** (always a helpful prize - a comeback), **first into a workshop** (with workshop
+**Turbo Mode prizes** (0.9.32; air time and crashes 0.9.33): won for being **first to arrive** at an event, the **cleanest car at the finish**
+(least damage taken), **last place** (always a helpful prize - a comeback), the **most air time** in an event (time
+spent flying through the air; at least 1 s in all), the **biggest crash** in an event (all the damage you took during it,
+even if you were repaired in between; at least 1,000 - not the cleanest car), **first into a workshop** (with workshop
 locations), or the **producers' choice** (`/tg prize <player> [prize]`). They go in your **Glovebox** (a box in the
 Status tab, at most 3) - use one when you like (`/tg use <n> [rival]`); everyone's told who did what to whom.
 
@@ -340,7 +342,8 @@ Status tab, at most 3) - use one when you like (`/tg use <n> [rival]`); everyone
 | Penalty card | 3 s on a rival's time in their next event |
 
 The nasty ones can't hit a driver mid-run, and each driver can only be got at once a leg. Settings in `config.json`
-(`turbo`: `maxHeld`, `envelope`, `taxman`, `headStart`, `penalty`, `tune`, `frontRight`, each prize's `enabled`).
+(`turbo`: `maxHeld`, `envelope`, `taxman`, `headStart`, `penalty`, `tune`, `frontRight`, `minAir`, `minCrash`, each
+prize's `enabled`). Air time and crashes count for everyone who started the event, finished or not.
 
 `/tg start` → dealership phase. Players spawn a car from the normal vehicle menu. The
 server charges them, rejects unlisted cars and unaffordable ones, and refunds if they

@@ -94,11 +94,15 @@ Game modes (0.9.31): `cfg.modes` {freeRepair, noFaults, noQuirks, turbo}; `/tg m
 zeroes `roadsideCost`, `costNote`, `billUnstickRepair`, the repair command, damage-drop billing, `Save.restoreCar`'s
 charge (DSQ and tow points stay); noFaults = `faultsOn()` false; noQuirks stops `drawQuirks`/`quirkTick`; freeRepair also drops tow/respawn POINTS (`ptNote`, `showResults`). test_gamemodes.
 Turbo Mode (0.9.32, `cfg.turbo`): `Score.turboAward` (first arrival in tickTravel, `Score.turboEventPrizes` = cleanest
-+ last place (good only) in finishEvent, first in `Score.workshop`, admin `/tg prize`) -> `p.glovebox`; `/tg use <n>
++ last place (good only) + most air time + biggest crash (0.9.33, starters incl. `others`) in finishEvent, first in `Score.workshop`, admin `/tg prize`) -> `p.glovebox`; `/tg use <n>
 [rival]` = `Score.turboUse` -> `p.effects` {tune, headstart, penalty, horn, frbrake} (+`p.pardons`, `q.sabotagedAt`);
 `Score.turboTimes` adjusts run.time before finalizeScore; horn/frbrake cleared at beginWorkshop; `state.turbo` -> client
 `faults.turboTick` (horn on brake: vlua 10 Hz `tgHornB`; FR brake via wheel `name == 'FR'` `tgFRBase`; tune via engine
 `outputTorqueState` `tgTuneBase`). Messages: never `string.format` a text holding a problem name (they contain "%").
+Air time / crash (0.9.33): client `faults.airTick` = free fall (vertical speed dropping at ~1 g, streaks >= 0.3 s;
+NOT yet tried in game) -> `air` running total in tg_report -> server `p.airTotal` (`p.airSeen` handles a client restart);
+`p.crashTotal` = every damage rise in TG_onReport (not in tow/respawn/repair windows); per run `r.startAir/endAir`,
+`r.startCrash/endCrash` (sampled with endDamage); thresholds `turbo.minAir` 1 s, `turbo.minCrash` 1000. Harness `w:jump(p, s)`.
 
 Players: `game.players` is keyed by the BeamMP name (= `p.login`, used for admin checks, mutes, saves); `p.name` is what
 everyone sees - an alias from `cfg.aliases[login]` (0.9.25, `/tg name`, `/tg setname`, `Score.setAlias`). Never look a
