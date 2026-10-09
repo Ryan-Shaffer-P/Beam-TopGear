@@ -22,7 +22,7 @@ local registered  = false
 local reportTimer = 0
 local hudTimer    = 0
 local partsValue  = nil   -- cached parts value; nil = recompute, false = unavailable
-local lastTarget  = nil
+local nav         = { chev = nil, progress = 1, offCache = {}, native = true }   -- the road guide's own arrows (below)
 local filterState = {}
 
 local RESET_ACTIONS = {
@@ -192,20 +192,150 @@ local function trySetPath(pos, route)
   return nil
 end
 
+-- Off-road stretches (0.9.35, Ryan): BeamNG's road guide only knows the AI road network - for an off-road point it
+-- routes to the nearest road and draws a straight line in, and between two off-road points it detours via the road.
+-- So the route is split: from the car, BeamNG's guide up to where two off-road points meet; from there on our own
+-- arrows - straight lines between off-road points, the road network's own path (map.getPointToPointPath) between
+-- the rest. A point is off-road if the admin switched it so (`off` true / false), else if it's more than 25 m (plus
+-- the road's width) from the nearest road or 4 m above / below it (a parking garage's upper deck).
+nav.ROAD_DIST, nav.ROAD_DZ, nav.STEP, nav.SHOW = 25, 4, 8, 200
+nav.autoOff = function(pos)
+  local ok, off = pcall(function()
+    local n1, n2 = map.findClosestRoad(pos)
+    if not n1 then return true end
+    local nodes = map.getMap().nodes
+    local a, b = nodes[n1], nodes[n2 or n1]
+    if not (a and b) then return true end
+    local pa, pb = vec3(a.pos), vec3(b.pos)
+    local ab = pb - pa
+    local len2 = ab.x * ab.x + ab.y * ab.y + ab.z * ab.z
+    local tt = len2 > 0 and math.max(0, math.min(1, ((pos.x - pa.x) * ab.x + (pos.y - pa.y) * ab.y + (pos.z - pa.z) * ab.z) / len2)) or 0
+    local q = pa + ab * tt
+    local h = math.sqrt((pos.x - q.x) ^ 2 + (pos.y - q.y) ^ 2)
+    return h > nav.ROAD_DIST + (tonumber(a.radius) or 0) or math.abs(pos.z - q.z) > nav.ROAD_DZ
+  end)
+  if not ok then
+    if not nav.autoWarned then nav.autoWarned = true; warn("road guide: can't tell off-road points (" .. tostring(off) .. ") - road route only") end
+    return false
+  end
+  return off == true
+end
+nav.isOff = function(pt)
+  if pt.off == true then return true elseif pt.off == false then return false end
+  local key = string.format("%.0f,%.0f,%.0f", pt.x, pt.y, pt.z)
+  if nav.offCache[key] == nil then nav.offCache[key] = nav.autoOff(vec3(pt.x, pt.y, pt.z)) end
+  return nav.offCache[key]
+end
+-- how many points, from the start, BeamNG's guide takes (the rest: our arrows); offs[0] = the car
+nav.plan = function(pts, carOff)
+  local offs = { [0] = carOff }
+  for i, q in ipairs(pts) do offs[i] = nav.isOff(q) end
+  local j = 0
+  while j < #pts and not (offs[j] and offs[j + 1]) do j = j + 1 end
+  return j, offs
+end
+-- our arrows from point `split` (0 = the car) to the end: a line through the points, an arrow every nav.STEP m
+nav.build = function(pts, split, offs, carPos)
+  local poly = { split == 0 and vec3(carPos) or vec3(pts[split].x, pts[split].y, pts[split].z) }
+  for i = split + 1, #pts do
+    local b = vec3(pts[i].x, pts[i].y, pts[i].z)
+    if not (offs[i - 1] and offs[i]) then   -- a road stretch: the road network's own path
+      pcall(function()
+        local nodes = map.getMap().nodes
+        for _, name in ipairs(map.getPointToPointPath(poly[#poly], b) or {}) do
+          if nodes[name] then poly[#poly + 1] = vec3(nodes[name].pos) end
+        end
+      end)
+    end
+    poly[#poly + 1] = b
+  end
+  local chev = {}
+  for i = 2, #poly do
+    local a, b = poly[i - 1], poly[i]
+    local d = b - a
+    local len = math.sqrt(d.x * d.x + d.y * d.y)
+    if len > 0.5 then
+      local f = vec3(d.x / len, d.y / len, 0)
+      local n = math.max(1, math.floor(len / nav.STEP))
+      for k = 1, n do
+        if #chev >= 600 then break end
+        local at = a + d * (k / n)
+        pcall(function()   -- on the ground (a garage deck: the floor just below)
+          local h = be:getSurfaceHeightBelow(vec3(at.x, at.y, at.z + 2))
+          if tonumber(h) and h > at.z - 10 then at = vec3(at.x, at.y, h) end
+        end)
+        chev[#chev + 1] = { pos = at, f = f }
+      end
+    end
+  end
+  nav.chev, nav.progress = (#chev > 0) and chev or nil, 1
+end
+-- each frame: the arrows ahead of the car (passed ones dropped), within nav.SHOW m
+nav.draw = function()
+  if not nav.chev or nav.drawFailed then return end
+  local car = Rpc.driving()
+  if not car then return end
+  local ok, err = pcall(function()
+    local cp = vec3(car:getPosition())
+    for i = nav.progress, math.min(#nav.chev, nav.progress + 40) do
+      if (nav.chev[i].pos - cp):length() < 12 then nav.progress = i end
+    end
+    local col, up, drawn = ColorF(0.25, 0.75, 1, 0.85), vec3(0, 0, 0.25), 0
+    for i = nav.progress, #nav.chev do
+      local c = nav.chev[i]
+      if (c.pos - cp):length() <= nav.SHOW then
+        local rt = vec3(c.f.y, -c.f.x, 0)
+        local tip = c.pos + c.f * 1.2 + up
+        debugDrawer:drawCylinder(tip, tip - c.f * 1.4 + rt * 1.2, 0.12, col)
+        debugDrawer:drawCylinder(tip, tip - c.f * 1.4 - rt * 1.2, 0.12, col)
+        drawn = drawn + 1
+        if drawn >= 40 then break end
+      end
+    end
+  end)
+  if not ok then nav.drawFailed = true; warn("road guide arrows: " .. tostring(err)) end
+end
+
 local function applyPath(force)
   local t = state.target
   local key = t and string.format("%.1f,%.1f,%.1f", t.x, t.y, t.z) or "none"
   local route = t and type(state.route) == "table" and #state.route >= 2 and state.route or nil
   if route then   -- (a new route = a new key: the first point and how many are left are enough to tell)
     local last = route[#route]
-    key = key .. string.format("|%d|%.1f,%.1f", #route, tonumber(last.x) or 0, tonumber(last.y) or 0)
+    key = key .. string.format("|%d|%.1f,%.1f,%.1f,%.1f", #route, tonumber(route[1].x) or 0, tonumber(route[1].y) or 0,
+      tonumber(last.x) or 0, tonumber(last.y) or 0)
+  elseif type(state.route) == "table" and #state.route == 1 then   -- (one point that says off-road / road, or a guide point)
+    route = state.route
+    key = key .. "|1|" .. tostring(route[1].off)
   end
   local car = getCar()
   local carId = car and car:getID() or -1
+  local drv = Rpc.driving()
+  local carPos = drv and vec3(drv:getPosition()) or nil
+  local carOff = carPos and nav.autoOff(carPos) or false   -- (the first stretch: from the car)
+  key = key .. (carOff and "|off" or "")
   if not force and key == pathKey and carId == pathCarId and (pathMethod or not t) then return end
   pathKey, pathCarId = key, carId
-  if not t then trySetPath(nil); pathMethod = nil; return end
-  pathMethod = trySetPath(vec3(t.x, t.y, t.z), route)
+  nav.chev = nil
+  if not t then trySetPath(nil); pathMethod, nav.native = nil, true; return end
+  local pts = route or { { x = t.x, y = t.y, z = t.z } }
+  local split, offs = nav.plan(pts, carOff)
+  if split >= #pts or not carPos then   -- all on the road: BeamNG's guide does it all
+    nav.native = true
+    pathMethod = trySetPath(vec3(pts[1].x, pts[1].y, pts[1].z), #pts >= 2 and pts or nil)
+  else
+    nav.native = split > 0
+    if split > 0 then
+      local head = {}
+      for i = 1, split do head[i] = pts[i] end
+      pathMethod = trySetPath(vec3(pts[1].x, pts[1].y, pts[1].z), split >= 2 and head or nil)
+    else
+      trySetPath(nil)
+      pathMethod = "own arrows"
+    end
+    nav.build(pts, split, offs, carPos)
+    log("I", "topgear", string.format("road guide: %d point(s) by the game's guide, then off-road arrows (%d)", split, #(nav.chev or {})))
+  end
   log("I", "topgear", string.format("target '%s' at %s, arrows via %s", tostring(t.label), key, tostring(pathMethod or "NONE")))
 end
 
@@ -217,7 +347,7 @@ local function reassertPath(dt)
   if not state.target then return end
   local lost = false
   pcall(function()
-    if core_groundMarkers and core_groundMarkers.currentlyHasTarget then
+    if nav.native and core_groundMarkers and core_groundMarkers.currentlyHasTarget then   -- (our own arrows: nothing to lose)
       lost = not core_groundMarkers.currentlyHasTarget()
     end
   end)
@@ -3411,6 +3541,32 @@ end
 
 -- The course builder (Admin tab, Course box): Pick a course | Event type (+ rename) | Events (+ the big place-it
 -- buttons under it) | Event options | Save course. ui.sel = the event being edited (a number, or "finale").
+-- The road guide's points (0.9.35): guide points (the guide goes through them, they're not checkpoints - add them as
+-- you drive the course, between checkpoints, e.g. up a parking garage's ramps) and each point's Off-road switch.
+Tabs.roadGuide = function(e, target)
+  if not header(string.format("Road guide: guide points (%d) and off-road##roadguide", e.guides or 0)) then return end
+  Tabs.help("Guide points: the arrows go through them on the way to the next checkpoint - they're not checkpoints.\n" ..
+    "Drive the course adding checkpoints and guide points in order (Add guide point = before the next checkpoint you add).\n" ..
+    "Use them where the road guide goes wrong: parking garage ramps, a track the game doesn't know, a shortcut.\n" ..
+    "Off-road: Auto = off-road if the point is away from the roads (25 m) or above/below them (a garage deck).\n" ..
+    "Off-road = a straight line of arrows into it from an off-road point before it. Road = the game's road route.\n" ..
+    "Straight lines go through whatever's in the way - put points where the straight line between them is drivable.")
+  local pts = e.points or {}
+  if #pts == 0 then colored(0.65, 0.65, 0.65, "No points yet - set the start and add checkpoints."); return end
+  button("All auto##og_allauto", "offroad " .. target .. " all auto"); same()
+  button("All off-road##og_allon", "offroad " .. target .. " all on"); same()
+  button("All road##og_alloff", "offroad " .. target .. " all off")
+  for i, q in ipairs(pts) do
+    local which = (q.kind == "start") and "start" or (q.kind .. " " .. tostring(q.n))
+    for k, o in ipairs({ { "Auto", "auto" }, { "Off-road", "on" }, { "Road", "off" } }) do
+      if k > 1 then same() end
+      button(((q.off or "auto") == o[2] and "> " or "") .. o[1] .. "##og" .. i .. o[2], "offroad " .. target .. " " .. which .. " " .. o[2])
+    end
+    same()
+    if q.kind == "guide" then colored(0.25, 0.75, 1, q.label) else txt(q.label) end
+  end
+  if (e.guides or 0) > 0 then confirmButton("Clear guide points", "clrguide", "clearguide " .. target) end
+end
 Tabs.courseBuilder = function(c)
   if ui.sel ~= "finale" and not c.events[ui.sel] then ui.sel = 1 end
   local target = tostring(ui.sel)
@@ -3481,6 +3637,10 @@ Tabs.courseBuilder = function(c)
       row[#row + 1] = { label = "Undo\n" .. what, id = "undocp", cmd = "undocp " .. target }
       row[#row + 1] = { label = "Clear\n" .. what .. "s", id = "clearcp", cmd = "clearcp " .. target, confirm = true }
     end
+    if e.type ~= "speedtrap" and e.type ~= "slalom" then   -- (0.9.35) points the road guide passes through
+      row[#row + 1] = { label = "Add guide\npoint", id = "addguide", cmd = "addguide " .. target }
+      row[#row + 1] = { label = "Undo\nguide", id = "undoguide", cmd = "undoguide " .. target, off = (e.guides or 0) == 0 }
+    end
     local lapped = e.type == "circuit" or e.type == "rpc"
     Tabs.bigButtons(row, 44, lapped and 130 or 0)
     if lapped then   -- # of laps, at the end of the row (sent as it changes)
@@ -3517,6 +3677,7 @@ Tabs.courseBuilder = function(c)
     Tabs.help("How big the next checkpoint is: a 5, 10 or 20 m circle, or a Line - a 20 m gate across the road (good\n" ..
       "for a start/finish), set at right angles to the way from the point before it (the last checkpoint, or the start).")
   end
+  if e and e.type ~= "speedtrap" and e.type ~= "slalom" then Tabs.roadGuide(e, target) end   -- (0.9.35)
   -- try it out without a whole challenge: the event on its own (everyone in a car), your car to its start, stop
   Tabs.framed(function()   -- (its own section: an orange outline)
     Tabs.bigButtons({
@@ -4525,7 +4686,7 @@ function M.onUpdate(dtReal)
   if hudTimer <= 0 then hudTimer = 1; hud() end
 end
 
-function M.onPreRender() drawTarget() end
+function M.onPreRender() drawTarget(); nav.draw() end
 function M.onVehicleSpawned(vid)
   partsValue = nil; pathCarId = nil
   shop.cat, shop.tried = nil, nil

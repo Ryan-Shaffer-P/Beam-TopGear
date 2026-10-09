@@ -880,7 +880,25 @@ The arrows on the road show the whole way, not just the way to the next point (0
 - **At the start before your run** (waiting, I'm ready, the start lights): the whole course from the start line - a
   preview, so you know where it goes.
 - **On the drive to an event or the finale:** through every waypoint left, to the destination.
-- Parking, slalom and speed trap events, and workshops, still point at the next spot only.
+- **Parking:** the next bay (through its guide points). Slalom and speed trap events, and workshops, point at the
+  next spot only.
+
+**Off-road** (0.9.35). The game's road guide only knows the AI road network: between two off-road points it would
+detour via the nearest road. So where two off-road points meet, the mod draws its own blue arrows instead - a straight
+line between off-road points, and the road network's own path for any road stretch after them - and the game's
+guide does the part before. A point is off-road when it's more than 25 m from the nearest road, or 4 m above / below
+it (a parking garage's upper deck) - or when you switch it so.
+
+**Guide points** (course builder, **Add guide point** / **Undo guide**, `/tg addguide <event> [before <n>]`): points the
+arrows pass through on the way to the next checkpoint (or bay) - not checkpoints, nothing to reach. Drive the course
+adding checkpoints and guide points in order: a guide point goes before the next checkpoint you add. Use them where
+the guide goes wrong: up a parking garage's ramps, along a track the game doesn't know, round a building. Each one is
+dropped from the route once you've driven within 15 m of it (or of a later one).
+
+**Off-road switches** (the builder's **Road guide** box, `/tg offroad <event> <start|cp <n>|guide <n>|bay <n>|all>
+[on|off|auto]`): **Auto** (the 25 m / 4 m rule), **Off-road** (straight arrows into it from an off-road point before it),
+**Road** (the game's road route). Straight arrows go through whatever's in the way - put points where the straight line
+between them is drivable.
 
 ## No arrows?
 

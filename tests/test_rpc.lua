@@ -253,7 +253,7 @@ t.test("course builder layout: Pick a course / Event type / Events + big buttons
   local heads = {}
   for _, it in ipairs(A.client.im.items("Top Gear Challenge")) do if it.kind == "header" then heads[#heads + 1] = it.label end end
   local order = table.concat(heads, "|")
-  t.ok(order:find("Course|Pick a course|Event type|Waypoints|Event options|Save course|Workshop locations|Session", 1, true), order)
+  t.ok(order:find("Course|Pick a course|Event type|Road guide: guide points (0) and off-road|Waypoints|Event options|Save course|Workshop locations|Session", 1, true), order)   -- (0.9.35: Road guide)
   t.ok(A.client.im.textOf("Top Gear Challenge"):find("\nEvents\nPick the one to edit:", 1, true), "Events: a heading, not foldable")
   -- the place-it buttons, each line centred (the fake has no CalcTextSize: by character count)
   t.ok(A.client.im.hasButton("Set start\n   here") and A.client.im.hasButton("    Add\ncheckpoint") and

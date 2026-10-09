@@ -1597,23 +1597,43 @@ local function currentTarget(p)
 end
 
 -- The road guide (0.9.35, Ryan: drivers got lost - the guide only went to the next checkpoint, so you could need to turn
--- before it updated): every point still to come, in order, for the game to plan one route through them all. Starts with
--- the current target. A race: the checkpoints left to the finish; a circuit: the rest of this lap and the whole next
--- one (if there is one); at the start before your run: the whole course from the start line (a preview); the drive to
--- an event or the finale: the waypoints left and the destination. Nothing for parking, slalom, speed trap, workshop.
+-- before it updated): every point still to come, in order, for the game to plan one route through them all. A race:
+-- the checkpoints left to the finish; a circuit: the rest of this lap and the whole next one (if there is one); at the
+-- start before your run: the whole course from the start line (a preview); parking: the next bay; the drive to an event
+-- or the finale: the waypoints left and the destination. Nothing for slalom, speed trap, workshop.
+-- Guide points (e.guide: { x, y, z, before = k }, k = the checkpoint / bay they lead to; a circuit's #cps + 1 = the
+-- start/finish line) go in front of their checkpoint - the ones already driven past (p.run.gp) are left out. Each
+-- point carries `off` (the admin's Off-road switch: true / false; nil = the game decides from how far the road is).
 Course.ROUTE_MAX = 40
+function Course.guidesBefore(e, k, last)   -- e's guide points leading to point k (a dangling one: before the last)
+  local out = {}
+  for _, g in ipairs(e.guide or {}) do
+    local b = math.floor(tonumber(g.before) or 1)
+    if last and b > last then b = last end
+    if b == k then out[#out + 1] = g end
+  end
+  return out
+end
 function Course.routeAhead(p, tgt)
   local e, ph = curEvent(), game.phase
   if not (tgt and v3(tgt.pos)) then return nil end
   local pts = {}
-  local function add(pos)
+  local function add(pos, off, kind)
     local q = v3(pos)
-    if q and #pts < Course.ROUTE_MAX then pts[#pts + 1] = { x = q.x, y = q.y, z = q.z } end
+    if q and #pts < Course.ROUTE_MAX then
+      local o = off   -- (the point's own switch first - an explicit if: `x and false or y` can't give false)
+      if type(pos) == "table" and type(pos.off) == "boolean" then o = pos.off end
+      pts[#pts + 1] = { x = q.x, y = q.y, z = q.z, off = o, g = kind }
+    end
   end
-  local function course(from, lapsAfter)   -- the event's own points from checkpoint `from`, then whole laps
+  local function point(list, i, skip)   -- the guide points leading to list[i] (but the first `skip`), then list[i]
+    for n, g in ipairs(Course.guidesBefore(e, i, #list)) do if n > (skip or 0) then add(g, nil, "guide") end end
+    add(list[i])
+  end
+  local function course(from, skip, lapsAfter)   -- the event's own points from checkpoint `from`, then whole laps
     local cps = routePoints(e)
-    for i = from, #cps do add(cps[i]) end
-    for _ = 1, lapsAfter do for i = 1, #cps do add(cps[i]) end end
+    for i = from, #cps do point(cps, i, i == from and skip or 0) end
+    for _ = 1, lapsAfter do for i = 1, #cps do point(cps, i, 0) end end
   end
   local racing = e and (e.type == "race" or e.type == "circuit" or e.type == "rpc" or e.type == "fragile"
     or e.type == "economy" or e.type == "trailer")
@@ -1622,22 +1642,42 @@ function Course.routeAhead(p, tgt)
   local st = p.run and p.run.status
   local atStart = (ph == "travel" and p.leg and p.leg.arrived) or ph == "countdown"
     or (ph == "event" and (st == "waiting" or st == "staged"))
+  local gp = (p.run and p.run.gpAt == p.run.cp) and (p.run.gp or 0) or 0
   if racing and st == "running" then
-    add(tgt.pos)
-    if lapped then course(p.run.cp + 1, ((p.run.lap or 1) < laps) and 1 or 0)
-    else course(p.run.cp + 1, 0) end
+    course(p.run.cp, gp, (lapped and (p.run.lap or 1) < laps) and 1 or 0)
+  elseif e and e.type == "parking" and st == "running" then
+    local bays = eventBays(e)
+    point(bays, p.run.bay or 1, (p.run and p.run.gpAt == p.run.bay) and (p.run.gp or 0) or 0)
   elseif racing and atStart and v3(e.start) then   -- a preview of the course, from the start line
-    add(e.start)
-    course(1, 0)
+    add(e.start, e.startOff)
+    course(1, 0, 0)
   elseif (ph == "travel" and e) or ph == "finale" then
     local via, dest = (ph == "finale") and (cfg.finale.via or {}) or (e.via or {}), (ph == "finale") and cfg.finale.pos or e.start
-    add(tgt.pos)
+    add(tgt.pos, (ph ~= "finale" and p.leg and p.leg.via > #via) and e.startOff or nil)
     for i = (p.leg and p.leg.via or 1) + 1, #via do add(via[i]) end
-    if p.leg and p.leg.via <= #via then add(dest) end
+    if p.leg and p.leg.via <= #via then add(dest, ph ~= "finale" and e.startOff or nil) end
   else
     return nil
   end
-  return #pts >= 2 and pts or nil
+  if #pts == 0 then return nil end
+  -- (one plain point: the target does it - unless it says off-road or road, or it's a guide point)
+  if #pts == 1 and pts[1].off == nil and not pts[1].g then return nil end
+  return pts
+end
+-- a running driver passes guide points as they drive (within 15 m - or a later one: a corner cut); the route drops them.
+-- True when one was passed (the caller sends the new route: pushState is defined further down)
+function Course.tickGuides(p, e)
+  local r = p.run
+  local key = (e.type == "parking") and r.bay or r.cp
+  if r.gpAt ~= key then r.gpAt, r.gp = key, 0 end
+  local list = (e.type == "parking") and eventBays(e) or routePoints(e)
+  local gs = Course.guidesBefore(e, key, #list)
+  if (r.gp or 0) >= #gs or not p.pos then return end
+  for n = #gs, (r.gp or 0) + 1, -1 do
+    local g = v3(gs[n])
+    if g and dist(p.pos, g) <= 15 then r.gp = n; return true end
+  end
+  return false
 end
 
 local function timeLeft()
@@ -2657,6 +2697,7 @@ local function tickSpeedtrap(p, e)
 end
 
 local function tickRun(p, e)
+  if e.guide and #e.guide > 0 and p.run.status == "running" and Course.tickGuides(p, e) then pushState(p) end   -- (the road guide)
   if e.type == "speedtrap" then tickSpeedtrap(p, e)
   elseif e.type == "parking" then tickParking(p, e)
   elseif e.type == "slalom" then tickSlalom(p, e)
@@ -3926,7 +3967,7 @@ PLAYER_CMDS.help = function(pid, name)
     say(pid, "Quirks: /tg quirk test <id> (one go of it on your car, now)")
     say(pid, "Faults: /tg fault test [id] (applies to your car) | fault testoff | fault caps (which cars take which faults) | fault sample <condition> [n] (example problem sets by the tier rules) | fault fire [player] / fault blow [player] (right now)")
     say(pid, "Money: /tg budget <amount> | setcash <name> <amount> | give <name> <amount> | importprices [models] | gameprices on|off")
-    say(pid, "Course: /tg setstart <n> | addcp <n> | undocp <n> | clearcp <n> | settrap <n> | settype <n> <type> | settime <n> <s>")
+    say(pid, "Course: /tg setstart <n> | addcp <n> | undocp <n> | clearcp <n> | addguide <n> | undoguide <n> | offroad <n> ... | settrap <n> | settype <n> <type> | settime <n> <s>")
     say(pid, "Parking: /tg addbay <n> | undobay <n> | clearbays <n>  (park facing the way the bay faces)")
     say(pid, "Workshops: /tg importgas | addworkshop [name] | undoworkshop | clearworkshops  (none = anywhere)")
     say(pid, "Session: /tg addevent <type> [name] | delevent <n> | enable <n> on|off | moveevent <n> up|down | setlaps <n> <laps> | setrpc <n> <model> [config]|mine|default")
@@ -5720,6 +5761,99 @@ ADMIN_CMDS.clearcp = function(pid, _, args)
   local e, label = eventArg(pid, args[3]); if not e then return end
   e.checkpoints = {}; markDirty(); say(pid, label .. " checkpoints cleared.")
 end
+-- Guide points and off-road (0.9.35): /tg addguide <event> [before <k>] - a point the road guide passes through on the
+-- way to checkpoint (bay) k, not a checkpoint (default: the next one you'll add - so drive the course adding checkpoints
+-- and guide points in order); /tg undoguide | clearguide <event>; /tg offroad <event> <start|cp <n>|guide <n>|all>
+-- [on|off|auto] - on = a straight line of arrows into it, off = the road route, auto = the game decides (no switch:
+-- auto -> on -> off -> auto).
+function Course.guideSlots(e)   -- the points guide points lead to: checkpoints (+ a circuit's line), or bays
+  if e.type == "parking" then return #eventBays(e), "bay" end
+  local n = #(e.checkpoints or {})
+  if e.type == "circuit" or e.type == "rpc" then return n + 1, "checkpoint" end
+  return n, "checkpoint"
+end
+function Course.guidePoints(e)   -- every point of the course in driving order, for the Off-road switches in the menu
+  local out = {}
+  local function mode(x) if x == true then return "on" elseif x == false then return "off" end return "auto" end
+  if v3(e.start) then out[#out + 1] = { kind = "start", label = "Start", off = mode(e.startOff) } end
+  local list = (e.type == "parking") and eventBays(e) or (e.checkpoints or {})
+  local slots, word = Course.guideSlots(e)
+  local gi = {}
+  for i, g in ipairs(e.guide or {}) do gi[g] = i end
+  for k = 1, math.max(slots, #list) do
+    for _, g in ipairs(Course.guidesBefore(e, k, math.max(slots, 1))) do
+      out[#out + 1] = { kind = "guide", n = gi[g], label = "Guide point " .. gi[g], off = mode(g.off) }
+    end
+    local c = list[k]
+    if type(c) == "table" then
+      out[#out + 1] = { kind = (e.type == "parking") and "bay" or "cp", n = k, off = mode(c.off),
+        label = (word == "bay" and "Bay " or "Checkpoint ") .. k .. ((word ~= "bay" and k == #list and e.type ~= "circuit" and e.type ~= "rpc") and " (finish)" or "") }
+    end
+  end
+  return out
+end
+ADMIN_CMDS.addguide = function(pid, _, args)
+  local e, label = eventArg(pid, args[3]); if not e then return end
+  local slots, word = Course.guideSlots(e)
+  local before = (args[4] or ""):lower() == "before" and tonumber(args[5]) or nil
+  if before then before = math.floor(before)
+  else before = (e.type == "circuit" or e.type == "rpc") and (#(e.checkpoints or {}) + 1) or (slots + 1) end
+  if before < 1 then say(pid, "Usage: /tg addguide <event> [before <" .. word .. " number>]"); return end
+  withPos(pid, function(pos)
+    e.guide = e.guide or {}
+    e.guide[#e.guide + 1] = { x = pos.x, y = pos.y, z = pos.z, before = before }
+    markDirty()
+    local lapped = e.type == "circuit" or e.type == "rpc"
+    local to = (lapped and before == #(e.checkpoints or {}) + 1) and "the start/finish line"
+      or (before > slots and ("the next " .. word .. " you add")) or (word .. " " .. before)
+    say(pid, string.format("%s guide point %d %s - the road guide goes through it on the way to %s (not a checkpoint; /tg save)",
+      label, #e.guide, fmtPos(pos), to))
+  end)
+end
+ADMIN_CMDS.undoguide = function(pid, _, args)
+  local e, label = eventArg(pid, args[3]); if not e then return end
+  if e.guide and #e.guide > 0 then table.remove(e.guide); markDirty() end
+  say(pid, label .. " now has " .. #(e.guide or {}) .. " guide point(s).")
+end
+ADMIN_CMDS.clearguide = function(pid, _, args)
+  local e, label = eventArg(pid, args[3]); if not e then return end
+  e.guide = {}; markDirty(); say(pid, label .. " guide points cleared.")
+end
+ADMIN_CMDS.offroad = function(pid, _, args)
+  local e, label = eventArg(pid, args[3]); if not e then return end
+  local what = (args[4] or ""):lower()
+  local n = tonumber(args[5])
+  local valArg = args[5]   -- (not `x and args[6] or args[5]`: args[6] may be nil)
+  if what == "cp" or what == "guide" or what == "bay" then valArg = args[6] end
+  local want = (valArg or ""):lower()
+  local usage = "Usage: /tg offroad <event> <start|cp <n>|guide <n>|bay <n>|all> [on|off|auto]"
+  local targets = {}
+  if what == "start" then
+    if not v3(e.start) then say(pid, label .. " has no start yet."); return end
+    targets[1] = { get = function() return e.startOff end, set = function(v) e.startOff = v end, name = "the start" }
+  elseif what == "cp" or what == "bay" or what == "guide" then
+    local list = (what == "guide") and (e.guide or {}) or (what == "bay" and eventBays(e) or (e.checkpoints or {}))
+    local c = n and list[math.floor(n)]
+    if type(c) ~= "table" then say(pid, usage .. " - there's no " .. what .. " " .. tostring(args[5]) .. "."); return end
+    targets[1] = { get = function() return c.off end, set = function(v) c.off = v end, name = what .. " " .. math.floor(n) }
+  elseif what == "all" then
+    if v3(e.start) then targets[#targets + 1] = { get = function() return e.startOff end, set = function(v) e.startOff = v end } end
+    for _, list in ipairs({ e.checkpoints or {}, e.guide or {}, eventBays(e) }) do
+      for _, c in ipairs(list) do targets[#targets + 1] = { get = function() return c.off end, set = function(v) c.off = v end } end
+    end
+  else say(pid, usage); return end
+  local val
+  if want == "on" then val = true elseif want == "off" then val = false elseif want == "auto" then val = nil
+  elseif want == "" and #targets == 1 then   -- (no switch: auto -> on -> off -> auto)
+    local cur = targets[1].get()
+    if cur == nil then val = true elseif cur == true then val = false else val = nil end
+  else say(pid, usage); return end
+  for _, tg in ipairs(targets) do tg.set(val) end
+  markDirty()
+  local word = (val == true) and "OFF-ROAD (a straight line of arrows into it)" or (val == false) and "ROAD (the road route)"
+    or "AUTO (off-road if it's away from the roads)"
+  say(pid, string.format("%s: %s %s - /tg save", label, what == "all" and "every point" or targets[1].name, word))
+end
 ADMIN_CMDS.settrap = function(pid, _, args)
   local e, label = eventArg(pid, args[3]); if not e then return end
   withPos(pid, function(pos) e.trap = pos; markDirty(); say(pid, label .. " speed trap set " .. fmtPos(pos) .. " (/tg save)") end)
@@ -6474,7 +6608,8 @@ local function buildUi(pid)
                       cps = #(e.checkpoints or {}), trap = v3(e.trap) ~= nil, bays = #eventBays(e), via = #(e.via or {}),
                       timeLimit = e.timeLimit or cfg.defaults.eventTimeLimit,
                       enabled = e.enabled ~= false, solo = isSolo(e), typeLabel = (TYPE_INFO[e.type or "race"] or {}).label,
-                      laps = e.laps, rpcCar = e.type == "rpc" and RPC.label(e) or nil }
+                      laps = e.laps, rpcCar = e.type == "rpc" and RPC.label(e) or nil,
+                      guides = #(e.guide or {}), points = Course.guidePoints(e) }
     end
     local lib = {}
     for n, c in pairs(library) do lib[#lib + 1] = { name = n, problems = c.problems or 0, savedAt = c.savedAt } end

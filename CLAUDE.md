@@ -124,6 +124,14 @@ target; race-like types: checkpoints to the finish, circuits + one more lap, a p
 arrived/waiting/staged/countdown; travel/finale: vias + destination; max `Course.ROUTE_MAX`) -> client `trySetPath(pos,
 route)` = `core_groundMarkers.setPath(list)` (0.39 plans one route through a list), fallback the target. Harness:
 `client.route`; test_route. NOT yet tried in game.
+Off-road + guide points (0.9.35): `e.guide` {x,y,z, before = k (checkpoint/bay; a circuit's #cps+1 = the line), off};
+`off` on checkpoints/bays/guides, `e.startOff` (true/false/nil = auto); `Course.guidesBefore/guideSlots/guidePoints/
+tickGuides` (`p.run.gp/gpAt` = passed guides, 15 m); route points carry `off`. Client `nav` table (replaced the unused
+`lastTarget` local - topgear.lua is at 199 locals): `nav.autoOff` (map.findClosestRoad: > 25 m + road radius away or
+> 4 m above/below = off), `nav.plan` (BeamNG's setPath takes the points until two off-road points meet; the car counts
+as point 0), `nav.build` (own polyline: straight between off-road points, `map.getPointToPointPath` otherwise; a chevron
+every 8 m, z from be:getSurfaceHeightBelow), `nav.draw` (onPreRender, 0.12 m bars, 200 m ahead). Harness: a fake road
+on the x axis (`map.findClosestRoad/getMap/getPointToPointPath`, `client.roadPaths`). NOT yet tried in game.
 
 Players: `game.players` is keyed by the BeamMP name (= `p.login`, used for admin checks, mutes, saves); `p.name` is what
 everyone sees - an alias from `cfg.aliases[login]` (0.9.25, `/tg name`, `/tg setname`, `Score.setAlias`). Never look a
@@ -240,7 +248,7 @@ condition [name] | faults | fault take [n] | quote | standings | diag | partsdia
 Admins: `start [force] | next | stop | mode <freerepair|nofaults|noquirks|turbo> [on|off] | prize <player> [id] | prize test <id> [player] / clear / empty [player] | restartevent | rerunevent | freerespawn <driver> | bring <driver> | setname <player> <name> | resume | discard | award <driver> <pts> [reason] | traffic on|off | play <clip> | budget | setcash | give | workshop <min> | workshopevery <n> |
 importprices [listed|builtin|models] | gameprices | setprice | class list/use/new/preset/delete/show/rule/unrule/include/exclude/clear/price/multiplier/values |
 course list/save/load/new/delete | addevent/delevent/enable/moveevent | testevent <n>|stop | quicktravel <n|finale> |
-setstart/addcp/undocp/clearcp/settrap/addbay/undobay/clearbays/addvia/undovia/clearvia/setfinale |
+setstart/addcp/undocp/clearcp/addguide/undoguide/clearguide/offroad/settrap/addbay/undobay/clearbays/addvia/undovia/clearvia/setfinale |
 settype/setmode/setlaps/setrpc/settime/rename | addworkshop/undoworkshop/clearworkshops/importgas |
 trailersave/trailercones/trailertest | fault test [id] [as <condition>]/testoff/caps/sample <cond> [n]/fire [player]/blow [player] | quirk test <id>`. The ImGui window exposes all of these.
 

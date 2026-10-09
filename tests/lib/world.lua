@@ -365,10 +365,31 @@ function World:loadClient(p)
     c.sounds[#c.sounds + 1] = { clip = path and clipFile(path), via = "js", js = js }
   end
   sb.set("be", be)
+  -- the AI road network: one straight road along the x axis (y = 0, z = 0), a node every 100 m from x = -2000 to
+  -- 12000 (every test course sits on it unless a test puts points off it); w.roadY moves it
+  local roadNodes = {}
+  local function nodeName(i) return "n" .. i end
+  for i = 0, 140 do roadNodes[nodeName(i)] = { pos = vec3(-2000 + i * 100, w.roadY or 0, 0), radius = 4 } end
+  local function nearestNode(pos)
+    local i = math.floor(((pos.x or 0) + 2000) / 100 + 0.5)
+    return math.max(0, math.min(140, i))
+  end
   sb.set("map", { objects = setmetatable({}, { __index = function(_, gid)
     for _, v in pairs(p.vehicles) do if v.gid == gid then return { damage = v.damage } end end
     return nil
-  end }) })
+  end }),
+    getMap = function() return { nodes = roadNodes } end,
+    findClosestRoad = function(pos)
+      local i = math.max(0, math.min(139, math.floor(((pos.x or 0) + 2000) / 100)))
+      return nodeName(i), nodeName(i + 1), math.abs((pos.y or 0) - (w.roadY or 0))
+    end,
+    getPointToPointPath = function(a, b)   -- the nodes from the one nearest a to the one nearest b
+      c.roadPaths = (c.roadPaths or 0) + 1
+      local out, i, j = {}, nearestNode(a), nearestNode(b)
+      local step = (j >= i) and 1 or -1
+      for k = i, j, step do out[#out + 1] = nodeName(k) end
+      return out
+    end })
   sb.set("MPVehicleGE", { getGameVehicleID = function(serverId)
     local spid, svid = tostring(serverId):match("^(%d+)%-(%d+)$")
     local owner = w.players[tonumber(spid)]   -- (another player's car too: it exists in this game)
