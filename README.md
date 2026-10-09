@@ -345,6 +345,18 @@ The nasty ones can't hit a driver mid-run, and each driver can only be got at on
 (`turbo`: `maxHeld`, `envelope`, `taxman`, `headStart`, `penalty`, `tune`, `frontRight`, `minAir`, `minCrash`, each
 prize's `enabled`). Air time and crashes count for everyone who started the event, finished or not.
 
+**Admin tools** (0.9.34): the Admin tab's **Turbo Mode prizes** box (a button turns Turbo Mode on if it's off). Pick a
+player, then:
+- **Give a prize to ...** - any prize (or a random one) into their glovebox, announced like a prize won
+  (`/tg prize <player> [prize]`).
+- **Testing** - a prize's effect right now, with no glovebox and no limits, told only to you and them
+  (`/tg prize test <prize> [player]`). Helpful prizes work for the player picked; the nasty ones ("On them:") hit the
+  player picked, from you - pick yourself to try them alone. The engine tune works at once (normally only in the next
+  event). **Clear effects** (`/tg prize clear [player]`) removes horn, brake, tune, head start, penalty and jail cards;
+  **Empty glovebox** (`/tg prize empty [player]`). Below: every player's glovebox, active effects, and air time /
+  crash damage this event and in all - to check the air time and crash prizes are measuring.
+  Testing needs a challenge running (**Start (unfinished course)** and buying a car will do).
+
 `/tg start` → dealership phase. Players spawn a car from the normal vehicle menu. The
 server charges them, rejects unlisted cars and unaffordable ones, and refunds if they
 delete it. `/tg ready` from everyone (or admin `/tg next`) closes the dealership.

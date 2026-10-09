@@ -35,7 +35,7 @@ local RESET_ACTIONS = {
 local VEHSEL_ACTIONS = { "vehicle_selector" }
 local PARTS_ACTIONS  = { "parts_selector" }
 
-local VERSION = "0.9.33"
+local VERSION = "0.9.34"
 local recentErrors = {}
 local function warn(msg)
   log("W", "topgear", tostring(msg))
@@ -2308,6 +2308,62 @@ local function drawPaused(d)   -- a challenge saved before a server restart, wai
   end
 end
 
+-- Admin tab, Turbo Mode prizes (0.9.34): give any player any prize, and the testing tools - a prize's effect right now
+-- on anyone (yourself too), clearing effects, and each player's glovebox, effects and air time / crash counters
+Tabs.turboAdmin = function(d)
+  local ta = d.turboAdmin
+  if not ta then
+    txt("Turbo Mode is off."); same(); button("Turn Turbo Mode on##turboon", "mode turbo on")
+    return
+  end
+  if #(ta.players or {}) == 0 then
+    colored(0.65, 0.65, 0.65, "Players appear here once a challenge is running (Start (unfinished course) will do).")
+    return
+  end
+  local found = false
+  for _, pl in ipairs(ta.players) do if pl.name == ui.turboPlayer then found = true end end
+  if not found then
+    ui.turboPlayer = ta.players[1].name
+    for _, pl in ipairs(ta.players) do if d.me and pl.name == d.me.name then ui.turboPlayer = pl.name end end
+  end
+  txt("Player:")
+  for _, pl in ipairs(ta.players) do
+    same()
+    if im.Button((ui.turboPlayer == pl.name and "> " or "") .. pl.name .. "##tp_" .. pl.name) then ui.turboPlayer = pl.name end
+  end
+  local who = ui.turboPlayer
+  if header("Give a prize to " .. who .. "##turbogive") then
+    txt(string.format("It goes in their glovebox (at most %d) for them to use - everyone's told, like a prize won.", ta.maxHeld or 3))
+    for i, pr in ipairs(ta.prizes or {}) do
+      if (i - 1) % 3 ~= 0 then same() end
+      button(pr.name .. "##tg_" .. pr.id, "prize " .. who .. " " .. pr.id)
+    end
+    button("A random prize##tgrand", "prize " .. who)
+    Tabs.help("The producers' choice: /tg prize <player> [prize].")
+  end
+  if header("Testing##turbotest") then
+    txt("Try a prize's effect on " .. who .. " right now - no glovebox, no limits, only you and they are told.")
+    for i, pr in ipairs(ta.prizes or {}) do
+      if (i - 1) % 3 ~= 0 then same() end
+      if pr.usable == false then colored(0.65, 0.65, 0.65, pr.name .. " (off)")
+      else button((pr.target and "On them: " or "") .. pr.name .. "##tt_" .. pr.id, "prize test " .. pr.id .. " " .. who) end
+    end
+    Tabs.help("Helpful prizes work for the player you picked; the nasty ones (On them:) hit the player you picked,\n" ..
+      "from you - pick yourself to try them alone. The engine tune works at once (normally only in the next event).\n" ..
+      "Horn and brake last until their next workshop or Clear effects. Head start and penalty count in their next event.")
+    button("Clear effects##ttclear", "prize clear " .. who); same(); button("Empty glovebox##ttempty", "prize empty " .. who)
+    im.Separator()
+    txt(string.format("Prizes need %g s of air time / %s crash damage in an event.", ta.minAir or 1, (commas(ta.minCrash or 1000):gsub("^%$", ""))))
+    for _, pl in ipairs(ta.players) do
+      colored(0.5, 1, 0.5, pl.name)
+      txt("  Glovebox: " .. (#(pl.glovebox or {}) > 0 and table.concat(pl.glovebox, ", ") or "empty"))
+      txt("  Effects: " .. (#(pl.effects or {}) > 0 and table.concat(pl.effects, ", ") or "none"))
+      txt(string.format("  Air time: %s s this event, %s s in all.  Crash damage: %s this event, %s in all.",
+        pl.runAir and tostring(pl.runAir) or "-", tostring(pl.air or 0), pl.runCrash and tostring(pl.runCrash) or "-", tostring(pl.crash or 0)))
+    end
+  end
+end
+
 -- Admin tab, first two boxes: run the challenge, and a player's cash & points
 local function drawAdminControls(d)
   if not d.admin then return end
@@ -2326,6 +2382,7 @@ local function drawAdminControls(d)
     end
   end)
   Tabs.box("Game modes", "admmodes", function() Tabs.modes(d, true) end)
+  Tabs.box("Turbo Mode prizes", "admturbo", function() Tabs.turboAdmin(d) end, true)
   Tabs.box("Players", "admplayers", function()
     txt("Player cash & points")
     if #(d.standings or {}) == 0 then

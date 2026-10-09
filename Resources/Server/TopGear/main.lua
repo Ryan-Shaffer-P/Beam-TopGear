@@ -7,7 +7,7 @@
   In game, type /tg help.
 ]]
 
-local SERVER_VERSION = "0.9.33"
+local SERVER_VERSION = "0.9.34"
 local PLUGIN_DIR  = "Resources/Server/TopGear/"
 local CONFIG_PATH = PLUGIN_DIR .. "config.json"
 local COURSES_PATH = PLUGIN_DIR .. "courses.json"   -- saved course library
@@ -1619,7 +1619,7 @@ local function stateFor(p)
     quirks = (p.quirks and #p.quirks > 0) and p.quirks or nil,   -- (the client keeps the squeaky brakes squeaking)
     turbo = p.effects and (p.effects.horn or p.effects.frbrake or p.effects.tune) and {   -- (Turbo Mode on this car)
       horn = p.effects.horn or nil, frontRight = p.effects.frbrake and (tonumber((cfg.turbo or {}).frontRight) or 3) or nil,
-      tune = (p.effects.tune and (ph == "countdown" or ph == "event")) and (tonumber((cfg.turbo or {}).tune) or 1.1) or nil } or nil,
+      tune = (p.effects.tune and (p.effects.tuneNow or ph == "countdown" or ph == "event")) and (tonumber((cfg.turbo or {}).tune) or 1.1) or nil } or nil,
   }
   if ph == "countdown" and game.countdownEnd then
     s.lights = { left = game.countdownEnd - now(), total = cfg.defaults.countdown }
@@ -2786,7 +2786,7 @@ finishEvent = function()
     if p.run.status ~= "dsq" then playSound("out", p) end   -- towed/respawned drivers heard it at the time
   end
   if not game.test then Score.turboEventPrizes(ranked, others) end   -- (Turbo Mode: cleanest car, last place, air, crash)
-  for _, p in pairs(game.players) do if p.effects then p.effects.tune = nil end end   -- (a tune lasts one event)
+  for _, p in pairs(game.players) do if p.effects then p.effects.tune, p.effects.tuneNow = nil, nil end end   -- (a tune lasts one event)
   cleanupEventVehicles()   -- (no free repair after a fragile delivery since 0.9.12: the dents are yours to pay for)
   game.solo, game.closeAt = nil, nil
   if game.test and game.testFinish then return game.testFinish() end   -- (a test event: the course builder's Test event)
@@ -4359,7 +4359,6 @@ function Score.turboTimes(ranked, e)   -- head starts and penalty cards, on the 
 end
 -- /tg use <n> [rival]: use the nth prize in your glovebox
 function Score.turboUse(p, n, targetText)
-  local tc = cfg.turbo or {}
   local id = (p.glovebox or {})[n]
   local pr = id and Score.prizeDef(id)
   if not pr then say(p.pid, "No prize " .. tostring(n) .. " in your glovebox."); return end
@@ -4370,9 +4369,25 @@ function Score.turboUse(p, n, targetText)
     if q.run and q.run.status == "running" then say(p.pid, q.name .. " is on a run - try again after it."); return end
     if q.sabotagedAt == game.stage then say(p.pid, q.name .. " has already been got at this leg - try again later."); return end
   end
+  local msg = Score.turboApply(p, id, q)
+  if not msg then return end
+  table.remove(p.glovebox, n)
+  -- (msg starts "%s" = the user's name; not string.format: a problem's name can hold a % - "Tired engine (about -20% power)")
+  sayAll("TURBO: " .. p.name .. msg:sub(3) .. "!")
+  playSound("trapRecord", p)
+  pushState(p)
+end
+-- what prize `id` does: p uses it (on rival q for the nasty ones). Returns the message ("%s ..." = p's name), or nil
+-- when it can't be used (p has been told why). test (the admin's Testing tools): the tune works at once (not just
+-- in the next event) and nobody is marked as got at this leg; q may be p.
+function Score.turboApply(p, id, q, test)
+  local tc = cfg.turbo or {}
   p.effects = p.effects or {}
   local msg
-  if id == "tune" then p.effects.tune = true; msg = "%s has their engine tuned: +10% power for the next event"
+  if id == "tune" then
+    p.effects.tune = true
+    if test then p.effects.tuneNow = true end
+    msg = "%s has their engine tuned: +10% power for the next event"
   elseif id == "favour" then
     if #(p.faults or {}) == 0 then say(p.pid, "Your car has no problems to fix - keep it for later."); return end
     local fid = p.faults[math.random(#p.faults)]
@@ -4392,7 +4407,7 @@ function Score.turboUse(p, n, targetText)
   elseif id == "headstart" then p.effects.headstart = tonumber(tc.headStart) or 2; msg = "%s takes a head start: 2 s off their next event time"
   else   -- the nasty ones
     q.effects = q.effects or {}
-    q.sabotagedAt = game.stage
+    if not test then q.sabotagedAt = game.stage end
     if id == "horn" then q.effects.horn = true; msg = "%s sabotages " .. q.name .. ": their horn now goes off every time they brake"
     elseif id == "frbrake" then q.effects.frbrake = true; msg = "%s kindly upgrades " .. q.name .. "'s brakes - the front right one"
     elseif id == "sugar" then
@@ -4409,11 +4424,7 @@ function Score.turboUse(p, n, targetText)
     elseif id == "penalty" then q.effects.penalty = (q.effects.penalty or 0) + (tonumber(tc.penalty) or 3); msg = "%s shows " .. q.name .. " a penalty card: +3 s on their next event time" end
     pushState(q)
   end
-  table.remove(p.glovebox, n)
-  -- (msg starts "%s" = the user's name; not string.format: a problem's name can hold a % - "Tired engine (about -20% power)")
-  sayAll("TURBO: " .. p.name .. msg:sub(3) .. "!")
-  playSound("trapRecord", p)
-  pushState(p)
+  return msg
 end
 PLAYER_CMDS.use = function(pid, _, args)   -- /tg use <n> [rival]
   local p = playerByPid(pid)
@@ -4421,8 +4432,76 @@ PLAYER_CMDS.use = function(pid, _, args)   -- /tg use <n> [rival]
   if not Score.turboOn() then say(pid, "Turbo Mode is off."); return end
   Score.turboUse(p, math.floor(tonumber(args[3]) or 0), table.concat(args, " ", 4))
 end
+-- the Admin tab's Turbo Mode box: every prize, and each player's glovebox, Turbo effects and air time / crash counters
+function Score.turboAdminView()
+  local prizes, players = {}, {}
+  for _, pr in ipairs((cfg.turbo or {}).prizes or {}) do
+    if pr.enabled ~= false then
+      prizes[#prizes + 1] = { id = pr.id, name = pr.name, help = pr.help, target = pr.target or nil, usable = Score.prizeUsable(pr.id) }
+    end
+  end
+  for _, q in ipairs(sortedPlayers()) do
+    local held, on = {}, {}
+    for _, id in ipairs(q.glovebox or {}) do local pr = Score.prizeDef(id); held[#held + 1] = pr and pr.name or id end
+    local ef = q.effects or {}
+    if ef.tune then on[#on + 1] = ef.tuneNow and "engine tune (now)" or "engine tune (next event)" end
+    if ef.headstart then on[#on + 1] = "head start -" .. tostring(ef.headstart) .. " s" end
+    if ef.penalty then on[#on + 1] = "penalty +" .. tostring(ef.penalty) .. " s" end
+    if ef.horn then on[#on + 1] = "haunted horn" end
+    if ef.frbrake then on[#on + 1] = "front-right brake" end
+    if (q.pardons or 0) > 0 then on[#on + 1] = "get out of jail x" .. tostring(q.pardons) end
+    local r = q.run or {}
+    players[#players + 1] = { name = q.name, glovebox = held, effects = on,
+      air = math.floor((q.airTotal or 0) * 10 + 0.5) / 10, crash = math.floor(q.crashTotal or 0),
+      runAir = r.startT and math.floor(((r.endAir or q.airTotal or 0) - (r.startAir or 0)) * 10 + 0.5) / 10 or nil,
+      runCrash = r.startT and math.floor((r.endCrash or q.crashTotal or 0) - (r.startCrash or 0)) or nil }
+  end
+  local tc = cfg.turbo or {}
+  return { prizes = prizes, players = players, maxHeld = tonumber(tc.maxHeld) or 3,
+           minAir = tonumber(tc.minAir) or 1, minCrash = tonumber(tc.minCrash) or 1000 }
+end
+-- Admin testing tools (0.9.34): /tg prize test <id> [player] = the prize's effect right now (a nasty one on that player -
+-- yourself by default - from you; a helpful one for that player), skipping the glovebox and the once-a-leg / mid-run
+-- rules, told only to you and them; /tg prize clear [player] = every Turbo effect on them gone; /tg prize empty [player]
+-- = their glovebox emptied.
+function Score.turboAdminTest(pid, sub, args)
+  local admin = playerByPid(pid)
+  local id = sub == "test" and (args[4] or ""):lower() or nil
+  local rest = table.concat(args, " ", sub == "test" and 5 or 4)
+  local q = rest ~= "" and Score.findPlayer(rest) or admin
+  if not q then
+    say(pid, rest ~= "" and ("No player called " .. rest .. ".") or "You're not in the challenge - start one (Start (unfinished course) will do) and buy a car.")
+    return
+  end
+  if sub == "clear" then
+    q.effects, q.pardons, q.sabotagedAt = {}, nil, nil
+    say(pid, "Turbo test: every Turbo effect on " .. q.name .. " cleared (horn, brake, tune, head start, penalty, jail cards).")
+    pushState(q); return
+  elseif sub == "empty" then
+    q.glovebox = {}
+    say(pid, "Turbo test: " .. q.name .. "'s glovebox emptied.")
+    pushState(q); return
+  end
+  local pr = Score.prizeDef(id)
+  if not pr then say(pid, "Usage: /tg prize test <prize id> [player]"); return end
+  if not Score.prizeUsable(id) then say(pid, pr.name .. " does nothing with the current game modes."); return end
+  local user, victim = q, nil
+  if pr.target then user, victim = admin or q, q end
+  local msg = Score.turboApply(user, id, victim, true)
+  if not msg then
+    if user.pid ~= pid then say(pid, "Turbo test: " .. pr.name .. " didn't work on " .. user.name .. " (they were told why).") end
+    return
+  end
+  local text = "TURBO TEST: " .. user.name .. msg:sub(3) .. "."
+  say(pid, text)
+  if q.pid and q.pid ~= pid then say(q.pid, text) end
+  log(text)
+  pushState(user)
+end
 ADMIN_CMDS.prize = function(pid, _, args)   -- /tg prize <player> [prize id]: the producers' choice
   if not Score.turboOn() then say(pid, "Turbo Mode is off (/tg mode turbo on)."); return end
+  local sub = (args[3] or ""):lower()
+  if sub == "test" or sub == "clear" or sub == "empty" then return Score.turboAdminTest(pid, sub, args) end
   local last = (args[#args] or ""):lower()
   local id = Score.prizeDef(last) and last or nil
   local p = Score.findPlayer(table.concat(args, " ", 3, id and (#args - 1) or #args))
@@ -6115,6 +6194,7 @@ local function buildUi(pid)
     if q.pid then nIn = nIn + 1; if q.ready then nReady = nReady + 1 end end
   end
   d.ready = { n = nReady, total = nIn }
+  if d.admin and Score.turboOn() then d.turboAdmin = Score.turboAdminView() end   -- (the Admin tab's Turbo Mode box)
   -- the event's own GO in time trial mode starts the first driver: its button says who (the first to arrive)
   if game.phase == "workshop" and cfg.defaults.readyToGo ~= false then
     local _, waiting = RPC.wsAllReady()
