@@ -35,7 +35,7 @@ local RESET_ACTIONS = {
 local VEHSEL_ACTIONS = { "vehicle_selector" }
 local PARTS_ACTIONS  = { "parts_selector" }
 
-local VERSION = "0.9.34"
+local VERSION = "0.9.35"
 local recentErrors = {}
 local function warn(msg)
   log("W", "topgear", tostring(msg))
@@ -2372,8 +2372,11 @@ local function drawAdminControls(d)
     button("Start", "start"); same(); button("Start (unfinished course)", "start force"); same()
     button("Next phase", "next"); same(); confirmButton("Stop", "stop", "stop")
     if d.phase == "event" or d.phase == "countdown" then same(); confirmButton("Restart event", "restartevent", "restartevent") end
+    if d.rerun then same(); confirmButton("Rerun " .. d.rerun, "rerunevent", "rerunevent") end
     Tabs.help("Next phase: closes the dealership, forces a start, ends a run or event, or closes a workshop.\nStop needs two clicks.\n" ..
-      "Restart event (two clicks): every car back to the start as it is, every run wiped - then I'm ready and GO again.")
+      "Restart event (two clicks): every car back to the start as it is, every run wiped - then I'm ready and GO again.\n" ..
+      "Rerun (two clicks, after an event's results, until the next event starts): its results taken back - prize money,\n" ..
+      "points, a win, Turbo prizes - a workshop after it cancelled, and every car back at its start line as it is.")
     if d.traffic then
       colored(1, 0.8, 0.3, "Traffic mode is ON: what you spawn is non-scoring traffic, and your vehicle menu is open.")
       button("Turn traffic mode off##traffic", "traffic off")

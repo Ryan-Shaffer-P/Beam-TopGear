@@ -384,10 +384,16 @@ workshop location (side by side if several arrive), at the normal tow price.
 
 Admin tools (Admin tab): **Restart event** (two clicks, `/tg restartevent`) brings every car back to
 the start line as it is and wipes the runs (nothing's scored yet) - then I'm ready and GO again.
+**Rerun <event>** (0.9.35, two clicks, `/tg rerunevent`) runs an event again after its results - until the next event
+starts (on the way to it, in the workshop after it, or on the final leg). Its results are taken back (prize money,
+points, the win, the Turbo prizes it gave, head starts / penalty cards it used up); a workshop that followed is
+cancelled (its inspection dropped - money spent there stays spent) and opens again after the rerun; every car goes
+back to its start line as it is.
 Players box: **Give / Take** cash, **Award / Dock** points, and **Free respawn**
 (`/tg freerespawn <driver>`: their car fixed where it stands, or a lost car back where it was - no
 cost, no points, no DSQ), and **Bring to me** (`/tg bring <driver>`: their car, as it is, 50 m in front of
-yours, facing the way you face - `defaults.bringDistance`).
+yours, facing the way you face - `defaults.bringDistance`). A car brought to an event's start or into a workshop is
+there, but it doesn't count as arriving first: no arrival bonus, no place in the arrival order, no Turbo prize.
 
 **Names:** BeamMP gives guests random names (guest2741267). Anyone can pick what everyone sees them as -
 the name box at the top of the Status tab, or `/tg name <name>` (`/tg name` alone goes back to the BeamMP

@@ -7,7 +7,7 @@
   In game, type /tg help.
 ]]
 
-local SERVER_VERSION = "0.9.34"
+local SERVER_VERSION = "0.9.35"
 local PLUGIN_DIR  = "Resources/Server/TopGear/"
 local CONFIG_PATH = PLUGIN_DIR .. "config.json"
 local COURSES_PATH = PLUGIN_DIR .. "courses.json"   -- saved course library
@@ -1676,11 +1676,19 @@ function Score.average(p)
   if n == 0 then return 0 end
   return math.floor(sum / n * 10 + 0.5) / 10
 end
+-- was p's car brought by an admin (Bring to me) in this phase - this leg's travel, or this workshop? Then it doesn't
+-- count as arriving first (no bonus, no Turbo prize).
+function Score.brought(p, phase)
+  local b = p.broughtAt
+  if not b or b.phase ~= phase then return false end
+  if phase == "workshop" then return b.ws == game.workshopNo end
+  return b.stage == game.stage
+end
 -- a workshop inspection, once per workshop: as the car arrives, before any repair
 function Score.workshop(p, late)
   if p.wsInspectedAt == game.workshopNo then return end
   p.wsInspectedAt = game.workshopNo
-  if not late and #workshopSpots() > 0 and game.wsFirst ~= game.workshopNo then   -- (Turbo Mode: first one in)
+  if not late and #workshopSpots() > 0 and game.wsFirst ~= game.workshopNo and not Score.brought(p, "workshop") then   -- (Turbo Mode: first one in)
     game.wsFirst = game.workshopNo
     Score.turboAward(p, "first into a workshop")
   end
@@ -1960,6 +1968,11 @@ local function tickTravel()
           if tgt.kind == "via" then
             say(p.pid, tgt.label .. " reached.")
             p.leg.via = p.leg.via + 1
+          elseif Score.brought(p, "travel") then   -- (0.9.35: an admin's Bring to me - arrived, but no place, bonus or prize)
+            p.leg.arrived = true
+            p.arrivalRank = 99
+            if e.type == "trailer" and cfg.defaults.readyToGo == false then requestTrailer(p) end
+            sayAll(string.format("%s is at %s (brought by an admin - no arrival bonus or prize)", p.name, e.name))
           else
             p.leg.arrived = true
             game.arrivals = game.arrivals + 1
@@ -2766,6 +2779,15 @@ finishEvent = function()
     local tm = tonumber(p.run.time)
     if tm and tm > 0 then ctx.bestTime = math.min(ctx.bestTime or tm, tm) end
   end
+  -- (0.9.35) what these results hand out, so /tg rerunevent can take it back: cash, points, wins, Turbo prizes and the
+  -- head starts / penalty cards / tune the event used up
+  local undo = { stage = game.stage, workshopNo = game.workshopNo or 0, players = {} }
+  for _, p in pairs(game.players) do
+    local ef = p.effects or {}
+    undo.players[p.login or p.name] = { prize = 0, points = 0, win = 0, held = #(p.glovebox or {}),
+      effects = { headstart = ef.headstart, penalty = ef.penalty, tune = ef.tune } }
+  end
+  if not game.test then game.rerun = undo end
   Score.turboTimes(ranked, e)   -- (Turbo Mode: head starts and penalty cards)
   for _, p in ipairs(ranked) do finalizeScore(p, e, ctx) end
   table.sort(ranked, function(a, b) return a.run.score < b.run.score end)
@@ -2774,6 +2796,8 @@ finishEvent = function()
     local prize = cfg.economy.prizes[i] or 0
     local pts = cfg.scoring.placementPoints[i] or 0
     p.cash, p.points = p.cash + prize, p.points + pts
+    local u = undo.players[p.login or p.name]
+    if u then u.prize, u.points, u.win = prize, pts, i == 1 and 1 or 0 end
     if i == 1 then p.wins = p.wins + 1; playSound("win", p); playSound("winOthers", p) end
     p.results[game.stage] = { place = i, perf = p.run.perf, short = p.run.short, prize = prize, points = pts }
     sayAll(string.format("%s  %s - %s  (+%s, +%s pts)", ordinal(i), p.name, p.run.perf, money(prize), tostring(pts)))
@@ -2786,6 +2810,13 @@ finishEvent = function()
     if p.run.status ~= "dsq" then playSound("out", p) end   -- towed/respawned drivers heard it at the time
   end
   if not game.test then Score.turboEventPrizes(ranked, others) end   -- (Turbo Mode: cleanest car, last place, air, crash)
+  for _, p in pairs(game.players) do   -- (the prizes these results put in a glovebox)
+    local u = undo.players[p.login or p.name]
+    if u then
+      u.won = {}
+      for k = u.held + 1, #(p.glovebox or {}) do u.won[#u.won + 1] = p.glovebox[k] end
+    end
+  end
   for _, p in pairs(game.players) do if p.effects then p.effects.tune, p.effects.tuneNow = nil, nil end end   -- (a tune lasts one event)
   cleanupEventVehicles()   -- (no free repair after a fragile delivery since 0.9.12: the dents are yours to pay for)
   game.solo, game.closeAt = nil, nil
@@ -4832,9 +4863,9 @@ end
 
 -- Restart the event (0.9.20, Ryan): the running event (or its countdown) again from the start line - every car brought
 -- back as it is, every run wiped (nothing's been scored yet), trailers and RPCs removed. Then Ready -> GO as usual.
-ADMIN_CMDS.restartevent = function(pid)
-  if game.phase ~= "event" and game.phase ~= "countdown" then say(pid, "There's no event running to restart."); return end
-  local e = curEvent()
+-- everyone back at the start line of the current stage's event, as they are, runs wiped: travel with everyone arrived
+-- (then I'm ready and GO) - Restart event, and Rerun after its results
+function Course.backToStart(e)
   cleanupEventVehicles()
   game.phase, game.allHere, game.solo, game.closeAt, game.countdownEnd = "travel", false, nil, nil, nil
   game.towSlots, game.trapRecord = {}, nil
@@ -4848,9 +4879,76 @@ ADMIN_CMDS.restartevent = function(pid)
       MP.TriggerClientEvent(p.pid, "tg_tow", Util.JsonEncode({ kind = "restore", reset = false, pos = pos, dir = dir }))
     end
   end
+end
+ADMIN_CMDS.restartevent = function(pid)
+  if game.phase ~= "event" and game.phase ~= "countdown" then
+    if Course.canRerun() then say(pid, "That event is over - Rerun it (/tg rerunevent) to undo its results and run it again.")
+    else say(pid, "There's no event running to restart.") end
+    return
+  end
+  local e = curEvent()
+  Course.backToStart(e)
   sayAll(string.format("%s is restarted - your cars are going back to the start line as they are.%s", e.name,
     cfg.defaults.readyToGo ~= false and " Then I'm ready and GO, as before." or ""))
   bigAll("Restart: " .. e.name)
+  pushAll()
+end
+
+-- Rerun (0.9.35, Ryan): the event that has just finished, again - its results taken back (prize money, points, a win,
+-- the Turbo prizes it gave, the head starts / penalty cards it used), a workshop that followed it cancelled (its
+-- inspection dropped; what was spent there stays spent), and everyone back at its start line as they are.
+-- Only until the next event starts (on the way to it, in the workshop or on the final leg).
+function Course.canRerun()
+  local u = game.rerun
+  if not u or not game.events or not game.events[u.stage] then return nil end
+  local ph = game.phase
+  if ph == "travel" and game.stage == u.stage + 1 then return u end
+  if (ph == "workshop" or ph == "finale") and game.stage == u.stage then return u end
+  return nil
+end
+ADMIN_CMDS.rerunevent = function(pid)
+  local u = Course.canRerun()
+  if not u then
+    say(pid, (game.phase == "event" or game.phase == "countdown") and "An event is running - Restart event runs it again."
+      or "There's no finished event to rerun (only until the next one starts)."); return
+  end
+  local used = {}
+  for _, p in pairs(game.players) do
+    local r = u.players[p.login or p.name]
+    if r then
+      p.cash, p.points, p.wins = p.cash - (r.prize or 0), p.points - (r.points or 0), p.wins - (r.win or 0)
+      for _, id in ipairs(r.won or {}) do
+        local gone = false
+        for k = #(p.glovebox or {}), 1, -1 do
+          if p.glovebox[k] == id then table.remove(p.glovebox, k); gone = true; break end
+        end
+        if not gone then used[#used + 1] = p.name end
+      end
+      p.effects = p.effects or {}
+      for k, v in pairs(r.effects or {}) do p.effects[k] = v end
+    end
+    if p.results then p.results[u.stage] = nil end
+    if (game.workshopNo or 0) > u.workshopNo then   -- (the workshop after it: as if it hadn't opened)
+      local keep = {}
+      for _, i in ipairs(p.inspections or {}) do
+        local no = tonumber(tostring(i.where):match("^Workshop (%d+)$"))
+        if not (no and no > u.workshopNo) then keep[#keep + 1] = i end
+      end
+      p.inspections, p.wsInspectedAt, p.inShop = keep, nil, false
+    end
+  end
+  if (game.workshopNo or 0) > u.workshopNo then game.workshopNo, game.wsFirst, game.workshopEnd = u.workshopNo, nil, nil end
+  game.rerun = nil
+  game.stage, game.phaseStart, game.arrivals = u.stage, now(), 0
+  local e = curEvent()
+  game.phase = "travel"
+  Course.backToStart(e)
+  sayAll(string.format("%s will be run again - its results are taken back (prize money, points%s), and your cars are " ..
+    "going back to its start line as they are.%s", e.name, Score.turboOn() and ", Turbo prizes" or "",
+    cfg.defaults.readyToGo ~= false and " Then I'm ready and GO." or ""))
+  if #used > 0 then sayAll("(Prizes already used from those results stay used: " .. table.concat(used, ", ") .. ".)") end
+  bigAll("Rerun: " .. e.name)
+  if Save.write then Save.write() end
   pushAll()
 end
 
@@ -4887,6 +4985,7 @@ ADMIN_CMDS.bring = function(pid, _, args)
   local to = { x = pos.x + dir.x / len * dist, y = pos.y + dir.y / len * dist, z = pos.z + 0.5 }
   if p.rpc then RPC.remove(p) end   -- (their own car comes, not the reasonably priced one)
   p.towPending = now()   -- (the move isn't a reset to fine)
+  p.broughtAt = { phase = game.phase, stage = game.stage, ws = game.workshopNo }   -- (no arrival bonus / prize for it)
   MP.TriggerClientEvent(p.pid, "tg_tow", Util.JsonEncode({ kind = "bring", reset = false, pos = to, ground = true,
     dir = { x = dir.x / len, y = dir.y / len, z = 0 } }))
   say(p.pid, "An admin brought your car to them.")
@@ -6194,7 +6293,8 @@ local function buildUi(pid)
     if q.pid then nIn = nIn + 1; if q.ready then nReady = nReady + 1 end end
   end
   d.ready = { n = nReady, total = nIn }
-  if d.admin and Score.turboOn() then d.turboAdmin = Score.turboAdminView() end   -- (the Admin tab's Turbo Mode box)
+  if d.admin and Score.turboOn() then d.turboAdmin = Score.turboAdminView() end
+  if d.admin then local u = Course.canRerun(); d.rerun = u and game.events[u.stage].name or nil end   -- (Rerun <event>)   -- (the Admin tab's Turbo Mode box)
   -- the event's own GO in time trial mode starts the first driver: its button says who (the first to arrive)
   if game.phase == "workshop" and cfg.defaults.readyToGo ~= false then
     local _, waiting = RPC.wsAllReady()
