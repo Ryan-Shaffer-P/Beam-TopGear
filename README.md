@@ -315,7 +315,7 @@ modes** box, each with a (?) that explains it; everyone sees which are on. `/tg 
 
 | Mode | What it does |
 |---|---|
-| **Free Repair** (`freerepair`) | Workshop repairs, tows, respawns, unstick repairs and bringing a lost car back cost nothing - and tows and respawns cost no points either. A tow or respawn during an event still disqualifies you from it. Can be switched any time. |
+| **Free Repair** (`freerepair`) | Workshop repairs, tows, respawns, unstick repairs and bringing a lost car back cost nothing - and tows and respawns cost no points either. A tow or respawn during your run still disqualifies you from that event. Can be switched any time. |
 | **No faults** (`nofaults`) | No hidden problems: every car is New (no condition to pick, no discounts). Before `/tg start` only. |
 | **No quirks** (`noquirks`) | No quirks. Before `/tg start` only. |
 | **Turbo Mode** (`turbo`) | Prizes for everything but winning - see below. |
@@ -495,13 +495,16 @@ Player commands: `/tg menu`, `/tg go`, `/tg unstick`, `/tg tow`, `/tg respawn`, 
 - **`/tg respawn`** (Status tab button, click twice) respawns your car where it is: free at the
   dealership, the workshop repair price (15% off) in a workshop, otherwise the roadside repair + $500
   (`economy.respawnFee`) and -2 points.
-  Mid-run it's a DSQ from that event; on the final leg it means 0 at the finale inspection. If your car has
+  Mid-run it's a DSQ from that event (before your run starts - waiting your turn, or Ready but no GO yet - it isn't);
+  on the final leg it means 0 at the finale inspection. If your car has
   been lost or deleted, Respawn brings it back (that counts as a tow). Respawns are counted
   with tows on the final screen.
 - **`/tg tow`** (Status tab button, click twice) costs the roadside repair + $1,000 (`economy.towFee`)
   and -2 points, and is a full repair that keeps
-  upgrades, paid problem fixes and unfixed problems. During an event: DSQ from that event and
-  delivered to the next event's start, ready to race. During a travel leg: delivered to that
+  upgrades, paid problem fixes and unfixed problems. During your run: DSQ from that event and
+  delivered to the next event's start, ready to race. Before your run starts (0.9.35: waiting your turn in a time
+  trial, Ready but no GO yet, the start lights): no DSQ - back to this event's start, still in (in a time trial on
+  your turn, press I'm ready again). During a travel leg: delivered to that
   event's start (no arrival bonus). On the final leg: delivered to the finish with 0 at the
   finale inspection. Respawning a lost/deleted car counts as a tow and restores its upgrades.
   Tows and respawns are counted on the final screen.

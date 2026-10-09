@@ -110,6 +110,9 @@ Rerun (0.9.35): finishEvent records `game.rerun` {stage, workshopNo, players[log
 used}; `Course.canRerun()` (travel to stage+1, or workshop/finale of that stage); `/tg rerunevent` undoes it, drops later
 "Workshop N" inspections, then `Course.backToStart(e)` (shared with restartevent). Bring: `p.broughtAt` ->
 `Score.brought(p, phase)` = arrived without rank/bonus/prize (travel), no first-into-a-workshop prize.
+DSQ only once a run is under way (0.9.35, Ryan): tow/respawn with run `waiting`/`staged` = no DSQ; a tow goes to THIS
+event's start (`towDestination(p, true)`; a staged time trial runner's `run.ready` is cleared); a lost car only
+turns `running` into dnf.
 
 Players: `game.players` is keyed by the BeamMP name (= `p.login`, used for admin checks, mutes, saves); `p.name` is what
 everyone sees - an alias from `cfg.aliases[login]` (0.9.25, `/tg name`, `/tg setname`, `Score.setAlias`). Never look a

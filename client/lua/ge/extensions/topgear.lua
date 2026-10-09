@@ -3581,7 +3581,7 @@ end
 Tabs.MODES = {
   { key = "freeRepair", cmd = "freerepair", label = "Free Repair",
     help = "Every repair is free: workshop repairs, tows, respawns and unstick repairs.\n" ..
-           "A tow or respawn during an event still disqualifies you from it - and still costs its points." },
+           "A tow or respawn during your run still disqualifies you from that event - and still costs its points." },
   { key = "turbo", cmd = "turbo", label = "Turbo Mode",
     help = "Prizes for everything but winning: first to arrive at an event, the cleanest car at the finish,\n" ..
            "last place (a comeback prize), the most air time, the biggest crash, first into a workshop. They go in your glovebox (Status tab) to use\n" ..

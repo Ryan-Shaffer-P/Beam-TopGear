@@ -22,7 +22,7 @@ local DEFAULT_CONFIG = {
   admins = {},                 -- names allowed to use admin commands. EMPTY = EVERYONE (testing only)
   aliases = {},
   -- Game modes (0.9.31, Ryan): switches for the next challenge - Start tab and the Admin tab's Game modes box.
-  -- freeRepair: repairs, tows, respawns and unstick repairs cost nothing (a tow/respawn in an event still disqualifies);
+  -- freeRepair: repairs, tows, respawns and unstick repairs cost nothing (a tow/respawn mid-run still disqualifies);
   -- noFaults: every car is New (no problems, no condition discounts); noQuirks: no quirks; turbo: prizes (planned).
   modes = { freeRepair = false, noFaults = false, noQuirks = false, turbo = false },   -- (turbo: Turbo Mode, below)
   -- Turbo Mode's prizes (0.9.32): earned for everything but winning - first to arrive at an event, the cleanest car at
@@ -1766,10 +1766,10 @@ local beginWorkshop, endWorkshop, beginFinale, showResults
 local nextSoloRunner
 
 -- Where does a tow truck take this player? Returns pos, dir, targetEventIndex.
-local function towDestination(p)
+local function towDestination(p, here)   -- (here: this event's start, for a driver whose run hasn't started)
   local ph, n = game.phase, game.stage
   local idx
-  if ph == "travel" then idx = n
+  if ph == "travel" or (here and (ph == "event" or ph == "countdown")) then idx = n
   elseif ph == "event" or ph == "countdown" then idx = n + 1 end
   local e = idx and game.events[idx]
   if not (e and v3(e.start)) then return nil end
@@ -3468,7 +3468,7 @@ function TG_onVehicleDeleted(pid, vid)
     return
   end
   p.carVid, p.pos, p.prevPos = nil, nil, nil
-  if p.run.status == "running" or p.run.status == "staged" then p.run.status = "dnf" end
+  if p.run.status == "running" then p.run.status = "dnf" end   -- (before the start: still in, once it's towed back)
   if game.phase ~= "results" then
     sayAll(string.format("%s's %s is out of action! (Respawning it counts as a tow: repair price + %s.)",
       p.name, p.carName or "car", money(cfg.economy.towFee)))
@@ -3539,8 +3539,16 @@ performTow = function(p, carExists)
     local lp = p.lastPos
     if lp and tonumber(lp.x) then pos, dir = { x = lp.x, y = lp.y, z = lp.z + 0.5 }, p.lastDir end
     msg = "back where it was"
+  elseif (ph == "event" or ph == "countdown") and (p.run.status == "waiting" or p.run.status == "staged") then
+    -- (0.9.35, Ryan) the run hasn't started (waiting for a turn, or Ready but no GO yet): back to this start, still in
+    pos, dir = towDestination(p, true)
+    if p.run.status == "staged" and game.phase == "event" and p.run.ready then
+      p.run.ready = nil   -- (a time trial turn: I'm ready again once the car's back)
+      say(p.pid, "Press I'm ready again once your car is back on the start line.")
+    end
+    msg = "dropped back at the start of " .. curEvent().name .. " - your run hasn't started, so you're still in"
   elseif ph == "event" or ph == "countdown" then
-    if p.run.status == "running" or p.run.status == "staged" or p.run.status == "waiting" or p.run.status == "dnf" then
+    if p.run.status == "running" or p.run.status == "dnf" then
       p.run.status, p.run.dsqReason = "dsq", "towed"
     end
     pos, dir, idx = towDestination(p)
@@ -4689,7 +4697,7 @@ PLAYER_CMDS.respawn = function(pid)
   p.respawns = (p.respawns or 0) + 1
   p.damage, p.respawnPending = 0, now()
   local extra = ""
-  if (ph == "event" or ph == "countdown") and (p.run.status == "running" or p.run.status == "staged" or p.run.status == "waiting") then
+  if (ph == "event" or ph == "countdown") and p.run.status == "running" then   -- (not before the run starts - 0.9.35)
     p.run.status, p.run.dsqReason = "dsq", "respawned"
     playSound("out", p)
     extra = " - disqualified from " .. curEvent().name
