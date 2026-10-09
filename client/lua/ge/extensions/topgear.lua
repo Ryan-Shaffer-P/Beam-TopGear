@@ -1408,6 +1408,37 @@ end
 faults.FR_FIND = "local fi; if wheels and wheels.wheels then for i, w in pairs(wheels.wheels) do if w.name == 'FR' then fi = i end end; " ..
   "if not fi then for i, w in pairs(wheels.wheels) do if not fi and type(w.name) == 'string' and w.name:sub(1, 2) == 'FR' then fi = i end end end end; " ..
   "local wd = fi and wheels.wheels[fi]; "
+-- Sticky throttle (0.9.35, state.turbo.throttle = { every = {min, max}, hold }): every min-max s of driving (moving
+-- faster than 2 m/s) the throttle goes wide open for `hold` s - BeamNG's own input event, sent again 10x a second so
+-- the driver's pedal can't take it back - then it's let go (input 0: a held key counts again once pressed again).
+-- (input filter 2 = FILTER_DIRECT, the value as it is)
+faults.stickTick = function(car, th, dt)
+  if type(th) ~= "table" then
+    if faults.stickLeft then pcall(function() car:queueLuaCommand("input.event('throttle', 0, 2)") end) end
+    faults.stickLeft, faults.stickT = nil, nil
+    return
+  end
+  local lo, hi = tonumber((th.every or {})[1]) or 15, tonumber((th.every or {})[2]) or 45
+  if faults.stickLeft then
+    faults.stickLeft, faults.stickPulse = faults.stickLeft - dt, (faults.stickPulse or 0) - dt
+    if faults.stickLeft <= 0 then
+      faults.stickLeft, faults.stickT = nil, lo + math.random() * math.max(0, hi - lo)
+      pcall(function() car:queueLuaCommand("input.event('throttle', 0, 2)") end)
+    elseif faults.stickPulse <= 0 then
+      faults.stickPulse = 0.1
+      pcall(function() car:queueLuaCommand("input.event('throttle', 1, 2)") end)
+    end
+    return
+  end
+  faults.stickT = faults.stickT or (lo + math.random() * math.max(0, hi - lo))
+  local okV, vel = pcall(function() return car:getVelocity() end)
+  local speed = (okV and vel) and math.sqrt(vel.x * vel.x + vel.y * vel.y + vel.z * vel.z) or 0
+  if speed > 2 then faults.stickT = faults.stickT - dt end
+  if faults.stickT <= 0 then
+    faults.stickLeft, faults.stickPulse = tonumber(th.hold) or 2, 0
+    log("I", "topgear", "sticky throttle: stuck open")
+  end
+end
 faults.turboTick = function(dt)
   local tb = state.turbo or {}
   local car = getCar()
@@ -1422,6 +1453,7 @@ faults.turboTick = function(dt)
     faults.hornOn = false
     pcall(function() car:queueLuaCommand("if tgHornB then electrics.horn(false) end; tgHornB = nil") end)
   end
+  faults.stickTick(car, tb.throttle, dt)
   faults.turboT = (faults.turboT or 0) - dt
   local fr, tune = tonumber(tb.frontRight), tonumber(tb.tune)
   local changed = (fr ~= faults.frOn) or (tune ~= faults.tuneOn) or (tonumber(tb.brakes) ~= faults.wbOn)
@@ -3609,7 +3641,7 @@ Tabs.MODES = {
     help = "Prizes for everything but winning: first to arrive at an event, the cleanest car at the finish,\n" ..
            "last place (a comeback prize), the most air time, the biggest crash, first into a workshop. They go in your glovebox (Status tab) to use\n" ..
            "when you like: an engine tune, a free fix, cash, a head start... or a haunted horn, a front-right-only\n" ..
-           "brake upgrade, dodgy brake pads, sugar in the tank, the taxman or a penalty card for a rival." },
+           "brake upgrade, dodgy brake pads, a sticky throttle, sugar in the tank, the taxman or a penalty card for a rival." },
   { key = "noFaults", cmd = "nofaults", label = "No faults", locks = true,
     help = "No hidden problems: every car is New (no condition discounts either).\nSet before the challenge starts." },
   { key = "noQuirks", cmd = "noquirks", label = "No quirks", locks = true,

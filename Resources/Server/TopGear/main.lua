@@ -32,6 +32,7 @@ local DEFAULT_CONFIG = {
     maxHeld = 3,
     envelope = { 500, 2000 }, taxman = 500, headStart = 2, penalty = 3, tune = 1.1, frontRight = 3,
     weakBrakes = 0.6,   -- (0.9.35) Dodgy brake pads: a rival's brakes x this for their next event
+    stickyThrottle = { every = { 15, 45 }, hold = 2 },   -- (0.9.35) full throttle for `hold` s, every 15-45 s of driving
     minAir = 1, minCrash = 1000,   -- (0.9.33) the least air time (s) / crash damage that wins those prizes
     prizes = {
       { id = "tune", name = "Free engine tune", good = true, help = "+10% power for your next event." },
@@ -44,6 +45,7 @@ local DEFAULT_CONFIG = {
       { id = "frbrake", name = "Brake \"upgrade\"", target = true, help = "A rival's brakes upgraded - the front right one only, 3x stronger. Until their next workshop." },
       { id = "sugar", name = "Sugar in the tank", target = true, help = "A rival's engine gets tired (or springs a fuel leak) - a workshop can fix it." },
       { id = "weakbrakes", name = "Dodgy brake pads", target = true, help = "A rival's brakes 40% weaker for their next event." },
+      { id = "throttle", name = "Sticky throttle", target = true, help = "A rival's throttle sticks wide open for 2 seconds every 15-45 seconds of driving - until their next workshop." },
       { id = "taxman", name = "Taxman", target = true, help = "$500 from a rival, to you." },
       { id = "penalty", name = "Penalty card", target = true, help = "3 seconds on a rival's time in their next event." },
     },
@@ -593,17 +595,20 @@ local function loadConfig()
         if f.id == "fuelleak" and f.fireChance == nil then f.fireChance, f.fireMin, f.fireMax = 0.2, 60, 600 end
       end
     end
-    if not cfg.migrations.weakBrakes then   -- 0.9.35: a new Turbo prize (a saved prize list doesn't have it)
-      cfg.migrations.weakBrakes, changed = true, true
+    if not cfg.migrations.turboPrizes35 then   -- 0.9.35: new Turbo prizes (Dodgy brake pads, Sticky throttle) - a saved
+      cfg.migrations.turboPrizes35, changed = true, true   -- prize list doesn't have them: each goes before the next one it has
       local list = (cfg.turbo or {}).prizes
       if type(list) == "table" then
-        local have, at = false, #list + 1
-        for i, pr in ipairs(list) do
-          if pr.id == "weakbrakes" then have = true end
-          if pr.id == "taxman" then at = i end
-        end
-        if not have then
-          for _, d in ipairs(DEFAULT_CONFIG.turbo.prizes) do if d.id == "weakbrakes" then table.insert(list, at, deepcopy(d)) end end
+        local defs = DEFAULT_CONFIG.turbo.prizes
+        for k, d in ipairs(defs) do
+          if d.id == "weakbrakes" or d.id == "throttle" then
+            local have, at = false, nil
+            for _, pr in ipairs(list) do if pr.id == d.id then have = true end end
+            for j = k + 1, #defs do
+              for i, pr in ipairs(list) do if not at and pr.id == defs[j].id then at = i end end
+            end
+            if not have then table.insert(list, at or (#list + 1), deepcopy(d)) end
+          end
         end
       end
     end
@@ -1633,7 +1638,8 @@ local function stateFor(p)
     timeLeft = timeLeft(),
     eventType = curEvent() and curEvent().type or nil,
     quirks = (p.quirks and #p.quirks > 0) and p.quirks or nil,   -- (the client keeps the squeaky brakes squeaking)
-    turbo = p.effects and (p.effects.horn or p.effects.frbrake or p.effects.tune or p.effects.weakbrakes) and {   -- (Turbo Mode on this car)
+    turbo = p.effects and (p.effects.horn or p.effects.frbrake or p.effects.tune or p.effects.weakbrakes or p.effects.throttle) and {   -- (Turbo Mode on this car)
+      throttle = CONDITION.throttleOn(p) and (cfg.turbo or {}).stickyThrottle or nil,
       horn = p.effects.horn or nil, frontRight = p.effects.frbrake and (tonumber((cfg.turbo or {}).frontRight) or 3) or nil,
       brakes = (p.effects.weakbrakes and (p.effects.weakbrakesNow or ph == "countdown" or ph == "event"))
         and (tonumber((cfg.turbo or {}).weakBrakes) or 0.6) or nil,
@@ -2856,9 +2862,9 @@ beginWorkshop = function()
   game.workshopNo = (game.workshopNo or 0) + 1
   for _, p in pairs(game.players) do
     p.wsLabour, p.wsSpent, p.wsCharged, p.wsReady = false, 0, p.partsValue, nil
-    if p.effects and (p.effects.horn or p.effects.frbrake) then   -- (Turbo Mode sabotage lasts until a workshop)
-      p.effects.horn, p.effects.frbrake = nil, nil
-      say(p.pid, "The workshop has sorted the sabotage on your car (the horn and the brakes).")
+    if p.effects and (p.effects.horn or p.effects.frbrake or p.effects.throttle) then   -- (Turbo Mode sabotage lasts until a workshop)
+      p.effects.horn, p.effects.frbrake, p.effects.throttle, p.effects.throttleNow = nil, nil, nil, nil
+      say(p.pid, "The workshop has sorted the sabotage on your car (the horn, the brakes and the throttle).")
     end
   end
   if #workshopSpots() > 0 then
@@ -4472,6 +4478,10 @@ function Score.turboApply(p, id, q, test)
     if not test then q.sabotagedAt = game.stage end
     if id == "horn" then q.effects.horn = true; msg = "%s sabotages " .. q.name .. ": their horn now goes off every time they brake"
     elseif id == "frbrake" then q.effects.frbrake = true; msg = "%s kindly upgrades " .. q.name .. "'s brakes - the front right one"
+    elseif id == "throttle" then
+      q.effects.throttle = true
+      if test then q.effects.throttleNow = true end   -- (a test: at the dealership too)
+      msg = "%s jams " .. q.name .. "'s throttle: it sticks wide open now and then, until their next workshop"
     elseif id == "weakbrakes" then
       q.effects.weakbrakes = true
       if test then q.effects.weakbrakesNow = true end
@@ -4499,6 +4509,17 @@ PLAYER_CMDS.use = function(pid, _, args)   -- /tg use <n> [rival]
   if not Score.turboOn() then say(pid, "Turbo Mode is off."); return end
   Score.turboUse(p, math.floor(tonumber(args[3]) or 0), table.concat(args, " ", 4))
 end
+-- Sticky throttle works while driving: not at the start line before your run (waiting your turn, Ready, the start
+-- lights - it would jump the start), not at the dealership or the results
+function CONDITION.throttleOn(p)
+  if not (p.effects and p.effects.throttle) then return false end
+  local ph = game.phase
+  if ph == "dealer" and p.effects.throttleNow then return true end
+  if ph == "idle" or ph == "dealer" or ph == "results" or ph == "paused" or ph == "countdown" then return false end
+  local st = p.run and p.run.status
+  if ph == "event" and st ~= "running" then return false end
+  return true
+end
 -- the Admin tab's Turbo Mode box: every prize, and each player's glovebox, Turbo effects and air time / crash counters
 function Score.turboAdminView()
   local prizes, players = {}, {}
@@ -4516,6 +4537,7 @@ function Score.turboAdminView()
     if ef.penalty then on[#on + 1] = "penalty +" .. tostring(ef.penalty) .. " s" end
     if ef.horn then on[#on + 1] = "haunted horn" end
     if ef.frbrake then on[#on + 1] = "front-right brake" end
+    if ef.throttle then on[#on + 1] = CONDITION.throttleOn(q) and "sticky throttle" or "sticky throttle (paused)" end
     if ef.weakbrakes then on[#on + 1] = ef.weakbrakesNow and "dodgy brake pads (now)" or "dodgy brake pads (next event)" end
     if (q.pardons or 0) > 0 then on[#on + 1] = "get out of jail x" .. tostring(q.pardons) end
     local r = q.run or {}
@@ -4543,7 +4565,7 @@ function Score.turboAdminTest(pid, sub, args)
   end
   if sub == "clear" then
     q.effects, q.pardons, q.sabotagedAt = {}, nil, nil
-    say(pid, "Turbo test: every Turbo effect on " .. q.name .. " cleared (horn, brakes, tune, head start, penalty, jail cards).")
+    say(pid, "Turbo test: every Turbo effect on " .. q.name .. " cleared (horn, brakes, throttle, tune, head start, penalty, jail cards).")
     pushState(q); return
   elseif sub == "empty" then
     q.glovebox = {}

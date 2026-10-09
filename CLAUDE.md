@@ -96,7 +96,10 @@ charge (DSQ and tow points stay); noFaults = `faultsOn()` false; noQuirks stops 
 Turbo Mode (0.9.32, `cfg.turbo`): `Score.turboAward` (first arrival in tickTravel, `Score.turboEventPrizes` = cleanest
 + last place (good only) + most air time + biggest crash (0.9.33, starters incl. `others`) in finishEvent, first in `Score.workshop`, admin `/tg prize`) -> `p.glovebox`; `/tg use <n>
 [rival]` = `Score.turboUse` -> `p.effects` {tune, headstart, penalty, horn, frbrake, weakbrakes (0.9.35: x `turbo.weakBrakes`
-in countdown/event, cleared after the event like tune; migration `weakBrakes` adds it to a saved prize list)} (+`p.pardons`, `q.sabotagedAt`);
+in countdown/event, cleared after the event like tune), throttle (Sticky throttle: `CONDITION.throttleOn` - not in countdown or
+before your run - -> `state.turbo.throttle` -> client `faults.stickTick`: vlua `input.event('throttle', 1, 2)` 10 Hz for
+`hold` s every `every` s of driving > 2 m/s, then 0; NOT yet tried in game; cleared at the workshop)}; migration
+`turboPrizes35` adds new default prizes to a saved list (before the next one it has) (+`p.pardons`, `q.sabotagedAt`);
 `Score.turboTimes` adjusts run.time before finalizeScore; horn/frbrake cleared at beginWorkshop; `state.turbo` -> client
 `faults.turboTick` (horn on brake: vlua 10 Hz `tgHornB`; brakes (FR x3 and/or all x weakBrakes, one routine: per-wheel `tgBrakeBase`) - FR via wheel `name == 'FR'` (else first `FR...`; `faults.FR_FIND`) x3 + that wheel's ABS off
 (`hasABS`, `wheels.setWheelBrakeUpdate`; `tgFRAbs`) + `obj:getWheel(id):setBrakeSpring` - 0.9.35, NOT yet tried in game; tune via engine

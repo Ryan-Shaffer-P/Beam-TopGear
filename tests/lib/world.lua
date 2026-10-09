@@ -718,6 +718,8 @@ function World:freshPhysics(p, v)
     end,
   })
   sb.set("powertrain", { getDevice = function(name) return v.devices[name] end, getDevices = function() return v.devices end })
+  v.inputs = {}   -- (BeamNG's input events from the mod: "throttle 1" ...)
+  sb.set("input", { event = function(itype, val) v.inputs[#v.inputs + 1] = tostring(itype) .. " " .. tostring(val) end })
   sb.set("fire", { igniteVehicle = function() v.onFire = (v.onFire or 0) + 1 end })   -- (BeamNG's vehicle fire: counted)
   -- BeamNG's part conditions (career's used cars): mileage + paint wear. Like the game, setting them puts the
   -- engine/gearbox/clutch integrity values back to new, and a reset restores the conditions from their snapshot.

@@ -338,6 +338,7 @@ Status tab, at most 3) - use one when you like (`/tg use <n> [rival]`); everyone
 | Sabotage: haunted horn | a rival's horn sounds every time they brake - until their next workshop |
 | Brake "upgrade" | a rival's brakes upgraded - the front right one only, 3x stronger and with no ABS (it grabs: the car pulls right under braking) - until their next workshop |
 | Dodgy brake pads | a rival's brakes 40% weaker - for their next event only (`turbo.weakBrakes` 0.6) |
+| Sticky throttle | a rival's throttle sticks wide open for 2 s every 15-45 s of driving - until their next workshop (not while parked, and not at the start line before their run; `turbo.stickyThrottle`) |
 | Sugar in the tank | a rival's engine gets tired (or springs a fuel leak) - a workshop can fix it |
 | Taxman | $500 from a rival, to you |
 | Penalty card | 3 s on a rival's time in their next event |

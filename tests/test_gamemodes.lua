@@ -246,14 +246,47 @@ t.test("Turbo: dodgy pads and the front-right 'upgrade' together; the testing to
   w:assertClean()
 end)
 
-t.test("Turbo: a saved prize list gets Dodgy brake pads once (migration)", function()
+t.test("Turbo: a saved prize list gets the new prizes once (migration)", function()
   local cfg = turbo()
   cfg.turbo = { prizes = { { id = "tune", name = "Free engine tune", good = true, help = "x" },
                            { id = "taxman", name = "Taxman", target = true, help = "y" } } }
   local w = World.new({ files = F.files(cfg) })
   local ids = {}
   for _, pr in ipairs(w:serverConfig().turbo.prizes) do ids[#ids + 1] = pr.id end
-  t.eq(table.concat(ids, ","), "tune,weakbrakes,taxman")
+  t.eq(table.concat(ids, ","), "tune,weakbrakes,throttle,taxman")
+  w:assertClean()
+end)
+
+t.test("Turbo: Sticky throttle - wide open for 2 s every 15-45 s of driving, not before the run, until the workshop (0.9.35)", function()
+  local w = World.new({ files = F.files(turbo({ turbo = { stickyThrottle = { every = { 15, 15 }, hold = 2 } } })) })
+  local A, B = w:join("Alice"), w:join("Bob")
+  w:chat(A, "/tg start"); w:buy(A, "covet", "base_M"); w:buy(B, "pessima", "base_M")
+  w:chat(A, "/tg ready"); w:chat(B, "/tg ready"); w:step(1)
+  w:chat(A, "/tg prize alice throttle")
+  for i, pr in ipairs(w:ui(A).me.glovebox) do if pr.id == "throttle" then w:chat(A, "/tg use " .. i .. " bob") end end
+  t.ok(w:chatHas(B, "TURBO: Alice jams Bob's throttle: it sticks wide open now and then, until their next workshop!"))
+  w:step(20)   -- (parked: the clock doesn't run)
+  t.eq(#B.current.inputs, 0, "not while parked")
+  local function stuck(v) local n = 0; for _, x in ipairs(v.inputs) do if x == "throttle 1" then n = n + 1 end end; return n end
+  w:drive(B, p(250, -3), 10)   -- (25 s of driving towards the start)
+  -- (sent 10x a second in game; the harness's 0.25 s frames send it once a frame: 8 times in 2 s)
+  t.ok(stuck(B.current) >= 7 and stuck(B.current) <= 9, "stuck open for 2 s: " .. stuck(B.current))
+  t.eq(B.current.inputs[#B.current.inputs], "throttle 0", "then let go")
+  local seen = #B.current.inputs
+  w:drive(A, p(500, 3), 40); w:drive(B, p(500, -3), 40); w:step(1)
+  w:step(30)   -- (at the start, waiting for GO: no driving, no stick)
+  t.eq(#B.current.inputs, seen, "nothing while waiting at the start")
+  t.eq(w:state(B).turbo.throttle ~= nil, true, "still on in travel")
+  w:chat(A, "/tg go"); w:step(0.5)
+  t.eq(w:state(B).turbo.throttle, nil, "paused for the start lights")
+  w:waitFor(function() return w:sawMessage(A, "GO!") end, 10, "GO")
+  w:step(0.5)
+  t.ok(w:state(B).turbo.throttle ~= nil, "on again once the run starts")
+  w:driveAll({ { A, p(900), 40 }, { B, p(900), 30 } })
+  w:waitFor(function() return w:state(A).phase == "workshop" end, 15, "the workshop")
+  w:step(1)
+  t.ok(w:chatHas(B, "The workshop has sorted the sabotage on your car (the horn, the brakes and the throttle)."))
+  t.eq(w:state(B).turbo, nil, "gone")
   w:assertClean()
 end)
 
