@@ -119,6 +119,12 @@ DSQ only once a run is under way (0.9.35, Ryan): tow/respawn with run `waiting`/
 event's start (`towDestination(p, true)`; a staged time trial runner's `run.ready` is cleared); a lost car only
 turns `running` into dnf.
 
+Road guide (0.9.35, Ryan: drivers got lost): `Course.routeAhead(p, tgt)` -> `state.route` (points still to come, from the
+target; race-like types: checkpoints to the finish, circuits + one more lap, a preview from the start line while
+arrived/waiting/staged/countdown; travel/finale: vias + destination; max `Course.ROUTE_MAX`) -> client `trySetPath(pos,
+route)` = `core_groundMarkers.setPath(list)` (0.39 plans one route through a list), fallback the target. Harness:
+`client.route`; test_route. NOT yet tried in game.
+
 Players: `game.players` is keyed by the BeamMP name (= `p.login`, used for admin checks, mutes, saves); `p.name` is what
 everyone sees - an alias from `cfg.aliases[login]` (0.9.25, `/tg name`, `/tg setname`, `Score.setAlias`). Never look a
 player up by `p.name` alone; `Score.findPlayer` matches either.

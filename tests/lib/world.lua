@@ -333,7 +333,15 @@ function World:loadClient(p)
     addAction = function(_, group, blocked) c.filters[group] = c.filters[group] or {}; c.filters[group].blocked = blocked end,
   })
   sb.set("core_groundMarkers", {
-    setPath = function(pos) c.path = pos and vec3(pos) or nil end,
+    setPath = function(pos)   -- (a list of points = a route through them all: c.route; c.path = where it goes first)
+      if type(pos) == "table" and pos[1] then
+        c.route = {}
+        for i, q in ipairs(pos) do c.route[i] = vec3(q) end
+        c.path = vec3(pos[1])
+      else
+        c.path, c.route = pos and vec3(pos) or nil, nil
+      end
+    end,
     currentlyHasTarget = function() return c.path ~= nil end,
   })
 

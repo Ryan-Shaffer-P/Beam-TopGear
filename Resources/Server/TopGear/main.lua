@@ -1596,6 +1596,50 @@ local function currentTarget(p)
   return nil
 end
 
+-- The road guide (0.9.35, Ryan: drivers got lost - the guide only went to the next checkpoint, so you could need to turn
+-- before it updated): every point still to come, in order, for the game to plan one route through them all. Starts with
+-- the current target. A race: the checkpoints left to the finish; a circuit: the rest of this lap and the whole next
+-- one (if there is one); at the start before your run: the whole course from the start line (a preview); the drive to
+-- an event or the finale: the waypoints left and the destination. Nothing for parking, slalom, speed trap, workshop.
+Course.ROUTE_MAX = 40
+function Course.routeAhead(p, tgt)
+  local e, ph = curEvent(), game.phase
+  if not (tgt and v3(tgt.pos)) then return nil end
+  local pts = {}
+  local function add(pos)
+    local q = v3(pos)
+    if q and #pts < Course.ROUTE_MAX then pts[#pts + 1] = { x = q.x, y = q.y, z = q.z } end
+  end
+  local function course(from, lapsAfter)   -- the event's own points from checkpoint `from`, then whole laps
+    local cps = routePoints(e)
+    for i = from, #cps do add(cps[i]) end
+    for _ = 1, lapsAfter do for i = 1, #cps do add(cps[i]) end end
+  end
+  local racing = e and (e.type == "race" or e.type == "circuit" or e.type == "rpc" or e.type == "fragile"
+    or e.type == "economy" or e.type == "trailer")
+  local lapped = e and (e.type == "circuit" or e.type == "rpc")
+  local laps = e and math.max(1, math.floor(tonumber(e.laps) or 3)) or 1
+  local st = p.run and p.run.status
+  local atStart = (ph == "travel" and p.leg and p.leg.arrived) or ph == "countdown"
+    or (ph == "event" and (st == "waiting" or st == "staged"))
+  if racing and st == "running" then
+    add(tgt.pos)
+    if lapped then course(p.run.cp + 1, ((p.run.lap or 1) < laps) and 1 or 0)
+    else course(p.run.cp + 1, 0) end
+  elseif racing and atStart and v3(e.start) then   -- a preview of the course, from the start line
+    add(e.start)
+    course(1, 0)
+  elseif (ph == "travel" and e) or ph == "finale" then
+    local via, dest = (ph == "finale") and (cfg.finale.via or {}) or (e.via or {}), (ph == "finale") and cfg.finale.pos or e.start
+    add(tgt.pos)
+    for i = (p.leg and p.leg.via or 1) + 1, #via do add(via[i]) end
+    if p.leg and p.leg.via <= #via then add(dest) end
+  else
+    return nil
+  end
+  return #pts >= 2 and pts or nil
+end
+
 local function timeLeft()
   local e, t = curEvent(), now()
   if game.phase == "countdown" then return game.countdownEnd - t
@@ -1653,6 +1697,7 @@ local function stateFor(p)
   local tgt = currentTarget(p)
   local tp = tgt and v3(tgt.pos)
   if tp then s.target = { x = tp.x, y = tp.y, z = tp.z, r = tgt.r, label = tgt.label, line = tgt.line, dir = tgt.dir, face = tgt.face } end
+  if tp then s.route = Course.routeAhead(p, tgt) end   -- (the road guide: the whole way, not just to the next point)
   return s
 end
 local function pushState(p)

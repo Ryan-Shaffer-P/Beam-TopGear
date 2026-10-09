@@ -872,6 +872,16 @@ internals that change between game versions; each is wrapped so failure is logge
   upgrades bill labour only.
 - BeamMP spawn/edit data parsing (`jbm`, `vcf.partConfigFilename`) — `debugSpawns` shows the raw data.
 
+## The road guide
+
+The arrows on the road show the whole way, not just the way to the next point (0.9.35):
+- **In a race** (and fragile, economy, trailer): through every checkpoint left, to the finish. **Circuits:** the rest
+  of this lap and the whole next one (on the last lap, to the line).
+- **At the start before your run** (waiting, I'm ready, the start lights): the whole course from the start line - a
+  preview, so you know where it goes.
+- **On the drive to an event or the finale:** through every waypoint left, to the destination.
+- Parking, slalom and speed trap events, and workshops, still point at the next spot only.
+
 ## No arrows?
 
 - There's no destination during the dealership. Arrows start with leg 1, after `/tg ready`.
@@ -879,7 +889,8 @@ internals that change between game versions; each is wrapped so failure is logge
 - Arrows follow the AI road network, so off-road targets may get no route. The tall orange
   beacon at the target and the compass arrow in the HUD line always work.
 - Open the game console (`~`) and filter for `topgear`. Each new target logs a line like
-  `target 'Checkpoint 1/3' at ..., arrows via core_groundMarkers.setPath`. `NONE` means your
+  `target 'Checkpoint 1/3' at ..., arrows via core_groundMarkers.setPath (4 points)` (a whole route; a
+  `... with a route failed` warning means your game only takes one point - you get the next point only). `NONE` means your
   game version has none of the route functions this mod knows. Send me that log.
 
 ## Rebuilding the client zip

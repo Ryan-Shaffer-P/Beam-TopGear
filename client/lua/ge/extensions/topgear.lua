@@ -162,7 +162,20 @@ end
 -- differently, so try each and log which one worked (see the game console, filter "topgear").
 local pathMethod, pathCarId, pathKey, reassertTimer = nil, nil, nil, 0
 
-local function trySetPath(pos)
+-- route (0.9.35): every point still to come (state.route, starting with the target) - BeamNG's setPath takes a list of
+-- waypoints and plans one road route through them all, so the guide shows the whole way, not just to the next point.
+-- Only setPath takes a list; if it refuses one, the plain target is used.
+local function trySetPath(pos, route)
+  if route and #route >= 2 then
+    local okGet, fn = pcall(function() return core_groundMarkers and core_groundMarkers.setPath end)
+    if okGet and type(fn) == "function" then
+      local list = {}
+      for i, q in ipairs(route) do list[i] = vec3(q.x, q.y, q.z) end
+      local ok, err = pcall(fn, list)
+      if ok then return "core_groundMarkers.setPath (" .. #list .. " points)" end
+      warn("core_groundMarkers.setPath with a route failed: " .. tostring(err) .. " - the next point only")
+    end
+  end
   local attempts = {
     { "core_groundMarkers.setPath",  function() return core_groundMarkers and core_groundMarkers.setPath end },
     { "core_groundMarkers.setFocus", function() return core_groundMarkers and core_groundMarkers.setFocus end },
@@ -182,12 +195,17 @@ end
 local function applyPath(force)
   local t = state.target
   local key = t and string.format("%.1f,%.1f,%.1f", t.x, t.y, t.z) or "none"
+  local route = t and type(state.route) == "table" and #state.route >= 2 and state.route or nil
+  if route then   -- (a new route = a new key: the first point and how many are left are enough to tell)
+    local last = route[#route]
+    key = key .. string.format("|%d|%.1f,%.1f", #route, tonumber(last.x) or 0, tonumber(last.y) or 0)
+  end
   local car = getCar()
   local carId = car and car:getID() or -1
   if not force and key == pathKey and carId == pathCarId and (pathMethod or not t) then return end
   pathKey, pathCarId = key, carId
   if not t then trySetPath(nil); pathMethod = nil; return end
-  pathMethod = trySetPath(vec3(t.x, t.y, t.z))
+  pathMethod = trySetPath(vec3(t.x, t.y, t.z), route)
   log("I", "topgear", string.format("target '%s' at %s, arrows via %s", tostring(t.label), key, tostring(pathMethod or "NONE")))
 end
 
