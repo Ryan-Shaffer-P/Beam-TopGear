@@ -695,9 +695,13 @@ function World:freshPhysics(p, v)
     v.engine.thermals = { applyDeformGroupDamageRadiator = function(a) v.radiatorDamage = v.radiatorDamage + a end }
   end
   v.wheels = {}
-  for i = 0, 3 do v.wheels[i] = { name = ({ [0] = "FL", "FR", "RL", "RR" })[i], brakeTorque = BRAKE_TORQUE, padGlazingFactor = 0 } end
+  for i = 0, 3 do
+    v.wheels[i] = { name = ({ [0] = "FL", "FR", "RL", "RR" })[i], brakeTorque = BRAKE_TORQUE, padGlazingFactor = 0, hasABS = true,
+                    wheelID = i, updateBrakeNoABS = function() end, updateBrakeABS = function() end }
+  end
+  v.brakeSprings = {}   -- (obj:getWheel(id):setBrakeSpring)
   local sb = sandbox.new({ label = "vlua:" .. p.name .. ":" .. v.model, allowWrite = function() return true end })
-  sb.declare("tgFaults", "tgSqueal", "tgLights", "tgHornB", "tgFRBase", "tgTuneBase")   -- (the mod's own car-side globals: faults, squeaky brakes, flickering lights)
+  sb.declare("tgFaults", "tgSqueal", "tgLights", "tgHornB", "tgFRBase", "tgFRAbs", "tgTuneBase")   -- (the mod's own car-side globals: faults, squeaky brakes, flickering lights)
   sb.set("vec3", vec3)
   sb.set("RESET_PHYSICS", 1)
   sb.set("obj", {
@@ -709,6 +713,9 @@ function World:freshPhysics(p, v)
     getDirectionVector = function() return vecmath.dirFromQuat(vecmath.quatFromYaw(v.yaw or 0)) end,
     getDirectionVectorUp = function() return vec3(0, 0, 1) end,
     getNodePosition = function(_, cid) return vec3(v.nodePos[cid] or vec3(0, 0, 0)) end,
+    getWheel = function(_, id)
+      return { setBrakeSpring = function(_, k) v.brakeSprings[id] = k end }
+    end,
   })
   sb.set("powertrain", { getDevice = function(name) return v.devices[name] end, getDevices = function() return v.devices end })
   sb.set("fire", { igniteVehicle = function() v.onFire = (v.onFire or 0) + 1 end })   -- (BeamNG's vehicle fire: counted)
@@ -742,6 +749,9 @@ function World:freshPhysics(p, v)
   end
   sb.set("hydros", { hydros = v.hydros })
   sb.set("wheels", { wheels = v.wheels,
+    setWheelBrakeUpdate = function(name)   -- (the game picks each wheel's ABS / no-ABS brake from its hasABS)
+      for _, wd in pairs(v.wheels) do if wd.name == name then wd.absOn = wd.hasABS and v.abs ~= "off" end end
+    end,
     setABSBehavior = function(b) v.abs = b end, resetABSBehavior = function() v.abs = "realistic" end })
   sb.set("energyStorage", { getStorages = function()
     if traits.noFuelTank then   -- an electric car: a battery, no fuel tank

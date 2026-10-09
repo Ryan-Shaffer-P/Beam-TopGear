@@ -336,7 +336,7 @@ Status tab, at most 3) - use one when you like (`/tg use <n> [rival]`); everyone
 | Producers' envelope | $500-2,000 |
 | Head start | 2 s off your time in the next event |
 | Sabotage: haunted horn | a rival's horn sounds every time they brake - until their next workshop |
-| Brake "upgrade" | a rival's brakes upgraded - the front right one only, 3x stronger - until their next workshop |
+| Brake "upgrade" | a rival's brakes upgraded - the front right one only, 3x stronger and with no ABS (it grabs: the car pulls right under braking) - until their next workshop |
 | Sugar in the tank | a rival's engine gets tired (or springs a fuel leak) - a workshop can fix it |
 | Taxman | $500 from a rival, to you |
 | Penalty card | 3 s on a rival's time in their next event |

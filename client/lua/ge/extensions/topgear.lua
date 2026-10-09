@@ -1405,6 +1405,9 @@ end
 -- Turbo Mode on this car (0.9.32, state.turbo): horn = the horn sounds while braking (checked 10x a second, switched only
 -- when it changes); frontRight = the front right brake x that; tune = engine power x that (for one event). Kept on
 -- every 10 s (a reset builds the car again from its own values); each put back when it ends.
+faults.FR_FIND = "local fi; if wheels and wheels.wheels then for i, w in pairs(wheels.wheels) do if w.name == 'FR' then fi = i end end; " ..
+  "if not fi then for i, w in pairs(wheels.wheels) do if not fi and type(w.name) == 'string' and w.name:sub(1, 2) == 'FR' then fi = i end end end end; " ..
+  "local wd = fi and wheels.wheels[fi]; "
 faults.turboTick = function(dt)
   local tb = state.turbo or {}
   local car = getCar()
@@ -1424,13 +1427,25 @@ faults.turboTick = function(dt)
   local changed = (fr ~= faults.frOn) or (tune ~= faults.tuneOn)
   if faults.turboT > 0 and not changed then return end
   faults.turboT = 10
+  -- (0.9.35, Ryan: "doesn't really work") the game brakes each wheel from its own brakeTorque, but ABS eased the
+  -- stronger brake off and the physics brake spring stayed at the old strength - so that wheel's ABS goes off too
+  -- (it grabs and pulls right) and its brake spring follows the torque. The wheel: "FR", else the first "FR..." (FR1).
   if fr then
-    pcall(function() car:queueLuaCommand(string.format("if wheels and wheels.wheels then for i, wd in pairs(wheels.wheels) do " ..
-      "if wd.name == 'FR' and tonumber(wd.brakeTorque) then local o = tgFaults and tgFaults.brakeOrig and tgFaults.brakeOrig[i]; " ..
-      "tgFRBase = (o and o * (tgFaults.brakes or 1)) or tgFRBase or wd.brakeTorque; wd.brakeTorque = tgFRBase * %g end end end", fr)) end)
+    pcall(function() car:queueLuaCommand(faults.FR_FIND .. string.format(
+      "if wd and tonumber(wd.brakeTorque) then local o = tgFaults and tgFaults.brakeOrig and tgFaults.brakeOrig[fi]; " ..
+      "tgFRBase = (o and o * (tgFaults.brakes or 1)) or tgFRBase or wd.brakeTorque; wd.brakeTorque = tgFRBase * %g; " ..
+      "if tgFRAbs == nil then tgFRAbs = wd.hasABS or false end; wd.hasABS = false; " ..
+      "pcall(function() if wheels.setWheelBrakeUpdate and wd.updateBrakeNoABS then " ..
+      "wheels.setWheelBrakeUpdate(wd.name, wd.updateBrakeNoABS, wd.updateBrakeABS) end end); " ..
+      "pcall(function() local wo = obj:getWheel(wd.wheelID); if wo then " ..
+      "wo:setBrakeSpring(math.max(wd.brakeTorque, wd.parkingTorque or 0, 1) * 10) end end) end", fr)) end)
   elseif faults.frOn then
-    pcall(function() car:queueLuaCommand("if tgFRBase and wheels and wheels.wheels then for _, wd in pairs(wheels.wheels) do " ..
-      "if wd.name == 'FR' then wd.brakeTorque = tgFRBase end end end; tgFRBase = nil") end)
+    pcall(function() car:queueLuaCommand(faults.FR_FIND ..
+      "if wd and tgFRBase then wd.brakeTorque = tgFRBase; if tgFRAbs ~= nil then wd.hasABS = tgFRAbs end; " ..
+      "pcall(function() if wheels.setWheelBrakeUpdate and wd.updateBrakeNoABS then " ..
+      "wheels.setWheelBrakeUpdate(wd.name, wd.updateBrakeNoABS, wd.updateBrakeABS) end end); " ..
+      "pcall(function() local wo = obj:getWheel(wd.wheelID); if wo then " ..
+      "wo:setBrakeSpring(math.max(wd.brakeTorque, wd.parkingTorque or 0, 1) * 10) end end) end; tgFRBase, tgFRAbs = nil, nil") end)
   end
   if tune then
     pcall(function() car:queueLuaCommand(string.format("local e = powertrain and powertrain.getDevice and powertrain.getDevice('mainEngine'); " ..

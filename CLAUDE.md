@@ -97,7 +97,8 @@ Turbo Mode (0.9.32, `cfg.turbo`): `Score.turboAward` (first arrival in tickTrave
 + last place (good only) + most air time + biggest crash (0.9.33, starters incl. `others`) in finishEvent, first in `Score.workshop`, admin `/tg prize`) -> `p.glovebox`; `/tg use <n>
 [rival]` = `Score.turboUse` -> `p.effects` {tune, headstart, penalty, horn, frbrake} (+`p.pardons`, `q.sabotagedAt`);
 `Score.turboTimes` adjusts run.time before finalizeScore; horn/frbrake cleared at beginWorkshop; `state.turbo` -> client
-`faults.turboTick` (horn on brake: vlua 10 Hz `tgHornB`; FR brake via wheel `name == 'FR'` `tgFRBase`; tune via engine
+`faults.turboTick` (horn on brake: vlua 10 Hz `tgHornB`; FR brake via wheel `name == 'FR'` (else first `FR...`; `faults.FR_FIND`) `tgFRBase` x3 + that wheel's ABS off
+(`hasABS`, `wheels.setWheelBrakeUpdate`; `tgFRAbs`) + `obj:getWheel(id):setBrakeSpring` - 0.9.35, NOT yet tried in game; tune via engine
 `outputTorqueState` `tgTuneBase`). Messages: never `string.format` a text holding a problem name (they contain "%").
 Air time / crash (0.9.33): client `faults.airTick` = free fall (vertical speed dropping at ~1 g, streaks >= 0.3 s;
 NOT yet tried in game) -> `air` running total in tg_report -> server `p.airTotal` (`p.airSeen` handles a client restart);
