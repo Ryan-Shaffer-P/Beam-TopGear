@@ -1403,7 +1403,7 @@ faults.quirkTick = function(dt)
 end
 
 -- Turbo Mode on this car (0.9.32, state.turbo): horn = the horn sounds while braking (checked 10x a second, switched only
--- when it changes); frontRight = the front right brake x that; tune = engine power x that (for one event). Kept on
+-- when it changes); frontRight / brakes = the brakes (below); tune = engine power x that (for one event). Kept on
 -- every 10 s (a reset builds the car again from its own values); each put back when it ends.
 faults.FR_FIND = "local fi; if wheels and wheels.wheels then for i, w in pairs(wheels.wheels) do if w.name == 'FR' then fi = i end end; " ..
   "if not fi then for i, w in pairs(wheels.wheels) do if not fi and type(w.name) == 'string' and w.name:sub(1, 2) == 'FR' then fi = i end end end end; " ..
@@ -1424,28 +1424,36 @@ faults.turboTick = function(dt)
   end
   faults.turboT = (faults.turboT or 0) - dt
   local fr, tune = tonumber(tb.frontRight), tonumber(tb.tune)
-  local changed = (fr ~= faults.frOn) or (tune ~= faults.tuneOn)
+  local changed = (fr ~= faults.frOn) or (tune ~= faults.tuneOn) or (tonumber(tb.brakes) ~= faults.wbOn)
   if faults.turboT > 0 and not changed then return end
   faults.turboT = 10
-  -- (0.9.35, Ryan: "doesn't really work") the game brakes each wheel from its own brakeTorque, but ABS eased the
-  -- stronger brake off and the physics brake spring stayed at the old strength - so that wheel's ABS goes off too
-  -- (it grabs and pulls right) and its brake spring follows the torque. The wheel: "FR", else the first "FR..." (FR1).
-  if fr then
+  -- Brakes: frontRight = the front right brake x that; brakes = every brake x that (Dodgy brake pads, 0.9.35). Each wheel's
+  -- base is the brake fault's own (tgFaults.brakeOrig x its factor) or what it was when we started (tgBrakeBase).
+  -- (0.9.35, Ryan: the front right "doesn't really work") the game brakes each wheel from its own brakeTorque, but ABS
+  -- eased the stronger brake off and the physics brake spring stayed at the old strength - so that wheel's ABS goes
+  -- off too (it grabs and pulls right) and every brake spring follows its torque. The wheel: "FR", else the first "FR..".
+  local wb = tonumber(tb.brakes)
+  if fr or wb then
     pcall(function() car:queueLuaCommand(faults.FR_FIND .. string.format(
-      "if wd and tonumber(wd.brakeTorque) then local o = tgFaults and tgFaults.brakeOrig and tgFaults.brakeOrig[fi]; " ..
-      "tgFRBase = (o and o * (tgFaults.brakes or 1)) or tgFRBase or wd.brakeTorque; wd.brakeTorque = tgFRBase * %g; " ..
-      "if tgFRAbs == nil then tgFRAbs = wd.hasABS or false end; wd.hasABS = false; " ..
+      "if wheels and wheels.wheels then tgBrakeBase = tgBrakeBase or {}; local frx, wbx = %g, %g; " ..
+      "for i, w in pairs(wheels.wheels) do if tonumber(w.brakeTorque) then " ..
+      "local o = tgFaults and tgFaults.brakeOrig and tgFaults.brakeOrig[i]; " ..
+      "local b = (o and o * (tgFaults.brakes or 1)) or tgBrakeBase[i] or w.brakeTorque; tgBrakeBase[i] = b; " ..
+      "w.brakeTorque = b * wbx * ((i == fi and frx > 1) and frx or 1); " ..
+      "pcall(function() local wo = obj:getWheel(w.wheelID); if wo then wo:setBrakeSpring(math.max(w.brakeTorque, w.parkingTorque or 0, 1) * 10) end end) " ..
+      "end end; " ..
+      "if wd then local want = frx > 1; if want and tgFRAbs == nil then tgFRAbs = wd.hasABS or false end; " ..
+      "if want then wd.hasABS = false elseif tgFRAbs ~= nil then wd.hasABS = tgFRAbs; tgFRAbs = nil end; " ..
       "pcall(function() if wheels.setWheelBrakeUpdate and wd.updateBrakeNoABS then " ..
-      "wheels.setWheelBrakeUpdate(wd.name, wd.updateBrakeNoABS, wd.updateBrakeABS) end end); " ..
-      "pcall(function() local wo = obj:getWheel(wd.wheelID); if wo then " ..
-      "wo:setBrakeSpring(math.max(wd.brakeTorque, wd.parkingTorque or 0, 1) * 10) end end) end", fr)) end)
-  elseif faults.frOn then
+      "wheels.setWheelBrakeUpdate(wd.name, wd.updateBrakeNoABS, wd.updateBrakeABS) end end) end end", fr or 1, wb or 1)) end)
+  elseif faults.frOn or faults.wbOn then
     pcall(function() car:queueLuaCommand(faults.FR_FIND ..
-      "if wd and tgFRBase then wd.brakeTorque = tgFRBase; if tgFRAbs ~= nil then wd.hasABS = tgFRAbs end; " ..
-      "pcall(function() if wheels.setWheelBrakeUpdate and wd.updateBrakeNoABS then " ..
-      "wheels.setWheelBrakeUpdate(wd.name, wd.updateBrakeNoABS, wd.updateBrakeABS) end end); " ..
-      "pcall(function() local wo = obj:getWheel(wd.wheelID); if wo then " ..
-      "wo:setBrakeSpring(math.max(wd.brakeTorque, wd.parkingTorque or 0, 1) * 10) end end) end; tgFRBase, tgFRAbs = nil, nil") end)
+      "if tgBrakeBase and wheels and wheels.wheels then for i, w in pairs(wheels.wheels) do " ..
+      "if tgBrakeBase[i] then w.brakeTorque = tgBrakeBase[i]; " ..
+      "pcall(function() local wo = obj:getWheel(w.wheelID); if wo then wo:setBrakeSpring(math.max(w.brakeTorque, w.parkingTorque or 0, 1) * 10) end end) " ..
+      "end end end; " ..
+      "if wd and tgFRAbs ~= nil then wd.hasABS = tgFRAbs; pcall(function() if wheels.setWheelBrakeUpdate and wd.updateBrakeNoABS then " ..
+      "wheels.setWheelBrakeUpdate(wd.name, wd.updateBrakeNoABS, wd.updateBrakeABS) end end) end; tgBrakeBase, tgFRAbs = nil, nil") end)
   end
   if tune then
     pcall(function() car:queueLuaCommand(string.format("local e = powertrain and powertrain.getDevice and powertrain.getDevice('mainEngine'); " ..
@@ -1454,7 +1462,7 @@ faults.turboTick = function(dt)
     pcall(function() car:queueLuaCommand("local e = powertrain and powertrain.getDevice and powertrain.getDevice('mainEngine'); " ..
       "if e and tgTuneBase then e.outputTorqueState = tgTuneBase end; tgTuneBase = nil") end)
   end
-  faults.frOn, faults.tuneOn = fr, tune
+  faults.frOn, faults.tuneOn, faults.wbOn = fr, tune, tonumber(tb.brakes)
 end
 
 -- Air time (0.9.33, Turbo Mode's "most air time" prize): the car is in the air while it falls freely - its vertical
@@ -3601,7 +3609,7 @@ Tabs.MODES = {
     help = "Prizes for everything but winning: first to arrive at an event, the cleanest car at the finish,\n" ..
            "last place (a comeback prize), the most air time, the biggest crash, first into a workshop. They go in your glovebox (Status tab) to use\n" ..
            "when you like: an engine tune, a free fix, cash, a head start... or a haunted horn, a front-right-only\n" ..
-           "brake upgrade, sugar in the tank, the taxman or a penalty card for a rival." },
+           "brake upgrade, dodgy brake pads, sugar in the tank, the taxman or a penalty card for a rival." },
   { key = "noFaults", cmd = "nofaults", label = "No faults", locks = true,
     help = "No hidden problems: every car is New (no condition discounts either).\nSet before the challenge starts." },
   { key = "noQuirks", cmd = "noquirks", label = "No quirks", locks = true,

@@ -31,6 +31,7 @@ local DEFAULT_CONFIG = {
   turbo = {
     maxHeld = 3,
     envelope = { 500, 2000 }, taxman = 500, headStart = 2, penalty = 3, tune = 1.1, frontRight = 3,
+    weakBrakes = 0.6,   -- (0.9.35) Dodgy brake pads: a rival's brakes x this for their next event
     minAir = 1, minCrash = 1000,   -- (0.9.33) the least air time (s) / crash damage that wins those prizes
     prizes = {
       { id = "tune", name = "Free engine tune", good = true, help = "+10% power for your next event." },
@@ -42,6 +43,7 @@ local DEFAULT_CONFIG = {
       { id = "horn", name = "Sabotage: haunted horn", target = true, help = "A rival's horn sounds every time they brake - until their next workshop." },
       { id = "frbrake", name = "Brake \"upgrade\"", target = true, help = "A rival's brakes upgraded - the front right one only, 3x stronger. Until their next workshop." },
       { id = "sugar", name = "Sugar in the tank", target = true, help = "A rival's engine gets tired (or springs a fuel leak) - a workshop can fix it." },
+      { id = "weakbrakes", name = "Dodgy brake pads", target = true, help = "A rival's brakes 40% weaker for their next event." },
       { id = "taxman", name = "Taxman", target = true, help = "$500 from a rival, to you." },
       { id = "penalty", name = "Penalty card", target = true, help = "3 seconds on a rival's time in their next event." },
     },
@@ -589,6 +591,20 @@ local function loadConfig()
       cfg.migrations.fuelFire, changed = true, true
       for _, f in ipairs((cfg.faults or {}).list or {}) do
         if f.id == "fuelleak" and f.fireChance == nil then f.fireChance, f.fireMin, f.fireMax = 0.2, 60, 600 end
+      end
+    end
+    if not cfg.migrations.weakBrakes then   -- 0.9.35: a new Turbo prize (a saved prize list doesn't have it)
+      cfg.migrations.weakBrakes, changed = true, true
+      local list = (cfg.turbo or {}).prizes
+      if type(list) == "table" then
+        local have, at = false, #list + 1
+        for i, pr in ipairs(list) do
+          if pr.id == "weakbrakes" then have = true end
+          if pr.id == "taxman" then at = i end
+        end
+        if not have then
+          for _, d in ipairs(DEFAULT_CONFIG.turbo.prizes) do if d.id == "weakbrakes" then table.insert(list, at, deepcopy(d)) end end
+        end
       end
     end
     if not cfg.migrations.faultTiers then   -- 0.9.21: problem tiers and groups (a saved list has none)
@@ -1617,8 +1633,10 @@ local function stateFor(p)
     timeLeft = timeLeft(),
     eventType = curEvent() and curEvent().type or nil,
     quirks = (p.quirks and #p.quirks > 0) and p.quirks or nil,   -- (the client keeps the squeaky brakes squeaking)
-    turbo = p.effects and (p.effects.horn or p.effects.frbrake or p.effects.tune) and {   -- (Turbo Mode on this car)
+    turbo = p.effects and (p.effects.horn or p.effects.frbrake or p.effects.tune or p.effects.weakbrakes) and {   -- (Turbo Mode on this car)
       horn = p.effects.horn or nil, frontRight = p.effects.frbrake and (tonumber((cfg.turbo or {}).frontRight) or 3) or nil,
+      brakes = (p.effects.weakbrakes and (p.effects.weakbrakesNow or ph == "countdown" or ph == "event"))
+        and (tonumber((cfg.turbo or {}).weakBrakes) or 0.6) or nil,
       tune = (p.effects.tune and (p.effects.tuneNow or ph == "countdown" or ph == "event")) and (tonumber((cfg.turbo or {}).tune) or 1.1) or nil } or nil,
   }
   if ph == "countdown" and game.countdownEnd then
@@ -2785,7 +2803,7 @@ finishEvent = function()
   for _, p in pairs(game.players) do
     local ef = p.effects or {}
     undo.players[p.login or p.name] = { prize = 0, points = 0, win = 0, held = #(p.glovebox or {}),
-      effects = { headstart = ef.headstart, penalty = ef.penalty, tune = ef.tune } }
+      effects = { headstart = ef.headstart, penalty = ef.penalty, tune = ef.tune, weakbrakes = ef.weakbrakes } }
   end
   if not game.test then game.rerun = undo end
   Score.turboTimes(ranked, e)   -- (Turbo Mode: head starts and penalty cards)
@@ -2817,7 +2835,12 @@ finishEvent = function()
       for k = u.held + 1, #(p.glovebox or {}) do u.won[#u.won + 1] = p.glovebox[k] end
     end
   end
-  for _, p in pairs(game.players) do if p.effects then p.effects.tune, p.effects.tuneNow = nil, nil end end   -- (a tune lasts one event)
+  for _, p in pairs(game.players) do   -- (a tune and dodgy brake pads last one event)
+    if p.effects then
+      if p.effects.weakbrakes then say(p.pid, "Your brake pads are back to normal.") end
+      p.effects.tune, p.effects.tuneNow, p.effects.weakbrakes, p.effects.weakbrakesNow = nil, nil, nil, nil
+    end
+  end
   cleanupEventVehicles()   -- (no free repair after a fragile delivery since 0.9.12: the dents are yours to pay for)
   game.solo, game.closeAt = nil, nil
   if game.test and game.testFinish then return game.testFinish() end   -- (a test event: the course builder's Test event)
@@ -4449,6 +4472,11 @@ function Score.turboApply(p, id, q, test)
     if not test then q.sabotagedAt = game.stage end
     if id == "horn" then q.effects.horn = true; msg = "%s sabotages " .. q.name .. ": their horn now goes off every time they brake"
     elseif id == "frbrake" then q.effects.frbrake = true; msg = "%s kindly upgrades " .. q.name .. "'s brakes - the front right one"
+    elseif id == "weakbrakes" then
+      q.effects.weakbrakes = true
+      if test then q.effects.weakbrakesNow = true end
+      msg = "%s fits " .. q.name .. " some dodgy brake pads: " ..
+        tostring(math.floor((1 - (tonumber(tc.weakBrakes) or 0.6)) * 100 + 0.5)) .. "% less brakes for their next event"
     elseif id == "sugar" then
       local fid = hasFault(q, "engine") and "fuelleak" or "engine"
       if hasFault(q, fid) then say(p.pid, q.name .. "'s engine is already as bad as it gets - pick another rival."); return end
@@ -4488,6 +4516,7 @@ function Score.turboAdminView()
     if ef.penalty then on[#on + 1] = "penalty +" .. tostring(ef.penalty) .. " s" end
     if ef.horn then on[#on + 1] = "haunted horn" end
     if ef.frbrake then on[#on + 1] = "front-right brake" end
+    if ef.weakbrakes then on[#on + 1] = ef.weakbrakesNow and "dodgy brake pads (now)" or "dodgy brake pads (next event)" end
     if (q.pardons or 0) > 0 then on[#on + 1] = "get out of jail x" .. tostring(q.pardons) end
     local r = q.run or {}
     players[#players + 1] = { name = q.name, glovebox = held, effects = on,
@@ -4514,7 +4543,7 @@ function Score.turboAdminTest(pid, sub, args)
   end
   if sub == "clear" then
     q.effects, q.pardons, q.sabotagedAt = {}, nil, nil
-    say(pid, "Turbo test: every Turbo effect on " .. q.name .. " cleared (horn, brake, tune, head start, penalty, jail cards).")
+    say(pid, "Turbo test: every Turbo effect on " .. q.name .. " cleared (horn, brakes, tune, head start, penalty, jail cards).")
     pushState(q); return
   elseif sub == "empty" then
     q.glovebox = {}

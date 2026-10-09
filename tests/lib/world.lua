@@ -701,7 +701,7 @@ function World:freshPhysics(p, v)
   end
   v.brakeSprings = {}   -- (obj:getWheel(id):setBrakeSpring)
   local sb = sandbox.new({ label = "vlua:" .. p.name .. ":" .. v.model, allowWrite = function() return true end })
-  sb.declare("tgFaults", "tgSqueal", "tgLights", "tgHornB", "tgFRBase", "tgFRAbs", "tgTuneBase")   -- (the mod's own car-side globals: faults, squeaky brakes, flickering lights)
+  sb.declare("tgFaults", "tgSqueal", "tgLights", "tgHornB", "tgBrakeBase", "tgFRAbs", "tgTuneBase")   -- (the mod's own car-side globals: faults, squeaky brakes, flickering lights)
   sb.set("vec3", vec3)
   sb.set("RESET_PHYSICS", 1)
   sb.set("obj", {

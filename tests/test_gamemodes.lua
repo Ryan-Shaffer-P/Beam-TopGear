@@ -207,6 +207,56 @@ t.test("Turbo testing: any prize's effect at once - the nasty ones on yourself -
   w:assertClean()
 end)
 
+t.test("Turbo: Dodgy brake pads - a rival's brakes 40% weaker for their next event only (0.9.35)", function()
+  local w = World.new({ files = F.files(turbo()) })
+  local A, B = w:join("Alice"), w:join("Bob")
+  lineUp(w, A, B)
+  w:chat(A, "/tg prize alice weakbrakes")
+  local gb = w:ui(A).me.glovebox
+  for i, pr in ipairs(gb) do if pr.id == "weakbrakes" then w:chat(A, "/tg use " .. i .. " bob") end end
+  t.ok(w:chatHas(B, "TURBO: Alice fits Bob some dodgy brake pads: 40% less brakes for their next event!"))
+  w:step(1)
+  local base = B.current.wheels[0].brakeTorque
+  t.eq(B.current.wheels[2].brakeTorque, base, "not yet: on the way to the start")
+  w:chat(A, "/tg go"); w:waitFor(function() return w:sawMessage(A, "GO!") end, 10, "GO")
+  w:step(1)
+  for i = 0, 3 do t.ok(math.abs(B.current.wheels[i].brakeTorque - base * 0.6) < 1e-6, "wheel " .. i .. ": 60% in the event") end
+  t.ok(math.abs(B.current.brakeSprings[2] - base * 0.6 * 10) < 1e-6, "the brake springs follow")
+  t.eq(A.current.wheels[0].brakeTorque, base, "Alice's brakes as they were")
+  w:driveAll({ { A, p(900), 40 }, { B, p(900), 30 } })
+  w:waitFor(function() return w:state(A).phase == "workshop" end, 15, "the workshop")
+  w:step(1)
+  t.ok(w:chatHas(B, "Your brake pads are back to normal."))
+  for i = 0, 3 do t.eq(B.current.wheels[i].brakeTorque, base, "wheel " .. i .. " back after the event") end
+  w:assertClean()
+end)
+
+t.test("Turbo: dodgy pads and the front-right 'upgrade' together; the testing tools work at once (0.9.35)", function()
+  local w = World.new({ files = F.files(turbo()) })
+  local A, B = w:join("Alice"), w:join("Bob")
+  w:chat(A, "/tg start"); w:buy(A, "covet", "base_M"); w:buy(B, "pessima", "base_M"); w:step(1)
+  local base = A.current.wheels[0].brakeTorque
+  w:chat(A, "/tg prize test weakbrakes"); w:chat(A, "/tg prize test frbrake"); w:step(1)
+  t.ok(math.abs(A.current.wheels[0].brakeTorque - base * 0.6) < 1e-6, "front left: weaker")
+  t.ok(math.abs(A.current.wheels[1].brakeTorque - base * 0.6 * 3) < 1e-6, "front right: weaker x3")
+  t.eq(A.current.wheels[1].hasABS, false)
+  w:chat(A, "/tg prize clear"); w:step(1)
+  for i = 0, 3 do t.eq(A.current.wheels[i].brakeTorque, base, "wheel " .. i .. " back") end
+  t.eq(A.current.wheels[1].hasABS, true)
+  w:assertClean()
+end)
+
+t.test("Turbo: a saved prize list gets Dodgy brake pads once (migration)", function()
+  local cfg = turbo()
+  cfg.turbo = { prizes = { { id = "tune", name = "Free engine tune", good = true, help = "x" },
+                           { id = "taxman", name = "Taxman", target = true, help = "y" } } }
+  local w = World.new({ files = F.files(cfg) })
+  local ids = {}
+  for _, pr in ipairs(w:serverConfig().turbo.prizes) do ids[#ids + 1] = pr.id end
+  t.eq(table.concat(ids, ","), "tune,weakbrakes,taxman")
+  w:assertClean()
+end)
+
 t.test("Turbo: the haunted horn (sounds when they brake) and the front-right brake 'upgrade' - until their workshop", function()
   local w = World.new({ files = F.files(turbo()) })
   local A, B = w:join("Alice"), w:join("Bob")
