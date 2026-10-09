@@ -61,6 +61,8 @@ Install = copy `Resources/` into the BeamMP server.
   the turn; the client enters the RPC only once `MPVehicleGE.isOwn` (Ryan: no controls otherwise); fixtures: readyToGo off). Course builder positions: `adminPose` uses the car the admin is IN (client sends
   `tg_activeveh` "pid-vid" when it changes; `activeVeh[pid]`) - before 0.9.13 a parked second car put every checkpoint on
   the start line. `Course.stacked` flags checkpoints on the start / each other (addcp warning, validate error). Starts face a way (0.9.23): `e.startDir` from the admin's game at setstart, `Course.startFace/startLook` (fallback: towards the first checkpoint/trap/bay) - targets carry `face` (client draws a ground arrow); tows, restarts, quick travel, the RPC and back-to-start use it. (`local Course` is declared up by `yawFromQuat` for this.)
+  `airtime` (0.9.35, Ryan: Air Time): laid out like a race, time trial by default; score = -`Course.runAir(p)` (client air
+  total since the run started; finish reading `r.endAir`) + time x 1e-6; HUD `state.airRun`, reports every 0.5 s in the run.
   Every event has a **mode**: race (everyone at once) or time trial (one at a time) = `e.solo`
   (`isSolo`; nil = type default: speedtrap/parking/slalom trial, rest race). `/tg setmode`. There is no
   `timetrial` type since 0.8.4 - `migrateEvents` turns old ones into `race` + `solo = true`.

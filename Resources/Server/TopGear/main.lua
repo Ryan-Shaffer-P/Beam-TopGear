@@ -1435,7 +1435,7 @@ end
 ---------------------------------------------------------------------------
 local function curEvent() return (game.events or {})[game.stage] end
 
-local TYPE_ORDER = { "race", "circuit", "speedtrap", "parking", "fragile", "economy", "slalom", "trailer", "rpc" }
+local TYPE_ORDER = { "race", "circuit", "speedtrap", "parking", "fragile", "economy", "slalom", "trailer", "rpc", "airtime" }
 local TYPE_INFO = {
   race      = { label = "Destination race",  name = "The Race" },
   circuit   = { label = "Circuit race",      name = "The Circuit" },
@@ -1446,10 +1446,13 @@ local TYPE_INFO = {
   slalom    = { label = "Slalom",            name = "The Slalom" },
   trailer   = { label = "Trailer delivery",  name = "Trailer Delivery" },
   rpc       = { label = "Star in a reasonably priced car", name = "Star in a Reasonably Priced Car" },
+  -- (0.9.35, Ryan) laid out like a race (start, checkpoints, the last one the finish), one at a time by default; the
+  -- most time in the air over the run wins (the client's free-fall measure, as for Turbo Mode's air time prize)
+  airtime   = { label = "Air time",          name = "Air Time" },
 }
 -- Mode: every event runs in race mode (everyone at once) or time trial mode (one at a time, in arrival
 -- order). e.solo stores an explicit choice; without one, speed traps, parking and slalom default to time trial mode.
-local SOLO_DEFAULT = { speedtrap = true, parking = true, slalom = true }
+local SOLO_DEFAULT = { speedtrap = true, parking = true, slalom = true, airtime = true }
 local function isSolo(e)
   if e.type == "rpc" then return true end   -- one reasonably priced car on track at a time, always
   if e.solo ~= nil then return e.solo and true or false end
@@ -1636,7 +1639,7 @@ function Course.routeAhead(p, tgt)
     for _ = 1, lapsAfter do for i = 1, #cps do point(cps, i, 0) end end
   end
   local racing = e and (e.type == "race" or e.type == "circuit" or e.type == "rpc" or e.type == "fragile"
-    or e.type == "economy" or e.type == "trailer")
+    or e.type == "economy" or e.type == "trailer" or e.type == "airtime")
   local lapped = e and (e.type == "circuit" or e.type == "rpc")
   local laps = e and math.max(1, math.floor(tonumber(e.laps) or 3)) or 1
   local st = p.run and p.run.status
@@ -1663,6 +1666,11 @@ function Course.routeAhead(p, tgt)
   -- (one plain point: the target does it - unless it says off-road or road, or it's a guide point)
   if #pts == 1 and pts[1].off == nil and not pts[1].g then return nil end
   return pts
+end
+-- this run's air time so far (s): the client's running total since the run started (the finish reading once taken)
+function Course.runAir(p)
+  local r = p.run or {}
+  return math.max(0, (r.endAir or p.airTotal or 0) - (r.startAir or 0))
 end
 -- a running driver passes guide points as they drive (within 15 m - or a later one: a corner cut); the route drops them.
 -- True when one was passed (the caller sends the new route: pushState is defined further down)
@@ -1721,6 +1729,8 @@ local function stateFor(p)
     allowReset = (ph == "dealer" or ph == "results"),
     timeLeft = timeLeft(),
     eventType = curEvent() and curEvent().type or nil,
+    airRun = (ph == "event" and curEvent() and curEvent().type == "airtime" and p.run and p.run.status == "running")
+      and math.floor(Course.runAir(p) * 10 + 0.5) / 10 or nil,   -- (an Air time run: the HUD's live counter)
     quirks = (p.quirks and #p.quirks > 0) and p.quirks or nil,   -- (the client keeps the squeaky brakes squeaking)
     turbo = p.effects and (p.effects.horn or p.effects.frbrake or p.effects.tune or p.effects.weakbrakes or p.effects.throttle) and {   -- (Turbo Mode on this car)
       throttle = CONDITION.throttleOn(p) and (cfg.turbo or {}).stickyThrottle or nil,
@@ -2148,6 +2158,7 @@ local function endRun(p, status)
     local e = curEvent()
     local detail
     if e and e.type == "speedtrap" then detail = (trapRuns(e) == 1 and "Speed " or "Best ") .. fmtSpeed(r.best or 0)
+    elseif e and e.type == "airtime" then detail = string.format("Air time %.1f s", Course.runAir(p))
     elseif r.time then detail = "Time " .. fmtTime(r.time) end
     showFinish(p, e and e.name, detail)
     playSound("finish", p)
@@ -2800,6 +2811,11 @@ local function finalizeScore(p, e, ctx)
     r.perf = string.format("%d/%d bays, avg %d cm off, %.0f deg skew, %s, %d damage (score %.1f)", n, nb,
       n > 0 and math.floor(sumD / n * 100 + 0.5) or 0, n > 0 and sumA / n or 0, fmtTime(t), math.floor(dmg), r.score)
     r.short = string.format("%.1f pts", r.score)
+  elseif e.type == "airtime" then   -- the most air time wins; the quicker run breaks a tie
+    local air = Course.runAir(p)
+    r.score = -air + t * 1e-6
+    r.perf = string.format("%.1f s in the air (%s)", air, fmtTime(t))
+    r.short = string.format("%.1f s air", air)
   elseif e.type == "fragile" then
     local dmg = math.max(0, (r.endDamage or p.damage or 0) - (r.startDamage or 0))
     local pen = dmg * (tc.damageWeight or 0.01)
@@ -3862,8 +3878,11 @@ function TG_onReport(pid, data)
   if tonumber(t.cargo) then p.cargoFrac = tonumber(t.cargo) end
   if tonumber(t.air) then   -- the game's running air-time total (s); it starts again from 0 when the game does
     local a = tonumber(t.air)
-    p.airTotal = (p.airTotal or 0) + math.max(0, a - ((p.airSeen and p.airSeen <= a) and p.airSeen or 0))
+    local before = p.airTotal or 0
+    p.airTotal = before + math.max(0, a - ((p.airSeen and p.airSeen <= a) and p.airSeen or 0))
     p.airSeen = a
+    local e = curEvent()   -- (an Air time run: the HUD's counter moves)
+    if p.airTotal > before and e and e.type == "airtime" and p.run and p.run.status == "running" then pushState(p) end
   end
   local r = p.run
   if r and r.sampleAfter and now() >= r.sampleAfter and r.endDamage == nil then

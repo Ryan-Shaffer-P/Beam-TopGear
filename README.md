@@ -136,6 +136,7 @@ Race / Time trial**) or with `/tg setmode <n> race|trial`. The table shows each 
 | Slalom | time trial | time + 5 s per missed gate | start + gates |
 | Trailer delivery | race | most points out of 100: 70 for the share of the load kept + 30 for speed | start + checkpoints |
 | Star in a reasonably priced car | time trial (always) | fastest single lap of 3, everyone in the same car | start (= start/finish line) + checkpoints round the lap + laps + the car |
+| Air time (0.9.35) | time trial | most time in the air over the run, start to finish (the quicker run breaks a tie); the HUD shows your air time as you go | start + checkpoints |
 
 - **Starting lights:** every countdown shows F1-style lights at the top of the screen - five
   reds, one per second, then all out (green) for GO. One-at-a-time runs show the runner's name.
@@ -266,7 +267,7 @@ Drive to each spot and type the command. Positions come from your current vehicl
 | Parking bays, in order (park in each, facing the right way) | `/tg addbay N`, `/tg undobay N`, `/tg clearbays N` |
 | Event time limit (per run for one-at-a-time events) | `/tg settime N <seconds>` |
 | Slalom gates, in order (last = finish) | `/tg addcp N` |
-| Change an event's type | `/tg settype N <race\|circuit\|speedtrap\|parking\|fragile\|economy\|slalom\|trailer\|rpc>` |
+| Change an event's type | `/tg settype N <race\|circuit\|speedtrap\|parking\|fragile\|economy\|slalom\|trailer\|rpc\|airtime>` |
 | The reasonably priced car (rpc events) | `/tg setrpc N <model> [config]`, `/tg setrpc N mine`, `/tg setrpc N default` |
 | Race or time trial mode | `/tg setmode N race` (everyone at once) / `/tg setmode N trial` (one at a time) |
 | Forced waypoints on the drive TO event N | `/tg addvia N` |

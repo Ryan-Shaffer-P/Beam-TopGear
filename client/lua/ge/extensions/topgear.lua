@@ -377,6 +377,7 @@ local function hud()
   if state.traffic then bits[#bits + 1] = "TRAFFIC MODE" end
   if state.cash then bits[#bits + 1] = commas(state.cash) end
   if state.points then bits[#bits + 1] = string.format("%.1f pts", state.points) end
+  if state.airRun then bits[#bits + 1] = string.format("AIR %.1f s", state.airRun) end   -- (an Air time run)
   if state.timeLeft then
     local left = state.timeLeft - stateAge
     if left > 0 then bits[#bits + 1] = string.format("%d:%02d left", math.floor(left / 60), math.floor(left % 60)) end
@@ -4646,7 +4647,9 @@ function M.onUpdate(dtReal)
   tryRegister(dtReal)
   stateAge = stateAge + dtReal
   reportTimer = reportTimer + dtReal
-  if reportTimer >= 2 then reportTimer = 0; report() end
+  -- (an Air time run: twice a second, so the air time counter and the finish reading keep up)
+  local every = (state.airRun ~= nil) and 0.5 or 2
+  if reportTimer >= every then reportTimer = 0; report() end
   reassertPath(dtReal)
   updateWindow(dtReal)
   local okS, errS = pcall(selUpdate, dtReal)
