@@ -607,6 +607,15 @@ Player commands: `/tg menu`, `/tg go`, `/tg unstick`, `/tg tow`, `/tg respawn`, 
   whatever class is in use. Spawning one you can't afford yet says which condition would cover it.
   `/tg dealer <model>` lists one model's trims.
 
+## Ride height scan
+
+`/tg rideheight scan` (Admin tab -> Tools -> **Ride height scan**, 0.9.36): your game reads every car in the
+catalogue's parts files - no car is spawned, about a minute, the game may stutter - and counts the cars with an
+adjustable ride height: a part with a ride or spring height tuning setting (a spoiler's or a seat's "height" doesn't
+count). **As they come** = the trim has such a part fitted; **with a part** = one of its parts (coilovers, a lift kit)
+would add one. `/tg rideheight` shows the totals, `/tg rideheight list` the cars. Saved to `rideheight.json` next to
+`cars.json` (copy it into the repo to keep it); run the scan again after a game update.
+
 ## Car classes (which cars the dealership sells)
 
 Like a Top Gear brief - "a Japanese hatchback from the 90s" - a **class** limits the dealership to

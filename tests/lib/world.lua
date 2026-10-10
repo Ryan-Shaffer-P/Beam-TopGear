@@ -305,10 +305,22 @@ function World:loadClient(p)
     if name == "ffi" then return { string = function(buf) return buf.value end } end
     if name == "jbeam/io" then
       return {
+        startLoading = function(dirs)   -- (a model's parts without a car: /tg rideheight scan)
+          return { model = tostring(dirs[1] or ""):match("^/vehicles/([^/]+)/"), preloadedDirs = dirs }
+        end,
         getPart = function(ioCtx, partName)
           local e = ioCtx and catalogueIndex(ioCtx.model)[partName]
           if not e then return nil end
-          return { partName = partName, information = { name = e.nice, value = e.value } }
+          local part = { partName = partName, information = { name = e.nice, value = e.value } }
+          -- tuning variables (a header row, then rows): adjustable cars' sport coilovers set the ride height; a spoiler
+          -- has a "height" too - not a ride height
+          local hdr = { "name", "type", "unit", "category", "default", "min", "max", "title", "description" }
+          if (MODELS[ioCtx.model] or {}).adjustable and partName:find("_coilover_F_sport$") then
+            part.variables = { hdr, { "$springheight_F", "range", "+m", "Suspension", 0, -0.05, 0.08, "Front Ride Height", "" } }
+          elseif partName:find("_spoiler$") then
+            part.variables = { hdr, { "$spoiler_height", "range", "+m", "Wing", 0, 0, 0.2, "Spoiler Height", "" } }
+          end
+          return part
         end,
         getAvailableParts = function(ioCtx)
           local out = {}
@@ -328,6 +340,18 @@ function World:loadClient(p)
     error("module '" .. tostring(name) .. "' not available in the test game")
   end)
 
+  -- a trim's .pc: what it comes with (the first option of each slot; "sport"/"gtz" trims: the sport coilovers)
+  sb.set("jsonReadFile", function(path)
+    local model, config = tostring(path):match("^/vehicles/([^/]+)/([^/]+)%.pc$")
+    if not (model and MODELS[model] and MODELS[model].configs[config] ~= nil) then return nil end
+    local parts = {}
+    for _, sl in ipairs(partCatalogue(model)) do
+      local pick = sl.options[1][1]
+      if sl.key:find("_coilover_F/") and (config:find("sport") or config:find("gtz")) then pick = sl.options[2][1] end
+      parts[sl.key:gsub("/", "")] = pick
+    end
+    return { format = 2, model = model, parts = parts }
+  end)
   sb.set("core_input_actionFilter", {
     setGroup = function(group, actions) c.filters[group] = c.filters[group] or {}; c.filters[group].actions = actions end,
     addAction = function(_, group, blocked) c.filters[group] = c.filters[group] or {}; c.filters[group].blocked = blocked end,

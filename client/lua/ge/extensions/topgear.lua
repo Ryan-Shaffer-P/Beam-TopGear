@@ -35,7 +35,7 @@ local RESET_ACTIONS = {
 local VEHSEL_ACTIONS = { "vehicle_selector" }
 local PARTS_ACTIONS  = { "parts_selector" }
 
-local VERSION = "0.9.35"
+local VERSION = "0.9.36"
 local recentErrors = {}
 local function warn(msg)
   log("W", "topgear", tostring(msg))
@@ -777,6 +777,100 @@ local function onDiag()
   r.carFound = car and car:getID() or nil
   r.playerVeh = pv and pv:getID() or nil
   if TriggerServerEvent then TriggerServerEvent("tg_diag_reply", jsonEncode(r)) end
+end
+
+-- /tg rideheight scan (0.9.36): which cars have an adjustable ride height. For each model: every part's tuning
+-- variables (jbeam/io - the files are read, no car is spawned) - a "height" setting that isn't a wing's, a seat's, a
+-- light's... counts; each trim's fitted parts from its .pc say whether it has one as it comes. One model a frame (the
+-- game stutters, it doesn't freeze); one reply per model, then done.
+shop.HEIGHT_SKIP = { "wing", "spoiler", "seat", "light", "lamp", "hitch", "bed", "roof", "exhaust", "tire", "tyre",
+  "mirror", "camber", "toe", "steer", "pedal", "gauge", "trailer", "load", "boom", "crane", "plow", "ramp" }
+shop.isRideHeight = function(v)   -- true = a ride height setting, false = some other "height", nil = no height at all
+  local s = (tostring(v.name or "") .. " " .. tostring(v.title or "")):lower()
+  if not s:find("height", 1, true) then return nil end
+  for _, w in ipairs(shop.HEIGHT_SKIP) do if s:find(w, 1, true) then return false end end
+  return true
+end
+shop.partVars = function(part)   -- a part's "variables" table (a header row, then one row per setting) as keyed rows
+  local raw, out = part and part.variables, {}
+  if type(raw) ~= "table" or type(raw[1]) ~= "table" then return out end
+  local header = raw[1]
+  for i = 2, #raw do
+    local row = raw[i]
+    if type(row) == "table" and type(row[1]) == "string" then
+      local r = {}
+      for k, col in ipairs(header) do r[col] = row[k] end
+      out[#out + 1] = r
+    end
+  end
+  return out
+end
+shop.pcParts = function(model, config)   -- the part names a trim comes with (its .pc: flat parts, or a parts tree)
+  local pc = jsonReadFile("/vehicles/" .. model .. "/" .. config .. ".pc")
+  local names = {}
+  if type(pc) ~= "table" then return names end
+  if type(pc.parts) == "table" then for _, n in pairs(pc.parts) do if type(n) == "string" and n ~= "" then names[n] = true end end end
+  local function walk(node)
+    if type(node) ~= "table" then return end
+    if type(node.chosenPartName) == "string" and node.chosenPartName ~= "" then names[node.chosenPartName] = true end
+    for _, ch in pairs(node.children or {}) do walk(ch) end
+  end
+  walk(pc.partsTree)
+  return names
+end
+shop.scanModel = function(model)
+  local io = require("jbeam/io")
+  local ctx = io.startLoading({ "/vehicles/" .. model .. "/", "/vehicles/common/" })
+  local found, other, heightParts, n = {}, {}, {}, 0
+  for name in pairs(io.getAvailableParts(ctx) or {}) do
+    n = n + 1
+    local okP, part = pcall(io.getPart, ctx, name)
+    if okP and type(part) == "table" then
+      for _, v in ipairs(shop.partVars(part)) do
+        local h = shop.isRideHeight(v)
+        if h and type(v.name) == "string" then
+          heightParts[name] = true
+          found[v.name] = found[v.name] or { name = v.name, title = v.title, unit = v.unit, min = tonumber(v.min),
+            max = tonumber(v.max), default = tonumber(v.default), part = name }
+        elseif h == false and type(v.name) == "string" then other[v.name] = true end
+      end
+    end
+  end
+  local trims = {}
+  local m = gameGetModel(model)
+  for key, c in pairs((m and m.configs) or {}) do
+    local k = (type(c) == "table" and c.key) or key
+    local okC, fitted = pcall(shop.pcParts, model, k)
+    local has = false
+    if okC then for pn in pairs(fitted) do if heightParts[pn] then has = true end end end
+    trims[k] = has
+  end
+  local vars, others = {}, {}
+  for _, v in pairs(found) do vars[#vars + 1] = v end
+  for k in pairs(other) do others[#others + 1] = k end
+  table.sort(others)
+  local info = (m and m.model) or {}
+  return { model = model, name = (info.Brand and (info.Brand .. " ") or "") .. (info.Name or model), parts = n, vars = vars,
+           other = (#others > 0) and others or nil, possible = next(heightParts) ~= nil, trims = trims }
+end
+shop.scanStep = function()
+  local q = shop.scanQ
+  local model = q and q[q.i]
+  if not model then
+    shop.scanQ = nil
+    TriggerServerEvent("tg_ridescan_reply", jsonEncode({ done = true }))
+    return
+  end
+  q.i = q.i + 1
+  local ok, res = pcall(shop.scanModel, model)
+  if not ok then res = { model = model, err = tostring(res) }; warn("ride height scan failed for " .. model .. ": " .. res.err) end
+  TriggerServerEvent("tg_ridescan_reply", jsonEncode(res))
+end
+shop.onRideScan = function(data)
+  local ok, req = pcall(jsonDecode, data)
+  if not ok or type(req) ~= "table" or type(req.models) ~= "table" then return end
+  shop.scanQ = { i = 1 }
+  for i, m in ipairs(req.models) do shop.scanQ[i] = m end
 end
 
 -- /tg importprices: read every stock configuration's value - and the details car classes filter on (the same
@@ -3085,6 +3179,14 @@ local function drawAdmin(d)
         if i % 3 ~= 0 and i < #d.soundClips then same() end
       end
     end
+    if header("Ride height scan##ridescan") then   -- (0.9.36)
+      txt("Which cars have an adjustable ride height: your game reads every car's parts (about a minute, no car spawned).")
+      button("Scan ride height##rhscan", "rideheight scan"); same()
+      button("Show results##rhshow", "rideheight"); same()
+      button("List the cars##rhlist", "rideheight list")
+      Tabs.help("Counts a car when one of its parts has a ride or spring height tuning setting. 'As they come' = the trim\n" ..
+        "has it fitted; 'with a part' = a part for it (coilovers, a lift kit) would add one. Saved to rideheight.json.")
+    end
     if d.faults and header("Problem-car fault test##ftest") then
       txt("Applies faults to the car you're in right now (no money involved) and reports what worked.")
       -- as which condition: the same strengths as a car bought that way (more worn, worse problems)
@@ -4313,6 +4415,7 @@ local function tryRegister(dt)
     add("tg_msg",    onMsg)
     add("tg_diag",   onDiag)
     add("tg_import", onImport)
+    add("tg_ridescan", function(d) shop.onRideScan(d) end)
     add("tg_menu",   onMenu)
     add("tg_ui",     onUi)
     add("tg_dealerlist", onDealerList)
@@ -4647,6 +4750,7 @@ function M.onUpdate(dtReal)
   tryRegister(dtReal)
   stateAge = stateAge + dtReal
   reportTimer = reportTimer + dtReal
+  if shop.scanQ and TriggerServerEvent then shop.scanStep() end   -- (/tg rideheight scan: a model a frame)
   -- (an Air time run: twice a second, so the air time counter and the finish reading keep up)
   local every = (state.airRun ~= nil) and 0.5 or 2
   if reportTimer >= every then reportTimer = 0; report() end

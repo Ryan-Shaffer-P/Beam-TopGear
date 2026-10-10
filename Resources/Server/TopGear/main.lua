@@ -7,7 +7,7 @@
   In game, type /tg help.
 ]]
 
-local SERVER_VERSION = "0.9.35"
+local SERVER_VERSION = "0.9.36"
 local PLUGIN_DIR  = "Resources/Server/TopGear/"
 local CONFIG_PATH = PLUGIN_DIR .. "config.json"
 local COURSES_PATH = PLUGIN_DIR .. "courses.json"   -- saved course library
@@ -5427,6 +5427,100 @@ ADMIN_CMDS.importprices = function(pid, _, args)
   MP.TriggerClientEvent(pid, "tg_import", Util.JsonEncode({ models = models }))
 end
 
+-- /tg rideheight scan (0.9.36, Ryan: how many cars have adjustable ride height?) - the admin's game goes through every
+-- model in the car catalogue: each part's tuning variables (jbeam/io, no car spawned), a ride / spring height setting =
+-- a "height" variable that isn't a wing's, a seat's, a light's... Per model: those settings, whether each trim has one
+-- fitted (its .pc's parts), whether any part could add one. Results -> rideheight.json next to cars.json.
+Class.RIDE_PATH = PLUGIN_DIR .. "rideheight.json"
+function Class.rideLoad()
+  if Class.rideData ~= nil then return Class.rideData end
+  local s = readFile(Class.RIDE_PATH)
+  local ok, t = pcall(function() return s and Util.JsonDecode(s) end)
+  Class.rideData = (ok and type(t) == "table" and type(t.models) == "table") and t or false
+  return Class.rideData
+end
+function Class.rideSummary(t)   -- counts over the car catalogue's models and trims
+  local gp = cfg.dealer.gamePrices or {}
+  local m, mAny, trims, tHas, possible = 0, 0, 0, 0, 0
+  for model, r in pairs(t.models or {}) do
+    if gp[model] then
+      m = m + 1
+      local any = false
+      for config, has in pairs(r.trims or {}) do
+        if gp[model][config] then
+          trims = trims + 1
+          if has then tHas, any = tHas + 1, true end
+        end
+      end
+      if any then mAny = mAny + 1 elseif r.possible then possible = possible + 1 end
+    end
+  end
+  return { models = m, withIt = mAny, trims = trims, trimsWithIt = tHas, possible = possible }
+end
+function Class.rideReport(pid, t)
+  local c = Class.rideSummary(t)
+  say(pid, string.format("Ride height: %d of %d models have it on at least one trim - %d of %d trims as they come.",
+    c.withIt, c.models, c.trimsWithIt, c.trims))
+  say(pid, string.format("%d more model%s can get it with a part (coilovers, lift kits...). /tg rideheight list names them.",
+    c.possible, c.possible == 1 and "" or "s"))
+end
+ADMIN_CMDS.rideheight = function(pid, _, args)
+  local sub = (args[3] or ""):lower()
+  if sub == "scan" then
+    if Class.rideScan and now() - Class.rideScan.started < 600 then say(pid, "A ride height scan is already running."); return end
+    local models = {}
+    for model in pairs(cfg.dealer.gamePrices or {}) do models[#models + 1] = model end
+    table.sort(models)
+    if #models == 0 then say(pid, "No car catalogue to scan - /tg importprices first."); return end
+    Class.rideScan = { pid = pid, models = {}, left = #models, total = #models, started = now() }
+    say(pid, string.format("Scanning %d models' parts in your game for ride height settings - about a minute; your game may stutter.", #models))
+    MP.TriggerClientEvent(pid, "tg_ridescan", Util.JsonEncode({ models = models }))
+    return
+  end
+  local t = Class.rideLoad()
+  if not t then say(pid, "No ride height scan yet - /tg rideheight scan (your game reads every car's parts)."); return end
+  if sub == "list" then
+    local gp, have, can = cfg.dealer.gamePrices or {}, {}, {}
+    local names = cfg.dealer.modelNames or {}
+    for model, r in pairs(t.models) do
+      if gp[model] then
+        local n = 0
+        for config, has in pairs(r.trims or {}) do if has and gp[model][config] then n = n + 1 end end
+        local nm = names[model] or r.name or model
+        if n > 0 then have[#have + 1] = string.format("%s (%d)", nm, n) elseif r.possible then can[#can + 1] = nm end
+      end
+    end
+    table.sort(have); table.sort(can)
+    say(pid, "As they come (trims): " .. (#have > 0 and table.concat(have, ", ") or "none"))
+    say(pid, "With a part: " .. (#can > 0 and table.concat(can, ", ") or "none"))
+    return
+  end
+  Class.rideReport(pid, t)
+  say(pid, "Scanned " .. tostring(t.scannedAt or "?") .. " - /tg rideheight scan again after a game update, /tg rideheight list for the names.")
+end
+function TG_onRideScanReply(pid, data)
+  local sc = Class.rideScan
+  if not sc or sc.pid ~= pid then return end
+  local ok, t = pcall(Util.JsonDecode, data)
+  if not ok or type(t) ~= "table" then return end
+  if t.model then
+    sc.models[t.model] = { name = t.name, vars = t.vars, other = t.other, possible = t.possible or nil, trims = t.trims or {},
+                           parts = t.parts, err = t.err }
+    if t.err then sc.failed = (sc.failed or 0) + 1 end
+    sc.left = sc.left - 1
+  end
+  if not t.done then return end
+  Class.rideScan = nil
+  local out = { scannedAt = os.date("%Y-%m-%d %H:%M"), models = sc.models,
+                about = "Ride height settings per model, from /tg rideheight scan (trims: true = has one fitted as it comes)" }
+  writeFile(Class.RIDE_PATH, Util.JsonPrettify and Util.JsonPrettify(Util.JsonEncode(out)) or Util.JsonEncode(out))
+  Class.rideData = out
+  say(pid, string.format("Ride height scan done in %d s%s - saved to rideheight.json.", math.floor(now() - sc.started),
+    (sc.failed or 0) > 0 and string.format(" (%d models couldn't be read)", sc.failed) or ""))
+  Class.rideReport(pid, out)
+  log(string.format("ride height scan: %d models scanned", sc.total - math.max(0, sc.left)))
+end
+
 -- /tg class ... - car classes (see DEFAULT_CONFIG.dealer.classes) -------------------------------------------
 Class.view = {}   -- admin name -> the class they're editing in the window
 function Class.parseField(word)
@@ -6733,6 +6827,7 @@ MP.RegisterEvent("tg_report",          "TG_onReport")
 MP.RegisterEvent("tg_activeveh",       "TG_onActiveVeh")
 MP.RegisterEvent("tg_diag_reply",      "TG_onDiag")
 MP.RegisterEvent("tg_import_reply",    "TG_onImportReply")
+MP.RegisterEvent("tg_ridescan_reply",  "TG_onRideScanReply")
 MP.RegisterEvent("tg_ui_req",          "TG_onUiRequest")
 MP.RegisterEvent("tg_dealerlist_req",  "TG_onDealerListReq")
 MP.RegisterEvent("tg_ui_cmd",          "TG_onUiCommand")

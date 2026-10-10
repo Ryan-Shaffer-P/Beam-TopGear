@@ -248,7 +248,7 @@ for the `/tg diag` "Client error" line or the matching `[TopGear]` server-consol
 Players: `/tg menu | name <alias> | use <n> [rival] | status | dealer | ready | unready | go | repair | fix <id> | tow | respawn | unstick | hitchup |
 condition [name] | faults | fault take [n] | quote | standings | diag | partsdiag | lights | lightstest | flag | flagtest | sounds on|off|list | soundtest [clip|next] | theme`.
 Admins: `start [force] | next | stop | mode <freerepair|nofaults|noquirks|turbo> [on|off] | prize <player> [id] | prize test <id> [player] / clear / empty [player] | restartevent | rerunevent | freerespawn <driver> | bring <driver> | setname <player> <name> | resume | discard | award <driver> <pts> [reason] | traffic on|off | play <clip> | budget | setcash | give | workshop <min> | workshopevery <n> |
-importprices [listed|builtin|models] | gameprices | setprice | class list/use/new/preset/delete/show/rule/unrule/include/exclude/clear/price/multiplier/values |
+importprices [listed|builtin|models] | rideheight [scan|list] | gameprices | setprice | class list/use/new/preset/delete/show/rule/unrule/include/exclude/clear/price/multiplier/values |
 course list/save/load/new/delete | addevent/delevent/enable/moveevent | testevent <n>|stop | quicktravel <n|finale> |
 setstart/addcp/undocp/clearcp/addguide/undoguide/clearguide/offroad/settrap/addbay/undobay/clearbays/addvia/undovia/clearvia/setfinale |
 settype/setmode/setlaps/setrpc/settime/rename | addworkshop/undoworkshop/clearworkshops/importgas |
@@ -294,7 +294,13 @@ repairQuote) -> tick sends `tg_respawn spawn` (retried) -> `TG_onVehicleSpawn` -
 import (`tests/data/game-cars.json`). `Class.loadBuiltin` puts it in `cfg.dealer.gamePrices` when there's no import
 (`dealer.catalogue = "builtin"`); `saveConfig` leaves gamePrices out of config.json while builtin. A server's own
 import sets `catalogue = "import"` and is saved (a full import now REPLACES gamePrices: `imp.fresh`).
-`/tg importprices builtin` goes back. To refresh cars.json after a BeamNG update: Ryan runs `/tg importprices`, copies
+`/tg importprices builtin` goes back.
+0.9.36 ride height scan: `/tg rideheight scan|list` (`Class.rideScan/rideLoad/rideSummary/rideReport`, `TG_onRideScanReply`,
+`Class.RIDE_PATH` = rideheight.json) -> client `tg_ridescan` -> `shop.scanQ` (a model a frame in onUpdate) `shop.scanModel`:
+`jbeam/io.startLoading({"/vehicles/<m>/", "/vehicles/common/"})` + getAvailableParts/getPart -> `shop.partVars` (header row)
+-> `shop.isRideHeight` ("height" in name/title, not `shop.HEIGHT_SKIP` words); trims from `jsonReadFile(<m>/<cfg>.pc)`
+(`shop.pcParts`: flat parts or partsTree). NOT yet tried in game. Harness: jbeam/io `startLoading`, sport coilovers carry
+`$springheight_F` on adjustable models, `jsonReadFile` fakes .pc files; test_rideheight. To refresh cars.json after a BeamNG update: Ryan runs `/tg importprices`, copies
 config.json here, regenerate with the same filter (see the 0.9.7 commit), and update tests' expected counts (986).
 UI bandwidth: `sendUi(pid, haveVer)` omits `d.dealer` when the client's echoed `dealerVer` matches (`Class.sentDealer`);
 a full list is ~110 KB, a refresh without it ~2-10 KB.
