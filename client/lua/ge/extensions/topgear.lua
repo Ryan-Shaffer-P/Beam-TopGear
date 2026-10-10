@@ -1745,7 +1745,7 @@ end
 -- total (seconds) goes to the server with every report, which works out each driver's share of an event.
 faults.airTotal = 0
 faults.airTick = function(dt)
-  local car = getCar()
+  local car = Rpc.driving()   -- (the car you're driving: your own, or one the mod gave you)
   local id = car and car:getID()
   if not car or dt <= 0 or dt > 0.5 or id ~= faults.airCar then
     faults.airCar, faults.airVz, faults.airStreak = id, nil, 0
@@ -3814,6 +3814,14 @@ Tabs.courseBuilder = function(c)
         txt("Mode:"); same()
         button((e.solo and "" or "> ") .. "Race - everyone at once##moderace", "setmode " .. target .. " race"); same()
         button((e.solo and "> " or "") .. "Time trial - one at a time##modetrial", "setmode " .. target .. " trial")
+        if e.swapOk then   -- (0.9.36) everyone in the same car for this event
+          txt("Cars: " .. (e.swap and ("everyone drives " .. e.swap) or "everyone drives their own")); same()
+          button("Everyone drives the car I'm in##swapmine", "setswap " .. target .. " mine")
+          if e.swap then same(); button("Their own cars##swapoff", "setswap " .. target .. " off") end
+          Tabs.help("Swap cars: at the start everyone gets the same car (spawned on the start grid - their own car's parked\n" ..
+            "behind the start, untouched), and it goes at the end. Tows / respawns in it are free, no points, no DSQ:\n" ..
+            "a fresh one on the start line (mid-run: the course again, the clock keeps running). Needs MaxCars 2+.")
+        end
       end
       local tl = intPtr("time" .. target, e.timeLimit or 600)
       txt("Time to complete event (s):"); same()
@@ -4729,10 +4737,17 @@ local function report()
   if not v then return end
   if state.allowParts then partsValue = nil end  -- parts can change during the workshop
   if partsValue == nil then partsValue = getPartsValue(v) or false end
-  pcall(function() v:queueLuaCommand(FUEL_VLUA) end)   -- answer arrives before the next report
+  if not Rpc.car() then pcall(function() v:queueLuaCommand(FUEL_VLUA) end) end   -- answer arrives before the next report
   if (not cfgSnap or cfgSnap.carId ~= v:getID()) and not rebuildCheckIn then
     cfgSnap = takeSnapshot(v)
     faults.ownRebuild = nil   -- this snapshot already includes any change the mod made
+  end
+  local given = Rpc.car()   -- (0.9.36) driving a car the mod gave you (the RPC, an event's swap car): report that one,
+  if given then             -- flagged - the server keeps it apart from your own car's readings
+    pcall(function() given:queueLuaCommand(FUEL_VLUA) end)
+    TriggerServerEvent("tg_report", jsonEncode({ loaner = true, damage = getDamage(given), fuel = fuelValue, energy = energyValue,
+      air = math.floor((faults.airTotal or 0) * 10 + 0.5) / 10 }))
+    return
   end
   measureCargo()   -- answer arrives before the next report
   TriggerServerEvent("tg_report", jsonEncode({ damage = getDamage(v), partsValue = partsValue or nil, fuel = fuelValue,

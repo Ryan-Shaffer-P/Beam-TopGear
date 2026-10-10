@@ -138,6 +138,15 @@ Race / Time trial**) or with `/tg setmode <n> race|trial`. The table shows each 
 | Star in a reasonably priced car | time trial (always) | fastest single lap of 3, everyone in the same car | start (= start/finish line) + checkpoints round the lap + laps + the car |
 | Air time (0.9.35) | time trial | most time in the air over the run, start to finish (the quicker run breaks a tie); the HUD shows your air time as you go | start + checkpoints |
 
+- **Swap cars** (0.9.36): any event (not Star in a reasonably priced car - it is one - or a Trailer delivery, hitched
+  to your own car) can give everyone the same car: course builder -> Event options -> **Everyone drives the car I'm in**
+  (or `/tg setswap <n> <model> [config] | mine | off`). As each driver reaches the start, their own car is parked
+  behind the start line (as it is) and the event's car appears on the start grid, spawned by their own game; GO waits
+  until everyone has theirs. At the end of the event (a time trial: when the next driver starts) it goes and they're
+  back in their own car - untouched: no damage, problems or quirks carry over (Turbo effects stay with your own car).
+  Damage-scored events (fragile, parking) score the event car's damage. A tow, respawn or unstick in it is free, no
+  points, no DSQ: a fresh one on the start line (mid-run: the course again from the line, the clock keeps running). If
+  a driver's never appears (the server's **MaxCars must be 2 or more**), they drive their own car from its grid spot.
 - **Starting lights:** every countdown shows F1-style lights at the top of the screen - five
   reds, one per second, then all out (green) for GO. One-at-a-time runs show the runner's name.
   `/tg lightstest` plays the sequence on your screen right away (no race needed). The lights are

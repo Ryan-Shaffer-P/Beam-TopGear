@@ -2054,8 +2054,10 @@ end
 
 beginTravel = function(n)
   game.phase, game.stage, game.phaseStart, game.arrivals, game.allHere = "travel", n, now(), 0, false
+  game.swapPark, game.swapGrid = 0, 0   -- (swap cars: the grid fills again)
   local e = game.events[n]
   for _, p in pairs(game.players) do
+    p.swapFailed = nil
     p.leg = { via = 1, arrived = false }; p.run = newRun(); p.arrivalRank = nil
     if p.towDeliveredTo == n then
       p.leg = { via = #(e.via or {}) + 1, arrived = true }
@@ -2138,6 +2140,9 @@ local function startRun(p)
   r.lap, r.lapStart, r.bestLap = 1, now(), nil
   r.bay, r.parks, r.needMove, r.stillSince = 1, {}, false, nil
   r.startDamage, r.startFuel, r.startEnergy = p.damage or 0, p.fuel, p.energy
+  if p.rpc and p.loan then   -- (a car the mod gave them - the RPC, a swap: its own readings)
+    r.startDamage, r.startFuel, r.startEnergy = p.loan.damage or 0, p.loan.fuel, p.loan.energy
+  end
   r.endDamage, r.endFuel, r.endEnergy, r.sampleAfter = nil, nil, nil, nil
   r.startAir, r.startCrash, r.endAir, r.endCrash = p.airTotal or 0, p.crashTotal or 0, nil, nil
 end
@@ -2198,9 +2203,11 @@ function RPC.beginTurn(p, e)
     s.countEnd = nil
     RPC.request(p, e)
     sayAll(string.format("%s's reasonably priced car is on its way to the start line.", p.name))
+  elseif RPC.swapOn(e) and not p.swapFailed and not (p.rpc and p.rpc.vid) then   -- (a swap: the countdown once it's there)
+    s.countEnd = nil
   else
     s.countEnd, s.countTotal, s.lastCount = now() + cfg.defaults.countdown, nil, nil
-    RPC.watch(p, p.carVid)
+    RPC.watch(p, (p.rpc and p.rpc.vid) or p.carVid)   -- (a swap: their event car)
   end
   pushAll()
 end
@@ -2208,8 +2215,10 @@ end
 -- it is presses it, then GO (them or an admin)
 function RPC.allReady()
   local names = {}
+  local swap = RPC.swapOn(curEvent())
   for _, q in pairs(game.players) do
-    if racing(q) and not (q.run and q.run.ready) then names[#names + 1] = q.name end
+    if racing(q) and not (q.run and q.run.ready) then names[#names + 1] = q.name
+    elseif racing(q) and swap and not q.swapFailed and not (q.rpc and q.rpc.vid) then names[#names + 1] = q.name .. " (car on its way)" end
   end
   table.sort(names)
   return #names == 0, names
@@ -2283,6 +2292,7 @@ function RPC.unready(p)
   pushAll()
 end
 function RPC.car(e)   -- model, config name
+  if RPC.swapOn(e) then return e.swap.model, e.swap.config end
   local tc = typeCfg("rpc")
   if e and e.rpcModel and RPC.drivable(e.rpcModel, e.rpcConfig) then return e.rpcModel, e.rpcConfig end
   return tc.model or "covet", tc.config
@@ -2291,16 +2301,96 @@ function RPC.label(e)
   local m, c = RPC.car(e)
   return c and (m .. " / " .. c) or m
 end
-function RPC.request(p, e)   -- a fresh RPC on the start line (the old one, if any, already removed)
+function RPC.request(p, e, at)   -- a fresh RPC on the start line (the old one, if any, already removed); at = a swap's grid spot
   if not p.pid then return end
   local model, config = RPC.car(e)
   local look = Course.startLook(e)   -- (the RPC faces the way the start does)
   p.rpc = p.rpc or {}
   p.rpc.want, p.rpc.vid, p.rpc.model = true, nil, model
   p.rpc.allowUntil = now() + (tonumber(typeCfg("rpc").spawnTimeout) or 20)
+  p.rpc.at = at or p.rpc.at
   p.pos, p.prevPos = nil, nil
+  local pos = p.rpc.at or e.start
+  if p.rpc.at and look then   -- (a grid spot: it faces the way the start does, from where it stands)
+    local st = v3(e.start)
+    if st then look = { x = pos.x + (look.x - st.x), y = pos.y + (look.y - st.y), z = pos.z } end
+  end
   MP.TriggerClientEvent(p.pid, "tg_rpc", Util.JsonEncode({ model = model,
-    config = config and ("vehicles/" .. model .. "/" .. config .. ".pc") or nil, pos = e.start, look = look }))
+    config = config and ("vehicles/" .. model .. "/" .. config .. ".pc") or nil, pos = pos, look = look }))
+end
+-- Swap cars (0.9.36, Ryan: "everyone runs a course as buses"): an event can give everyone the same car - e.swap =
+-- { model, config }. As each driver reaches the start their own car goes to a spot behind the start line (as it is)
+-- and the event's car comes on the start grid, spawned by their own game - the same way as the reasonably priced car
+-- (p.rpc: positions, reports and the run follow it). At the end of the event (a time trial: when the next driver
+-- starts) it goes and they're back in their own car - untouched: no damage, problems or quirks carry over. A tow,
+-- respawn or unstick in it: free, no points, no DSQ - a fresh one on the start line (mid-run: the course again from
+-- the line, the clock keeps running). Not for the reasonably priced car (it is one) or a trailer delivery (hitched to
+-- your own car).
+RPC.SWAP_TYPES = { race = true, circuit = true, speedtrap = true, parking = true, fragile = true, economy = true,
+                   slalom = true, airtime = true }
+function RPC.swapOn(e)
+  return e ~= nil and type(e.swap) == "table" and type(e.swap.model) == "string" and RPC.SWAP_TYPES[e.type or "race"] == true
+end
+function RPC.carName(e)   -- what drivers call the car they're given
+  if RPC.swapOn(e) then return "event car (" .. RPC.label(e) .. ")" end
+  return "reasonably priced car"
+end
+function RPC.swapSpot(e, k, behind)   -- grid spot k (0, 1, ...) on the start line - or behind it, for the own cars
+  local start = v3(e.start)
+  if not start then return nil end
+  local face = Course.startFace(e)
+  local fx, fy = face and face.x or 0, face and face.y or 1
+  local back = behind and ((tonumber(cfg.defaults.startRadius) or 20) + 15 + 8 * math.floor(k / 3)) or (7 * math.floor(k / 3))
+  local side = ((k % 3) - 1) * 4.5
+  return { x = start.x - fx * back + fy * side, y = start.y - fy * back - fx * side, z = (start.z or 0) + 0.5 }, { x = fx, y = fy, z = 0 }
+end
+function RPC.swapEnsure(e)   -- every tick of a swap event: drivers at the start get their car; one that never comes = own car
+  local ph = game.phase
+  for _, p in pairs(game.players) do
+    local st = p.run and p.run.status
+    local due = racing(p) and p.pid and p.carVid and not p.swapFailed and ((ph == "travel" and p.leg and p.leg.arrived)
+      or (ph == "countdown" and st == "staged") or (ph == "event" and (st == "waiting" or st == "staged" or st == "running")))
+    local r = p.rpc
+    if due and not r then
+      game.swapPark, game.swapGrid = (game.swapPark or 0) + 1, (game.swapGrid or 0) + 1
+      local park, dir = RPC.swapSpot(e, game.swapPark - 1, true)
+      local at = RPC.swapSpot(e, game.swapGrid - 1, false)
+      if park and at then
+        p.towPending = now()   -- (the move isn't a reset to fine)
+        MP.TriggerClientEvent(p.pid, "tg_tow", Util.JsonEncode({ kind = "return", reset = false, pos = park, dir = dir }))
+        RPC.request(p, e, at)
+        say(p.pid, string.format("Today everyone drives the same car: your %s is on the start line - your own car's parked behind it, as it is.", RPC.carName(e)))
+      end
+    elseif r and r.want and not r.vid and now() >= (r.allowUntil or 0) then
+      p.swapFailed = true
+      local at = r.at
+      RPC.remove(p)
+      if at and p.pid then   -- (their own car takes the grid spot - parked behind the line it would jump the start)
+        local _, dir = RPC.swapSpot(e, 0, false)
+        p.towPending = now()
+        MP.TriggerClientEvent(p.pid, "tg_tow", Util.JsonEncode({ kind = "return", reset = false, pos = at, dir = dir }))
+      end
+      say(p.pid, "Your event car didn't appear (the server's MaxCars must be 2 or more) - you'll drive your own car.")
+      log("swap: " .. p.name .. ": the event car didn't appear")
+    end
+  end
+end
+function RPC.swapFresh(p, e)   -- /tg tow | respawn | unstick in the event car: a fresh one on the start line
+  local ph, run = game.phase, p.run
+  if not (ph == "travel" or ph == "countdown" or ph == "event") then return false end
+  if run.status == "running" then
+    run.cp, run.lap, run.leftLine, run.bay, run.parks, run.needMove, run.gp, run.gpAt = 1, 1, false, 1, {}, false, 0, nil
+    run.startDamage = (run.startDamage or 0) - ((p.loan and p.loan.damage) or 0)   -- (its dents still count)
+    sayAll(string.format("%s needs a fresh %s - back to the start line; the clock keeps running.", p.name, RPC.carName(e)))
+  elseif run.status == "finished" or run.status == "dsq" or run.status == "dnf" then
+    say(p.pid, "Your run's over - you'll be back in your own car soon."); return true
+  else
+    say(p.pid, "A fresh " .. RPC.carName(e) .. " is on its way to the start line (free).")
+  end
+  local vid = p.rpc and p.rpc.vid
+  if vid and p.pid then p.rpc.removing = true; MP.RemoveVehicle(p.pid, vid) end
+  RPC.request(p, e)
+  return true
 end
 function RPC.remove(p)   -- the turn is over: the RPC goes, the driver goes back to their own car
   local r = p.rpc
@@ -2315,6 +2405,12 @@ function RPC.spawned(p, vid, model)   -- TG_onVehicleSpawn: is this the RPC we a
   if not (r and r.want and not r.vid and model == r.model and now() < (r.allowUntil or 0)) then return false end
   r.vid, r.want = vid, false
   local s, run = game.solo, p.run
+  if RPC.swapOn(curEvent()) then   -- (a swap: the car's on the grid; the run, if any, goes on from the line)
+    say(p.pid, string.format("Here's your %s - get in and settle in.", RPC.carName(curEvent())))
+    if s and s.runner == p and run.status ~= "waiting" then RPC.watch(p, vid) end
+    pushAll()
+    return true
+  end
   if run.status == "staged" and s and s.runner == p and s.waitGo then   -- (Ready -> GO: the car comes with the turn)
     say(p.pid, "Here's your reasonably priced car - get in, start it, settle in, then press I'm ready and GO.")
   elseif run.status == "staged" and s and s.runner == p and not s.countEnd then
@@ -2332,6 +2428,7 @@ end
 -- your laps but has no time; on the last lap it ends your turn.
 function RPC.fresh(p)
   local e = curEvent()
+  if RPC.swapOn(e) then return RPC.swapFresh(p, e) end
   local run = p.run
   if not (e and e.type == "rpc" and game.solo and game.solo.runner == p) then return false end
   if run.status == "running" then
@@ -2361,7 +2458,7 @@ function RPC.endOnBest(p)   -- the turn ends early: the best timed lap stands (n
 end
 function RPC.handOver(p, e)
   local s = game.solo
-  if e.type == "rpc" and p.rpc and p.rpc.vid and p.run.status == "finished" then
+  if (e.type == "rpc" or RPC.swapOn(e)) and p.rpc and p.rpc.vid and p.run.status == "finished" then
     s.handBack = s.handBack or (now() + (tonumber(typeCfg("rpc").stopSeconds) or 3))
     if now() < s.handBack then return end
   elseif RPC.backToStart(p, e) then return end
@@ -2376,7 +2473,7 @@ function RPC.backToStart(p, e)
   local s = game.solo
   local later = false
   for i = s.idx + 1, #s.order do if s.order[i].run.status == "waiting" and racing(s.order[i]) then later = true end end
-  if e.type == "rpc" or e.type == "trailer" or p.run.status == "dsq" or not (later and p.pid and p.carVid and racing(p)) then
+  if e.type == "rpc" or e.type == "trailer" or RPC.swapOn(e) or p.run.status == "dsq" or not (later and p.pid and p.carVid and racing(p)) then
     s.backAt = nil
     return false
   end
@@ -2503,6 +2600,7 @@ end
 
 local function falseStartCheck(p, e)
   local r = (e.startRadius or cfg.defaults.startRadius) + 5
+  if p.towPending and now() - p.towPending < 5 then return end   -- (the mod is moving the car - e.g. onto a swap's grid)
   if p.pos and not p.run.jumped and dist(p.pos, v3(e.start)) > r then
     p.run.jumped = true
     p.run.penalty = cfg.defaults.falseStartPenalty
@@ -2757,6 +2855,11 @@ local function tickSolo(e)
       RPC.tickRunner(p, e)
       if p.run.status ~= "staged" then nextSoloRunner(); return end
       if not s.countEnd then return end   -- (still waiting for the car)
+    end
+    if not s.countEnd and RPC.swapOn(e) then   -- (a swap: their event car's on its way - or never came: their own car)
+      if not (p.swapFailed or (p.rpc and p.rpc.vid)) then return end
+      s.countEnd, s.countTotal, s.lastCount = now() + cfg.defaults.countdown, nil, nil
+      RPC.watch(p, (p.rpc and p.rpc.vid) or p.carVid)
     end
     local left = s.countEnd - now()
     local sec = math.ceil(left)
@@ -3222,6 +3325,11 @@ function TG_onTick()
     local ok, err = pcall(fn)
     if not ok then log("tick error: " .. tostring(err)) end
   end
+  local ph = game.phase   -- (swap cars: drivers at the start get the event's car)
+  if (ph == "travel" or ph == "countdown" or ph == "event") and not game.test and RPC.swapOn(curEvent()) then
+    local ok, err = pcall(RPC.swapEnsure, curEvent())
+    if not ok then log("swap error: " .. tostring(err)) end
+  end
   tickCount = tickCount + 1
   if tickCount % PUSH_EVERY == 0 then pushAll() end
 end
@@ -3585,7 +3693,7 @@ function TG_onVehicleDeleted(pid, vid)
   if p and p.rpc and p.rpc.vid == vid then   -- the RPC: removed by us at the end of a turn, or deleted by the driver
     if not p.rpc.removing then
       p.rpc.vid, p.pos, p.prevPos = nil, nil, nil
-      say(pid, "Your reasonably priced car is gone - /tg respawn for a fresh one on the start line.")
+      say(pid, "Your " .. RPC.carName(curEvent()) .. " is gone - /tg respawn for a fresh one on the start line.")
     end
     return
   end
@@ -3831,6 +3939,10 @@ function TG_onReport(pid, data)
   if not p then return end
   local ok, t = pcall(Util.JsonDecode, data)
   if not ok or type(t) ~= "table" then return end
+  if t.loaner then   -- (0.9.36) the car the mod gave them (the RPC, a swap): its readings, never their own car's
+    p.loan = { damage = tonumber(t.damage) or 0, fuel = tonumber(t.fuel), energy = tonumber(t.energy) }
+    t.damage, t.fuel, t.energy, t.cargo, t.partsValue = nil, nil, nil, nil, nil
+  end
   if tonumber(t.damage) then
     local before, nowDmg = p.damage or 0, tonumber(t.damage)
     local paidRecently = p.repairPending and now() - p.repairPending < 10
@@ -3887,6 +3999,7 @@ function TG_onReport(pid, data)
   local r = p.run
   if r and r.sampleAfter and now() >= r.sampleAfter and r.endDamage == nil then
     r.endDamage, r.endFuel, r.endEnergy = p.damage, p.fuel, p.energy   -- finish reading for fragile / economy scoring
+    if p.rpc and p.loan then r.endDamage, r.endFuel, r.endEnergy = p.loan.damage, p.loan.fuel, p.loan.energy end
     r.endAir, r.endCrash = p.airTotal or 0, p.crashTotal or 0   -- (Turbo Mode: air time, biggest crash)
   end
   if tonumber(t.partsValue) then
@@ -4220,6 +4333,14 @@ PLAYER_CMDS.go = function(pid, name)
   end
   if #waiting > 0 then say(pid, "Can't start yet - still waiting for: " .. table.concat(waiting, ", ")); return end
   if #away > 0 then say(pid, "Everyone back to the start line first: " .. table.concat(away, ", ")); return end
+  if RPC.swapOn(e) then   -- (swap cars: everyone's has to be on the grid)
+    local cars = {}
+    for _, q in pairs(game.players) do
+      if racing(q) and not q.swapFailed and not (q.rpc and q.rpc.vid) then cars[#cars + 1] = q.name end
+    end
+    table.sort(cars)
+    if #cars > 0 then say(pid, "Waiting for the event cars: " .. table.concat(cars, ", ")); return end
+  end
   if cfg.defaults.readyToGo ~= false and isSolo(e) then say(pid, "It's one at a time - the turns begin by themselves."); return end
   if cfg.defaults.readyToGo ~= false then
     local all, waiting = RPC.allReady()
@@ -4811,6 +4932,7 @@ end
 
 PLAYER_CMDS.tow = function(pid)
   local p = playerByPid(pid)
+  if p and p.rpc and RPC.swapOn(curEvent()) then RPC.swapFresh(p, curEvent()); return end   -- (an event car: a fresh one)
   if p and p.rpc then say(pid, "You're in the reasonably priced car - /tg respawn gets you a fresh one on the start line (free)."); return end
   if not (p and p.carVid) then say(pid, "You don't have a car out to tow - respawn it from the vehicle menu (that counts as a tow)."); return end
   if not Course.canTow(p) then say(pid, game.phase == "workshop" and "You're in the workshop - use /tg repair." or "No tow truck needed right now."); return end
@@ -5031,6 +5153,7 @@ end
 -- (then I'm ready and GO) - Restart event, and Rerun after its results
 function Course.backToStart(e)
   cleanupEventVehicles()
+  game.swapPark, game.swapGrid = 0, 0   -- (swap cars: everyone gets a fresh one on the grid)
   game.phase, game.allHere, game.solo, game.closeAt, game.countdownEnd = "travel", false, nil, nil, nil
   game.towSlots, game.trapRecord = {}, nil
   for _, p in pairs(game.players) do
@@ -6094,6 +6217,43 @@ ADMIN_CMDS.setrpc = function(pid, _, args)
   say(pid, string.format("%s: the reasonably priced car is %s%s (/tg course save)%s", label, RPC.label(e),
     e.rpcModel and "" or " (the default)", e.type ~= "rpc" and (" - note: it's only used by a Star in a reasonably priced car event (/tg settype " .. tostring(args[3]) .. " rpc)") or ""))
 end
+-- /tg setswap <event> <model> [config] | mine | off (0.9.36): everyone drives this car in the event (RPC.swapOn)
+function RPC.carIn(pid)   -- the car the admin is IN: model, config - or nil, why not
+  local p = playerByPid(pid)
+  local vehs = MP.GetPlayerVehicles(pid) or {}
+  local data = activeVeh[pid] and vehs[activeVeh[pid]]
+  if not data and p and p.carVid then data = vehs[p.carVid] end
+  if not data then for _, d in pairs(vehs) do if RPC.drivable(parseVehicle(d)) then data = d; break end end end
+  local model, config = parseVehicle(data)
+  if not model then return nil, "Get in the car you want first (spawn it from the vehicle menu)." end
+  if not RPC.drivable(model, config) then
+    return nil, string.format("%s / %s is a parked traffic car - it can't be driven. Get in a normal car first.", model, tostring(config))
+  end
+  return model, config
+end
+ADMIN_CMDS.setswap = function(pid, _, args)
+  local e, label = eventArg(pid, args[3]); if not e then return end
+  local m = args[4]
+  if not m then say(pid, "Usage: /tg setswap <event> <model> [config] | mine (the car you're in) | off"); return end
+  if m:lower() == "off" then
+    e.swap = nil; markDirty()
+    say(pid, label .. ": everyone drives their own car (/tg course save)"); return
+  end
+  local model, config
+  if m:lower() == "mine" then
+    model, config = RPC.carIn(pid)
+    if not model then say(pid, tostring(config)); return end
+  else
+    model, config = m:lower(), args[5]
+    if not RPC.drivable(model, config) then say(pid, string.format("%s / %s is a parked traffic car - pick a normal car.", model, tostring(config))); return end
+  end
+  e.swap = { model = model, config = config }
+  markDirty()
+  local note = ""
+  if not RPC.SWAP_TYPES[e.type or "race"] then note = " - note: not for a " .. ((TYPE_INFO[e.type] or {}).label or e.type) .. " event (it keeps the drivers' own cars)" end
+  say(pid, string.format("%s: everyone drives %s%s (/tg course save). The server's MaxCars must be 2 or more.", label,
+    config and (model .. " / " .. config) or model, note))
+end
 -- Test event (course builder): one event on its own, from its countdown - everyone in a car takes part in the car
 -- they're in; results, then back to normal. No money, workshop, finale, reset fines or saving. /tg testevent <n> | stop
 ADMIN_CMDS.testevent = function(pid, _, args)
@@ -6722,7 +6882,9 @@ local function buildUi(pid)
                       timeLimit = e.timeLimit or cfg.defaults.eventTimeLimit,
                       enabled = e.enabled ~= false, solo = isSolo(e), typeLabel = (TYPE_INFO[e.type or "race"] or {}).label,
                       laps = e.laps, rpcCar = e.type == "rpc" and RPC.label(e) or nil,
-                      guides = #(e.guide or {}), points = Course.guidePoints(e) }
+                      guides = #(e.guide or {}), points = Course.guidePoints(e),
+                      swap = (type(e.swap) == "table" and e.swap.model) and (e.swap.config and (e.swap.model .. " / " .. e.swap.config) or e.swap.model) or nil,
+                      swapOk = RPC.SWAP_TYPES[e.type or "race"] == true }
     end
     local lib = {}
     for n, c in pairs(library) do lib[#lib + 1] = { name = n, problems = c.problems or 0, savedAt = c.savedAt } end

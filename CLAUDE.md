@@ -61,6 +61,15 @@ Install = copy `Resources/` into the BeamMP server.
   the turn; the client enters the RPC only once `MPVehicleGE.isOwn` (Ryan: no controls otherwise); fixtures: readyToGo off). Course builder positions: `adminPose` uses the car the admin is IN (client sends
   `tg_activeveh` "pid-vid" when it changes; `activeVeh[pid]`) - before 0.9.13 a parked second car put every checkpoint on
   the start line. `Course.stacked` flags checkpoints on the start / each other (addcp warning, validate error). Starts face a way (0.9.23): `e.startDir` from the admin's game at setstart, `Course.startFace/startLook` (fallback: towards the first checkpoint/trap/bay) - targets carry `face` (client draws a ground arrow); tows, restarts, quick travel, the RPC and back-to-start use it. (`local Course` is declared up by `yawFromQuat` for this.)
+  Swap cars (0.9.36, Ryan: "everyone as buses"): `e.swap` {model, config}, `RPC.swapOn(e)` (`RPC.SWAP_TYPES`: not rpc/trailer)
+  reuses the RPC plumbing (`p.rpc`, `RPC.request(p, e, at)` with a grid spot, `RPC.car` returns the swap car): `RPC.swapEnsure`
+  (from TG_onTick in travel/countdown/event: arrived drivers -> own car `tg_tow` "return" to `RPC.swapSpot(e, k, true)`
+  behind the start, event car to grid spot k; a timeout = `p.swapFailed`, own car to the grid spot), `RPC.swapFresh`
+  (tow/respawn/unstick: free, run restarts from the line), `RPC.carName`, `RPC.carIn` (the car the admin's in), `/tg
+  setswap`. Race GO waits for the cars (`PLAYER_CMDS.go`, `RPC.allReady`); time trial countdown waits (`RPC.beginTurn`,
+  tickSolo). Client reports a given car (`Rpc.car()`) flagged `loaner` -> server `p.loan` (never p.damage/fuel); run
+  readings from `p.loan` while `p.rpc`; `faults.airTick` measures `Rpc.driving()`. falseStartCheck skips 5 s after a mod
+  move (`p.towPending`). test_swap.
   `airtime` (0.9.35, Ryan: Air Time): laid out like a race, time trial by default; score = -`Course.runAir(p)` (client air
   total since the run started; finish reading `r.endAir`) + time x 1e-6; HUD `state.airRun`, reports every 0.5 s in the run.
   Every event has a **mode**: race (everyone at once) or time trial (one at a time) = `e.solo`
@@ -251,7 +260,7 @@ Admins: `start [force] | next | stop | mode <freerepair|nofaults|noquirks|turbo>
 importprices [listed|builtin|models] | rideheight [scan|list] | gameprices | setprice | class list/use/new/preset/delete/show/rule/unrule/include/exclude/clear/price/multiplier/values |
 course list/save/load/new/delete | addevent/delevent/enable/moveevent | testevent <n>|stop | quicktravel <n|finale> |
 setstart/addcp/undocp/clearcp/addguide/undoguide/clearguide/offroad/settrap/addbay/undobay/clearbays/addvia/undovia/clearvia/setfinale |
-settype/setmode/setlaps/setrpc/settime/rename | addworkshop/undoworkshop/clearworkshops/importgas |
+settype/setmode/setlaps/setrpc/setswap/settime/rename | addworkshop/undoworkshop/clearworkshops/importgas |
 trailersave/trailercones/trailertest | fault test [id] [as <condition>]/testoff/caps/sample <cond> [n]/fire [player]/blow [player] | quirk test <id>`. The ImGui window exposes all of these.
 
 ## Roadmap - Ryan's next issues (one session each, any order)
